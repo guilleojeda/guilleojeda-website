@@ -9,6 +9,11 @@ interface Props {
 const { locale } = Astro.props;
 const localePath = locale === 'en' ? '/' : '/es/';
 const arrow = '↗';
+const featuredProjects = content.projects.filter((project) => project.featured);
+const projectArchive = content.projects.filter((project) => !project.featured);
+const talkYears = [...new Set(content.talkArchive.map((talk) => talk.year))].sort((a, b) => b - a);
+const archiveFallbackCta = locale === 'en' ? 'Open source' : 'Abrir fuente';
+const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
 ---
 
 <section class="hero" aria-labelledby="hero-title">
@@ -65,7 +70,7 @@ const arrow = '↗';
     </article>
 
     <div class="supporting-work">
-      {content.projects.map((project) => (
+      {featuredProjects.map((project) => (
         <a class="support-card" href={project.href} target="_blank" rel="noreferrer">
           <div class="work-kicker">{text(project.label, locale)}</div>
           <h3>{text(project.title, locale)}</h3>
@@ -74,6 +79,26 @@ const arrow = '↗';
         </a>
       ))}
     </div>
+
+    <details class="talk-archive work-archive">
+      <summary>{text(content.work.archiveLabel, locale)} ({projectArchive.length})</summary>
+      <div class="talk-archive-body">
+        <div class="talk-archive-list">
+          {projectArchive.map((project) => (
+            <article class="talk-archive-item work-archive-item">
+              <div class="talk-archive-copy">
+                <div class="talk-archive-meta">{text(project.label, locale)}</div>
+                <h3>{text(project.title, locale)}</h3>
+                <p>{text(project.text, locale)}</p>
+              </div>
+              <a class="talk-archive-link" href={project.href} target="_blank" rel="noreferrer">
+                {text(project.cta, locale)} {arrow}
+              </a>
+            </article>
+          ))}
+        </div>
+      </div>
+    </details>
   </div>
 </section>
 
@@ -88,15 +113,52 @@ const arrow = '↗';
     </div>
 
     <div class="talk-grid">
-      {content.talkItems.map((talk) => (
+      {content.talkItems.map((talk) => talk.href ? (
         <a class="talk-card" href={talk.href} target="_blank" rel="noreferrer">
-          <span class="talk-year">{text(talk.year, locale)}</span>
+          <span class="talk-year">{talk.year} · {text(talk.event, locale)} · {text(talk.format, locale)}</span>
           <h3>{text(talk.title, locale)}</h3>
           <p>{text(talk.text, locale)}</p>
-          <span class="card-arrow">{text(talk.cta, locale)} {arrow}</span>
+          <span class="card-arrow">{talk.cta ? text(talk.cta, locale) : archiveFallbackCta} {arrow}</span>
         </a>
+      ) : (
+        <article class="talk-card">
+          <span class="talk-year">{talk.year} · {text(talk.event, locale)} · {text(talk.format, locale)}</span>
+          <h3>{text(talk.title, locale)}</h3>
+          <p>{text(talk.text, locale)}</p>
+        </article>
       ))}
     </div>
+
+    <details class="talk-archive">
+      <summary>{text(content.talks.archiveLabel, locale)} ({content.talkArchive.length})</summary>
+      <div class="talk-archive-body">
+        {talkYears.map((year) => (
+          <section class="talk-year-group" aria-labelledby={`talk-year-${year}`}>
+            <h3 id={`talk-year-${year}`}>{year}</h3>
+            <div class="talk-archive-list">
+              {content.talkArchive.filter((talk) => talk.year === year).map((talk) => (
+                <article class="talk-archive-item">
+                  <div class="talk-archive-copy">
+                    <div class="talk-archive-meta">
+                      <span>{text(talk.event, locale)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{text(talk.format, locale)}</span>
+                    </div>
+                    <h4>{text(talk.title, locale)}</h4>
+                    <p>{text(talk.text, locale)}</p>
+                  </div>
+                  {talk.href && (
+                    <a class="talk-archive-link" href={talk.href} target="_blank" rel="noreferrer">
+                      {talk.cta ? text(talk.cta, locale) : archiveFallbackCta} {arrow}
+                    </a>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </details>
 
     <div class="availability">
       <div>
@@ -124,13 +186,27 @@ const arrow = '↗';
         {content.books.map((book) => (
           <article class="book-card">
             <div>
-              <div class="work-kicker">{text(content.authorship.bookLabel, locale)}</div>
-              <h3>{text(book.title, locale)}</h3>
+              <div class="work-kicker">{text(book.meta, locale)}</div>
+              <h3>
+                {book.href ? (
+                  <a class="book-link" href={book.href} target="_blank" rel="noreferrer">{text(book.title, locale)}</a>
+                ) : text(book.title, locale)}
+              </h3>
               <p>{text(book.text, locale)}</p>
+              {book.href && (
+                <a class="book-cta" href={book.href} target="_blank" rel="noreferrer">
+                  {book.cta ? text(book.cta, locale) : bookFallbackCta} {arrow}
+                </a>
+              )}
             </div>
           </article>
         ))}
       </div>
+      <article class="course-card">
+        <div class="work-kicker">{text(content.authorship.courseMeta, locale)}</div>
+        <h3>{text(content.authorship.courseTitle, locale)}</h3>
+        <p>{text(content.authorship.courseText, locale)}</p>
+      </article>
     </div>
   </div>
 </section>
@@ -152,6 +228,21 @@ const arrow = '↗';
           </div>
         ))}
       </div>
+      <ul class="about-activities" aria-label={locale === 'en' ? 'Community activities' : 'Actividades de comunidad'}>
+        {content.about.activities.map((activity) => (
+          <li class="about-activity">
+            <div>
+              <h3>{text(activity.title, locale)}</h3>
+              <p>{text(activity.text, locale)}</p>
+            </div>
+            {activity.href && (
+              <a class="about-activity-link" href={activity.href} target="_blank" rel="noreferrer">
+                {activity.cta ? text(activity.cta, locale) : archiveFallbackCta} {arrow}
+              </a>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   </div>
 </section>

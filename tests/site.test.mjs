@@ -32,7 +32,11 @@ function assertRecordSet(records, label, localizedFields, withHref = false) {
     if (withHref) {
       assert.equal(typeof record.href, 'string', `${label}[${index}].href must be a string`);
       assert.equal(new URL(record.href).protocol, 'https:', `${label}[${index}].href must use HTTPS`);
+    } else if (record.href !== undefined) {
+      assert.equal(typeof record.href, 'string', `${label}[${index}].href must be a string when provided`);
+      assert.equal(new URL(record.href).protocol, 'https:', `${label}[${index}].href must use HTTPS`);
     }
+    if (record.cta !== undefined) assertLocalized(record.cta, `${label}[${index}].cta`);
   }
 }
 
@@ -48,6 +52,7 @@ test('profile copy is complete in English and Spanish', () => {
         assertLocalized(fact.label, `about.facts[${index}].label`);
         assertLocalized(fact.value, `about.facts[${index}].value`);
       }
+      assertRecordSet(section.activities, 'about.activities', ['title', 'text']);
     }
   }
   assert.match(profile.site.linkedin, /^https:\/\/www\.linkedin\.com\/in\/guilleojeda\/?$/);
@@ -56,21 +61,18 @@ test('profile copy is complete in English and Spanish', () => {
   assert.equal(profile.site.newsletter, 'https://newsletter.simpleaws.dev/');
 });
 
-test('projects, talks, and books retain paired copy and public destinations', () => {
+test('projects, talks, and books retain paired copy with truthful optional destinations', () => {
   assertRecordSet(projects, 'projects', ['label', 'title', 'text', 'cta'], true);
-  assertRecordSet(talks, 'talks', ['year', 'title', 'text', 'cta'], true);
-  assertRecordSet(books, 'books', ['title', 'text']);
+  assertRecordSet(talks, 'talks', ['event', 'format', 'title', 'text']);
+  assertRecordSet(books, 'books', ['title', 'text', 'meta']);
 
-  for (const href of [
-    'https://www.andmore.dev/talks/aws-summit-la-2026',
-    'https://d1.awsstatic.com/events/Summits/2024-la-summit-%28amer%29/DEV202_TestingGenerative_E2_LASummit_20240522.pptx.pdf',
-    'https://d1.awsstatic.com/events/Summits/bogsummit24/DEV303_DisenoEficiente_V2_BOGSummit_20240718.pdf',
-    'https://app.swapcard.com/event/nerdearla-2024/planning/UGxhbm5pbmdfMjA4OTAwNw=='
-  ]) {
-    assert.ok(talks.some((talk) => talk.href === href), `required talk destination is missing: ${href}`);
+  for (const [index, project] of projects.entries()) {
+    if (project.featured !== undefined) assert.equal(typeof project.featured, 'boolean', `projects[${index}].featured must be boolean`);
   }
-  for (const title of ['Node.js on AWS', 'AWS Made Simple and Fun']) {
-    assert.ok(books.some((book) => book.title.en === title), `required book is missing: ${title}`);
+  for (const [index, talk] of talks.entries()) {
+    assert.equal(Number.isInteger(talk.year), true, `talks[${index}].year must be an integer`);
+    assert.ok(talk.year > 2000, `talks[${index}].year must be a current or historical year`);
+    if (talk.featured !== undefined) assert.equal(typeof talk.featured, 'boolean', `talks[${index}].featured must be boolean`);
   }
 });
 

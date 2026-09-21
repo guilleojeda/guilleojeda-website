@@ -594,6 +594,116 @@ a:hover {
   letter-spacing: 0.04em;
 }
 
+.talk-archive {
+  margin-top: 1.8rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.talk-archive summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 0;
+  color: var(--forest-deep);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 800;
+  list-style: none;
+}
+
+.talk-archive summary::-webkit-details-marker {
+  display: none;
+}
+
+.talk-archive summary::after {
+  color: var(--olive);
+  content: "+";
+  font-size: 1.4rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.talk-archive[open] summary::after {
+  content: "−";
+}
+
+.talk-archive-body {
+  padding: 0.25rem 0 1.2rem;
+}
+
+.talk-year-group + .talk-year-group {
+  margin-top: 1.8rem;
+}
+
+.talk-year-group > h3 {
+  margin: 0 0 0.55rem;
+  color: var(--olive);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.8rem;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.talk-archive-list {
+  border-top: 1px solid var(--line);
+}
+
+.talk-archive-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.talk-archive-copy h3,
+.talk-archive-copy h4 {
+  margin: 0.35rem 0 0.3rem;
+  color: var(--forest-deep);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.talk-archive-copy p {
+  max-width: 48rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.talk-archive-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  color: var(--olive);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.talk-archive-link,
+.book-cta,
+.about-activity-link {
+  color: var(--olive);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.talk-archive-link:hover,
+.book-cta:hover,
+.about-activity-link:hover {
+  color: var(--forest-deep);
+}
+
 .talk-card h3 {
   max-width: 23ch;
   font-size: clamp(1.5rem, 2.7vw, 2.3rem);
@@ -661,6 +771,47 @@ a:hover {
   margin-top: 0.5rem;
 }
 
+.book-link {
+  text-decoration: none;
+}
+
+.book-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.12em;
+}
+
+.book-cta {
+  display: inline-block;
+  margin-top: 0.8rem;
+}
+
+.course-card {
+  grid-column: 1 / -1;
+  margin-top: 1rem;
+  padding: 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(232, 227, 213, 0.44);
+}
+
+.course-card h3 {
+  margin: 0.55rem 0 0.45rem;
+  color: var(--forest-deep);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.course-card p {
+  max-width: 42rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
 .book-status {
   flex: none;
   max-width: 8rem;
@@ -704,6 +855,44 @@ a:hover {
   font-size: 1.25rem;
   letter-spacing: -0.03em;
   line-height: 1.18;
+}
+
+.about-activities {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.about-activity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.about-activity:first-child {
+  border-top: 1px solid var(--line);
+}
+
+.about-activity h3 {
+  margin: 0;
+  color: var(--forest-deep);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.about-activity p {
+  max-width: 40rem;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .site-footer {
@@ -901,6 +1090,18 @@ a:hover {
   .supporting-work,
   .talk-grid {
     grid-template-columns: 1fr;
+  }
+
+  .talk-archive-item,
+  .about-activity {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 0.75rem;
+  }
+
+  .talk-archive-link,
+  .about-activity-link {
+    white-space: normal;
   }
 
   .support-card,
