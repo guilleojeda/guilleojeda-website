@@ -1,0 +1,86 @@
+---
+import '../styles/global.css';
+import { content, text } from '../content';
+import type { Locale } from '../content/types';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const localePath = locale === 'en' ? '/' : '/es/';
+const otherLocalePath = locale === 'en' ? '/es/' : '/';
+const siteUrl = Astro.site;
+if (!siteUrl) throw new Error('Astro.site is required; set SITE_URL before building.');
+const canonical = new URL(localePath, siteUrl).href;
+const portraitUrl = new URL('/images/guille-portrait.jpg', siteUrl).href;
+const title = text(content.site.title, locale);
+const description = text(content.site.description, locale);
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="en" href={new URL('/', siteUrl).href} />
+    <link rel="alternate" hreflang="es" href={new URL('/es/', siteUrl).href} />
+    <link rel="alternate" hreflang="x-default" href={new URL('/', siteUrl).href} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={content.site.name} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={portraitUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={portraitUrl} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#work">
+      {locale === 'en' ? 'Skip to selected work' : 'Ir al trabajo seleccionado'}
+    </a>
+    <header class="site-header">
+      <div class="nav-shell">
+        <a class="wordmark" href={localePath} aria-label={locale === 'en' ? 'Back to home' : 'Volver al inicio'}>{content.site.wordmark}</a>
+        <nav class="desktop-nav" aria-label={locale === 'en' ? 'Primary navigation' : 'Navegación principal'}>
+          <a href={`${localePath}#work`}>{text(content.nav.work, locale)}</a>
+          <a href={`${localePath}#talks`}>{text(content.nav.talks, locale)}</a>
+          <a href={`${localePath}#about`}>{text(content.nav.about, locale)}</a>
+        </nav>
+        <div class="nav-actions">
+          <a class="lang-toggle" href={otherLocalePath} aria-label={text(content.nav.switchLabel, locale)}>{text(content.nav.switchTo, locale)}</a>
+          <details class="mobile-nav">
+            <summary>{locale === 'en' ? 'Menu' : 'Menú'}</summary>
+            <nav aria-label={locale === 'en' ? 'Mobile navigation' : 'Navegación móvil'}>
+              <a href={`${localePath}#work`}>{text(content.nav.work, locale)}</a>
+              <a href={`${localePath}#talks`}>{text(content.nav.talks, locale)}</a>
+              <a href={`${localePath}#about`}>{text(content.nav.about, locale)}</a>
+            </nav>
+          </details>
+        </div>
+      </div>
+    </header>
+    <main id="top"><slot /></main>
+    <footer class="site-footer">
+      <div class="footer-shell">
+        <div>
+          <div class="footer-lead">{text(content.footer.lead, locale)}</div>
+          <p class="footer-copy">{text(content.footer.text, locale)}</p>
+        </div>
+        <div class="footer-links">
+          <a href={content.site.linkedin} target="_blank" rel="noreferrer">LinkedIn ↗</a>
+          <a href={content.site.github} target="_blank" rel="noreferrer">GitHub ↗</a>
+        </div>
+      </div>
+      <div class="footer-shell footer-bottom">
+        <span>{text(content.footer.copyright, locale)}</span>
+      </div>
+    </footer>
+  </body>
+</html>

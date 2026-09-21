@@ -1,0 +1,46 @@
+[
+  {
+    "id": "caylent-insights",
+    "href": "https://caylent.com/insights?author=b5b5065ade8c42a6919ca40d1239b37c",
+    "label": { "en": "Caylent Insights", "es": "Caylent Insights" },
+    "title": { "en": "Caylent Insights", "es": "Caylent Insights" },
+    "text": {
+      "en": "Articles on cloud architecture, generative AI, and the systems around them.",
+      "es": "Artículos sobre arquitectura cloud, IA generativa y los sistemas que las hacen posibles."
+    },
+    "cta": { "en": "Read the work", "es": "Leer el trabajo" }
+  },
+  {
+    "id": "aws-for-engineers",
+    "href": "https://awsforengineers.com/",
+    "label": { "en": "Guides", "es": "Guías" },
+    "title": { "en": "AWS for Engineers", "es": "AWS for Engineers" },
+    "text": {
+      "en": "Practical guides and an archive for builders working with AWS.",
+      "es": "Guías prácticas y un archivo para quienes construyen con AWS."
+    },
+    "cta": { "en": "Visit the site", "es": "Visitar el sitio" }
+  },
+  {
+    "id": "donde-aprendo",
+    "href": "https://dondeaprendoaws.com/",
+    "label": { "en": "Spanish community", "es": "Comunidad en español" },
+    "title": { "en": "Dónde Aprendo AWS", "es": "Dónde Aprendo AWS" },
+    "text": {
+      "en": "A Spanish-language directory of community-created AWS learning.",
+      "es": "Un directorio en español de aprendizaje sobre AWS creado por la comunidad."
+    },
+    "cta": { "en": "Explore the directory", "es": "Explorar el directorio" }
+  },
+  {
+    "id": "cloudy-things",
+    "href": "https://blog.guilleojeda.com/",
+    "label": { "en": "Notes", "es": "Notas" },
+    "title": { "en": "Cloudy Things", "es": "Cloudy Things" },
+    "text": {
+      "en": "A less structured space for ideas, notes, and experiments.",
+      "es": "Un espacio menos estructurado para ideas, notas y experimentos."
+    },
+    "cta": { "en": "Read the notes", "es": "Leer las notas" }
+  }
+]

@@ -1,0 +1,157 @@
+---
+import { content, text } from '../content';
+import type { Locale } from '../content/types';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const localePath = locale === 'en' ? '/' : '/es/';
+const arrow = '↗';
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-copy">
+    <div class="eyebrow">{text(content.hero.eyebrow, locale)}</div>
+    <h1 id="hero-title">{text(content.hero.title, locale)}</h1>
+    <p class="hero-intro">{text(content.hero.intro, locale)}</p>
+    <div class="hero-actions">
+      <a class="button" href={`${localePath}#work`}>{text(content.hero.primaryCta, locale)} <span aria-hidden="true">↘</span></a>
+      <a class="button secondary" href={content.site.linkedin} target="_blank" rel="noreferrer">{text(content.hero.contactCta, locale)} <span aria-hidden="true">{arrow}</span></a>
+    </div>
+    <div class="hero-meta" aria-label={locale === 'en' ? 'Professional context' : 'Contexto profesional'}>
+      <span>{content.site.location}</span>
+      <span>{text(content.hero.roleContext, locale)}</span>
+    </div>
+  </div>
+
+  <div class="portrait-wrap">
+    <div class="portrait-frame">
+      <img src="/images/guille-portrait.jpg" alt={text(content.site.portraitAlt, locale)} width="800" height="800" loading="eager" decoding="async" />
+    </div>
+    <div class="portrait-caption">
+      <span>{content.site.name}</span>
+      <span>{text(content.hero.portraitNote, locale)}</span>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="work" aria-labelledby="work-title">
+  <div class="section-shell">
+    <div class="section-heading">
+      <div class="section-kicker">{text(content.work.kicker, locale)}</div>
+      <div>
+        <h2 id="work-title">{text(content.work.title, locale)}</h2>
+        <p>{text(content.work.intro, locale)}</p>
+      </div>
+    </div>
+
+    <article class="lead-work">
+      <div>
+        <div class="work-kicker">{text(content.work.newsletterKicker, locale)}</div>
+        <h3>{text(content.work.newsletterTitle, locale)}</h3>
+        <p>{text(content.work.newsletterText, locale)}</p>
+        <div class="feature-actions">
+          <a class="button" href={content.site.newsletter} target="_blank" rel="noreferrer">{text(content.work.newsletterCta, locale)} <span aria-hidden="true">{arrow}</span></a>
+        </div>
+        <a class="sponsor-note" href={content.site.sponsorship} target="_blank" rel="noreferrer">{text(content.work.sponsorshipCta, locale)}</a>
+      </div>
+      <div class="work-visual" aria-hidden="true">
+        <div class="visual-top"><span>AWS</span><span>{text(content.work.visualTop, locale)}</span></div>
+        <div class="visual-title">Simple<br />AWS</div>
+        <div class="visual-bottom"><span>{text(content.work.visualBottom, locale)}</span><span>01</span></div>
+      </div>
+    </article>
+
+    <div class="supporting-work">
+      {content.projects.map((project) => (
+        <a class="support-card" href={project.href} target="_blank" rel="noreferrer">
+          <div class="work-kicker">{text(project.label, locale)}</div>
+          <h3>{text(project.title, locale)}</h3>
+          <p>{text(project.text, locale)}</p>
+          <span class="card-arrow">{text(project.cta, locale)} {arrow}</span>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section class="section" id="talks" aria-labelledby="talks-title">
+  <div class="section-shell">
+    <div class="section-heading">
+      <div class="section-kicker">{text(content.talks.kicker, locale)}</div>
+      <div>
+        <h2 id="talks-title">{text(content.talks.title, locale)}</h2>
+        <p>{text(content.talks.intro, locale)}</p>
+      </div>
+    </div>
+
+    <div class="talk-grid">
+      {content.talkItems.map((talk) => (
+        <a class="talk-card" href={talk.href} target="_blank" rel="noreferrer">
+          <span class="talk-year">{text(talk.year, locale)}</span>
+          <h3>{text(talk.title, locale)}</h3>
+          <p>{text(talk.text, locale)}</p>
+          <span class="card-arrow">{text(talk.cta, locale)} {arrow}</span>
+        </a>
+      ))}
+    </div>
+
+    <div class="availability">
+      <div>
+        <div class="availability-label">{text(content.talks.availabilityLabel, locale)}</div>
+        <p>{text(content.talks.availabilityText, locale)}</p>
+      </div>
+      <div class="availability-actions">
+        <a class="button secondary" href={content.site.linkedin} target="_blank" rel="noreferrer">{text(content.talks.availabilityCta, locale)} {arrow}</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="authorship-title">
+  <div class="section-shell">
+    <div class="section-heading">
+      <div class="section-kicker">{text(content.authorship.kicker, locale)}</div>
+      <div>
+        <h2 id="authorship-title">{text(content.authorship.title, locale)}</h2>
+        <p>{text(content.authorship.intro, locale)}</p>
+      </div>
+    </div>
+    <div class="author-grid">
+      <div class="book-list">
+        {content.books.map((book) => (
+          <article class="book-card">
+            <div>
+              <div class="work-kicker">{text(content.authorship.bookLabel, locale)}</div>
+              <h3>{text(book.title, locale)}</h3>
+              <p>{text(book.text, locale)}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="about" aria-labelledby="about-title">
+  <div class="section-shell about-layout">
+    <div class="about-copy">
+      <div class="section-kicker">{text(content.about.kicker, locale)}</div>
+      <h2 id="about-title">{text(content.about.title, locale)}</h2>
+    </div>
+    <div>
+      <p class="about-paragraph">{text(content.about.intro, locale)}</p>
+      <p class="about-paragraph">{text(content.about.community, locale)}</p>
+      <div class="facts" aria-label={locale === 'en' ? 'About Guille Ojeda' : 'Sobre Guille Ojeda'}>
+        {content.about.facts.map((fact) => (
+          <div class="fact">
+            <div class="fact-label">{text(fact.label, locale)}</div>
+            <div class="fact-value">{text(fact.value, locale)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>

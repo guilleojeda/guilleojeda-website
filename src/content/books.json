@@ -1,0 +1,18 @@
+[
+  {
+    "id": "nodejs-on-aws",
+    "title": { "en": "Node.js on AWS", "es": "Node.js on AWS" },
+    "text": {
+      "en": "A guide to deploying scalable, highly available Node.js applications on AWS.",
+      "es": "Una guía para desplegar aplicaciones Node.js escalables y de alta disponibilidad en AWS."
+    }
+  },
+  {
+    "id": "aws-made-simple",
+    "title": { "en": "AWS Made Simple and Fun", "es": "AWS Made Simple and Fun" },
+    "text": {
+      "en": "Articles on AWS services and architecture, collected in one book.",
+      "es": "Artículos sobre servicios y arquitectura en AWS, reunidos en un libro."
+    }
+  }
+]

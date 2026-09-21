@@ -1,0 +1,28 @@
+---
+import '../styles/global.css';
+import { content } from '../content';
+const title = 'Page not found · Guille Ojeda';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <main class="not-found">
+      <div class="eyebrow">404</div>
+      <h1>That page took a wrong turn.</h1>
+      <p>The page you requested is not part of this site. Choose a language home to continue.</p>
+      <div class="hero-actions">
+        <a class="button" href="/">English home ↗</a>
+        <a class="button secondary" href="/es/">Inicio en español ↗</a>
+      </div>
+      <div class="not-found-name">{content.site.wordmark}</div>
+    </main>
+  </body>
+</html>

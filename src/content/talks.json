@@ -1,0 +1,46 @@
+[
+  {
+    "id": "unit-economics-ai-agents",
+    "href": "https://www.andmore.dev/talks/aws-summit-la-2026",
+    "year": { "en": "2026 · Los Angeles", "es": "2026 · Los Ángeles" },
+    "title": { "en": "The Unit Economics of AI Agents", "es": "The Unit Economics of AI Agents" },
+    "text": {
+      "en": "AWS Summit Los Angeles — recording and slides.",
+      "es": "AWS Summit Los Angeles — grabación y presentación."
+    },
+    "cta": { "en": "Open the event page", "es": "Abrir la página del evento" }
+  },
+  {
+    "id": "testing-generative-ai",
+    "href": "https://d1.awsstatic.com/events/Summits/2024-la-summit-%28amer%29/DEV202_TestingGenerative_E2_LASummit_20240522.pptx.pdf",
+    "year": { "en": "2024 · AWS Summit Los Angeles", "es": "2024 · AWS Summit Los Ángeles" },
+    "title": { "en": "Testing Generative AI Applications for Consistent Quality", "es": "Testing Generative AI Applications for Consistent Quality" },
+    "text": {
+      "en": "A presentation deck from the Los Angeles summit.",
+      "es": "Un deck de la presentación en el summit de Los Ángeles."
+    },
+    "cta": { "en": "Open the presentation deck", "es": "Abrir el deck de la presentación" }
+  },
+  {
+    "id": "dynamodb-data-modeling",
+    "href": "https://d1.awsstatic.com/events/Summits/bogsummit24/DEV303_DisenoEficiente_V2_BOGSummit_20240718.pdf",
+    "year": { "en": "2024 · AWS Summit Bogotá", "es": "2024 · AWS Summit Bogotá" },
+    "title": { "en": "Diseño Eficiente de Modelos de Datos en Amazon DynamoDB", "es": "Diseño Eficiente de Modelos de Datos en Amazon DynamoDB" },
+    "text": {
+      "en": "A presentation deck on efficient DynamoDB data modeling.",
+      "es": "Un deck sobre modelado eficiente de datos en DynamoDB."
+    },
+    "cta": { "en": "Open the presentation deck", "es": "Abrir el deck de la presentación" }
+  },
+  {
+    "id": "clown-architect",
+    "href": "https://app.swapcard.com/event/nerdearla-2024/planning/UGxhbm5pbmdfMjA4OTAwNw==",
+    "year": { "en": "2024 · Nerdearla", "es": "2024 · Nerdearla" },
+    "title": { "en": "Clown Architect: La nube es un chiste", "es": "Clown Architect: La nube es un chiste" },
+    "text": {
+      "en": "Cloud architecture through a stand-up comedy lens.",
+      "es": "Arquitectura cloud con una mirada de stand-up."
+    },
+    "cta": { "en": "Open the event agenda", "es": "Abrir la agenda del evento" }
+  }
+]
