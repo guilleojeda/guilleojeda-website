@@ -66,7 +66,7 @@
     },
     "availabilityLabel": { "en": "Speaking", "es": "Charlas" },
     "availabilityText": { "en": "Open to speaking opportunities.", "es": "Abierto a propuestas para dar charlas." },
-    "availabilityCta": { "en": "Invite me to speak", "es": "Invitame a dar una charla" }
+    "availabilityCta": { "en": "Invite me to speak on LinkedIn", "es": "Invitame por LinkedIn" }
   },
   "authorship": {
     "kicker": { "en": "03 — Authorship", "es": "03 — Autoría" },
