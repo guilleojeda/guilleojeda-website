@@ -1,18 +1,62 @@
 [
   {
     "id": "nodejs-on-aws",
-    "title": { "en": "Node.js on AWS", "es": "Node.js on AWS" },
+    "title": {
+      "en": "Node.js on AWS",
+      "es": "Node.js on AWS"
+    },
     "text": {
       "en": "A guide to deploying scalable, highly available Node.js applications on AWS.",
       "es": "Una guía para desplegar aplicaciones Node.js escalables y de alta disponibilidad en AWS."
+    },
+    "meta": {
+      "en": "2023 · Book",
+      "es": "2023 · Libro"
+    },
+    "href": "https://learning.simpleaws.dev/b/nodejsonaws",
+    "cta": {
+      "en": "View the book page",
+      "es": "Ver la página del libro"
     }
   },
   {
     "id": "aws-made-simple",
-    "title": { "en": "AWS Made Simple and Fun", "es": "AWS Made Simple and Fun" },
+    "title": {
+      "en": "AWS Made Simple and Fun",
+      "es": "AWS Made Simple and Fun"
+    },
     "text": {
       "en": "Articles on AWS services and architecture, collected in one book.",
       "es": "Artículos sobre servicios y arquitectura en AWS, reunidos en un libro."
+    },
+    "meta": {
+      "en": "2023 · Book",
+      "es": "2023 · Libro"
+    },
+    "href": "https://learning.simpleaws.dev/b/awsmadesimpleandfun",
+    "cta": {
+      "en": "View the book page",
+      "es": "Ver la página del libro"
+    }
+  },
+  {
+    "id": "highly-available-applications",
+    "title": {
+      "en": "Building Highly Available Applications on AWS",
+      "es": "Building Highly Available Applications on AWS"
+    },
+    "meta": {
+      "en": "In progress · English and Spanish",
+      "es": "En preparación · Inglés y español"
+    },
+    "text": {
+      "en": "I’m writing a new book about building highly available applications on AWS, in English and Spanish.",
+      "es": "Estoy escribiendo un nuevo libro sobre cómo construir aplicaciones de alta disponibilidad en AWS, en inglés y español."
+    },
+    "href": "https://github.com/guilleojeda/nodejsonawsbook",
+    "cta": {
+      "en": "Explore the companion code",
+      "es": "Explorar el código del libro"
     }
   }
 ]

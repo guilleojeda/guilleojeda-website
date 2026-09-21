@@ -1,7 +1,7 @@
 {
   "site": {
     "name": "Guille Ojeda",
-    "wordmark": "guille ojeda.",
+    "wordmark": "Guille Ojeda",
     "location": "Córdoba, Argentina",
     "linkedin": "https://www.linkedin.com/in/guilleojeda",
     "github": "https://github.com/guilleojeda",
@@ -21,94 +21,319 @@
     }
   },
   "nav": {
-    "work": { "en": "Work", "es": "Trabajo" },
-    "talks": { "en": "Talks", "es": "Charlas" },
-    "about": { "en": "About", "es": "Sobre mí" },
-    "switchTo": { "en": "ES", "es": "EN" },
-    "switchLabel": { "en": "Switch to Spanish", "es": "Cambiar a inglés" }
+    "work": {
+      "en": "Work",
+      "es": "Trabajo"
+    },
+    "talks": {
+      "en": "Talks",
+      "es": "Charlas"
+    },
+    "about": {
+      "en": "About",
+      "es": "Sobre mí"
+    },
+    "switchTo": {
+      "en": "ES",
+      "es": "EN"
+    },
+    "switchLabel": {
+      "en": "Switch to Spanish",
+      "es": "Cambiar a inglés"
+    }
   },
   "hero": {
-    "eyebrow": { "en": "Architect / Author / Speaker", "es": "Arquitecto / Autor / Conferencista" },
-    "title": { "en": "Cloud, AI,\nand the why.", "es": "Cloud, IA,\ny el porqué." },
+    "eyebrow": {
+      "en": "Architect / Author / Speaker",
+      "es": "Arquitecto / Autor / Conferencista"
+    },
+    "title": {
+      "en": "Cloud, AI,\nand the why.",
+      "es": "Cloud, IA,\ny el porqué."
+    },
     "intro": {
       "en": "I’m Guille Ojeda, Principal Innovation Architect at Caylent. I build, write, and speak about AWS and applied AI, with a practical point of view from Córdoba, Argentina.",
       "es": "Soy Guille Ojeda, Principal Innovation Architect en Caylent. Construyo, escribo y doy charlas sobre AWS e IA aplicada, con una mirada práctica desde Córdoba, Argentina."
     },
-    "primaryCta": { "en": "Explore my work", "es": "Explorá mi trabajo" },
-    "contactCta": { "en": "Contact on LinkedIn", "es": "Contactar en LinkedIn" },
-    "roleContext": { "en": "Caylent · Office of the CTO", "es": "Caylent · Office of the CTO" },
-    "portraitNote": { "en": "AWS · community · ideas", "es": "AWS · comunidad · ideas" }
+    "primaryCta": {
+      "en": "Explore my work",
+      "es": "Explorá mi trabajo"
+    },
+    "contactCta": {
+      "en": "Contact on LinkedIn",
+      "es": "Contactar en LinkedIn"
+    },
+    "roleContext": {
+      "en": "Caylent · Office of the CTO",
+      "es": "Caylent · Office of the CTO"
+    },
+    "portraitNote": {
+      "en": "AWS · community · ideas",
+      "es": "AWS · comunidad · ideas"
+    }
   },
   "work": {
-    "kicker": { "en": "01 — Selected work", "es": "01 — Trabajo seleccionado" },
-    "title": { "en": "Work that makes the complex clearer.", "es": "Trabajo para volver más claro lo complejo." },
+    "kicker": {
+      "en": "01 — Selected work",
+      "es": "01 — Trabajo seleccionado"
+    },
+    "title": {
+      "en": "Work that makes the complex clearer.",
+      "es": "Trabajo para volver más claro lo complejo."
+    },
     "intro": {
       "en": "A curated view of the places where I build, explain, and share what I’m learning.",
       "es": "Una selección de los proyectos donde construyo, explico y comparto lo que aprendo."
     },
-    "newsletterKicker": { "en": "Biweekly newsletter", "es": "Newsletter quincenal" },
-    "newsletterTitle": { "en": "Simple AWS", "es": "Simple AWS" },
+    "newsletterKicker": {
+      "en": "Biweekly newsletter",
+      "es": "Newsletter quincenal"
+    },
+    "newsletterTitle": {
+      "en": "Simple AWS",
+      "es": "Simple AWS"
+    },
     "newsletterText": {
       "en": "Deep dives into the why behind cloud solutions, written for builders working with AWS.",
       "es": "Artículos en profundidad sobre el porqué de las soluciones cloud, para quienes trabajan con AWS."
     },
-    "newsletterCta": { "en": "Read Simple AWS", "es": "Leer Simple AWS" },
-    "sponsorshipCta": { "en": "Simple AWS is open to sponsorships →", "es": "Simple AWS está abierto a patrocinios →" },
-    "visualTop": { "en": "Build / write / share", "es": "Construir / escribir / compartir" },
-    "visualBottom": { "en": "Why it works", "es": "Por qué funciona" }
+    "newsletterCta": {
+      "en": "Read Simple AWS",
+      "es": "Leer Simple AWS"
+    },
+    "sponsorshipCta": {
+      "en": "Simple AWS is open to sponsorships →",
+      "es": "Simple AWS está abierto a patrocinios →"
+    },
+    "visualTop": {
+      "en": "Build / write / share",
+      "es": "Construir / escribir / compartir"
+    },
+    "visualBottom": {
+      "en": "Why it works",
+      "es": "Por qué funciona"
+    },
+    "archiveLabel": {
+      "en": "More writing, projects, and resources",
+      "es": "Más artículos, proyectos y recursos"
+    }
   },
   "talks": {
-    "kicker": { "en": "02 — Talks", "es": "02 — Charlas" },
-    "title": { "en": "Ideas from the stage.", "es": "Ideas desde el escenario." },
-    "intro": {
-      "en": "Selected talks, decks, and appearances with a practical angle.",
-      "es": "Charlas, decks y apariciones seleccionadas con una mirada práctica."
+    "kicker": {
+      "en": "02 — Talks",
+      "es": "02 — Charlas"
     },
-    "availabilityLabel": { "en": "Speaking", "es": "Charlas" },
-    "availabilityText": { "en": "Open to speaking opportunities.", "es": "Abierto a propuestas para dar charlas." },
-    "availabilityCta": { "en": "Invite me to speak on LinkedIn", "es": "Invitame por LinkedIn" }
+    "title": {
+      "en": "Ideas from the stage.",
+      "es": "Ideas desde el escenario."
+    },
+    "intro": {
+      "en": "Conference talks, workshops, community sessions, podcasts, and conversations about building with AWS and AI.",
+      "es": "Charlas, workshops, sesiones de comunidad, podcasts y conversaciones sobre construir con AWS e IA."
+    },
+    "availabilityLabel": {
+      "en": "Speaking",
+      "es": "Charlas"
+    },
+    "availabilityText": {
+      "en": "Open to speaking opportunities.",
+      "es": "Abierto a propuestas para dar charlas."
+    },
+    "availabilityCta": {
+      "en": "Invite me to speak on LinkedIn",
+      "es": "Invitame por LinkedIn"
+    },
+    "archiveLabel": {
+      "en": "All talks and appearances",
+      "es": "Todas las charlas y apariciones"
+    }
   },
   "authorship": {
-    "kicker": { "en": "03 — Authorship", "es": "03 — Autoría" },
-    "title": { "en": "Books on building with AWS.", "es": "Libros para construir con AWS." },
-    "intro": {
-      "en": "Two books I published in 2023, covering AWS architecture and application deployment.",
-      "es": "Dos libros que publiqué en 2023 sobre arquitectura en AWS y despliegue de aplicaciones."
+    "kicker": {
+      "en": "03 — Authorship",
+      "es": "03 — Autoría"
     },
-    "bookLabel": { "en": "2023 · Book", "es": "2023 · Libro" }
+    "title": {
+      "en": "Books and a course on building with AWS.",
+      "es": "Libros y un curso para construir con AWS."
+    },
+    "intro": {
+      "en": "Two published books, a new book in progress, and a video course on deploying applications to AWS.",
+      "es": "Dos libros publicados, un nuevo libro en preparación y un curso en video sobre despliegue de aplicaciones en AWS."
+    },
+    "courseTitle": {
+      "en": "Deploying on AWS",
+      "es": "Deploying on AWS"
+    },
+    "courseMeta": {
+      "en": "Video course · No longer available",
+      "es": "Curso en video · Ya no disponible"
+    },
+    "courseText": {
+      "en": "A 12-hour course across 19 modules, based on Node.js on AWS, on deploying scalable, highly available applications.",
+      "es": "Un curso de 12 horas en 19 módulos, basado en Node.js on AWS, sobre despliegue de aplicaciones escalables y de alta disponibilidad."
+    }
   },
   "about": {
-    "kicker": { "en": "04 — About", "es": "04 — Sobre mí" },
-    "title": { "en": "A little about me.", "es": "Un poco sobre mí." },
+    "kicker": {
+      "en": "04 — About",
+      "es": "04 — Sobre mí"
+    },
+    "title": {
+      "en": "A little about me.",
+      "es": "Un poco sobre mí."
+    },
     "intro": {
       "en": "Today I work as Principal Innovation Architect at Caylent’s Office of the CTO, helping turn emerging cloud and AI ideas into useful systems and clear explanations.",
       "es": "Hoy trabajo como Principal Innovation Architect en la oficina del CTO de Caylent, ayudando a convertir ideas emergentes de cloud e IA en sistemas útiles y explicaciones claras."
     },
     "community": {
-      "en": "Outside the role, I’m an AWS Community Builder, was named AWS Builder of the Year for LATAM-ES in 2025, and help grow the AWS AI User Group Argentina.",
-      "es": "Fuera de ese rol, soy AWS Community Builder, fui reconocido como AWS Builder of the Year para LATAM-ES en 2025 y ayudo a hacer crecer AWS AI User Group Argentina."
+      "en": "I’m an AWS Community Builder in Serverless, an AWS User Group Leader for AWS AI User Group Argentina, and AWS Builder of the Year for LATAM-ES 2025. I also organize community events and help other builders share their work.",
+      "es": "Soy AWS Community Builder en Serverless, AWS User Group Leader de AWS AI User Group Argentina y AWS Builder of the Year para LATAM-ES 2025. También organizo eventos de comunidad y ayudo a otros builders a compartir su trabajo."
     },
     "facts": [
       {
-        "label": { "en": "Now", "es": "Ahora" },
-        "value": { "en": "Principal Innovation Architect · Caylent", "es": "Principal Innovation Architect · Caylent" }
+        "label": {
+          "en": "Now",
+          "es": "Ahora"
+        },
+        "value": {
+          "en": "Principal Innovation Architect · Caylent",
+          "es": "Principal Innovation Architect · Caylent"
+        }
       },
       {
-        "label": { "en": "Based in", "es": "Vivo en" },
-        "value": { "en": "Córdoba, Argentina", "es": "Córdoba, Argentina" }
+        "label": {
+          "en": "Based in",
+          "es": "Vivo en"
+        },
+        "value": {
+          "en": "Córdoba, Argentina",
+          "es": "Córdoba, Argentina"
+        }
       },
       {
-        "label": { "en": "Community", "es": "Comunidad" },
-        "value": { "en": "AWS Community Builder · AI User Group Argentina", "es": "AWS Community Builder · AI User Group Argentina" }
+        "label": {
+          "en": "Community",
+          "es": "Comunidad"
+        },
+        "value": {
+          "en": "AWS Community Builder · Serverless",
+          "es": "AWS Community Builder · Serverless"
+        }
+      },
+      {
+        "label": {
+          "en": "Leadership",
+          "es": "Liderazgo"
+        },
+        "value": {
+          "en": "AWS User Group Leader · AWS AI User Group Argentina",
+          "es": "AWS User Group Leader · AWS AI User Group Argentina"
+        }
+      }
+    ],
+    "activities": [
+      {
+        "id": "aws-community-builder",
+        "title": {
+          "en": "AWS Community Builder",
+          "es": "AWS Community Builder"
+        },
+        "text": {
+          "en": "Part of the Serverless category since 2022.",
+          "es": "Parte de la categoría Serverless desde 2022."
+        }
+      },
+      {
+        "id": "aws-ai-user-group",
+        "title": {
+          "en": "AWS AI User Group Argentina",
+          "es": "AWS AI User Group Argentina"
+        },
+        "text": {
+          "en": "AWS User Group Leader since June 2026, bringing together the local AWS and AI community.",
+          "es": "AWS User Group Leader desde junio de 2026, reuniendo a la comunidad local de AWS e IA."
+        },
+        "href": "https://www.meetup.com/aws-ai-user-group-argentina/",
+        "cta": {
+          "en": "Visit the group",
+          "es": "Visitar el grupo"
+        }
+      },
+      {
+        "id": "aws-community-day",
+        "title": {
+          "en": "AWS Community Day Argentina",
+          "es": "AWS Community Day Argentina"
+        },
+        "text": {
+          "en": "Member of the organizing team in 2024, 2025, and 2026.",
+          "es": "Parte del equipo organizador en 2024, 2025 y 2026."
+        },
+        "href": "https://www.awsarg.org/",
+        "cta": {
+          "en": "Explore the event",
+          "es": "Explorar el evento"
+        }
+      },
+      {
+        "id": "caylent-champions",
+        "title": {
+          "en": "Caylent Champions",
+          "es": "Caylent Champions"
+        },
+        "text": {
+          "en": "Creator and Program Manager, supporting community events and speakers through sponsorship and travel budgets.",
+          "es": "Creador y Program Manager, apoyando eventos de comunidad y speakers con presupuesto para patrocinios y viajes."
+        },
+        "href": "https://www.linkedin.com/posts/caylent_awscommunity-championsprogram-communitybuilders-activity-7411820949576183808-5wX9",
+        "cta": {
+          "en": "About the program",
+          "es": "Sobre el programa"
+        }
+      },
+      {
+        "id": "aws-new-voices",
+        "title": {
+          "en": "AWS New Voices",
+          "es": "AWS New Voices"
+        },
+        "text": {
+          "en": "Participated in the AWS speaker development program in 2024.",
+          "es": "Participé en el programa de formación de speakers de AWS en 2024."
+        }
+      },
+      {
+        "id": "all-builders-welcome",
+        "title": {
+          "en": "AWS All Builders Welcome Grant",
+          "es": "AWS All Builders Welcome Grant"
+        },
+        "text": {
+          "en": "Received the grant to attend my first re:Invent in 2021.",
+          "es": "Recibí la beca para asistir a mi primer re:Invent en 2021."
+        },
+        "href": "https://www.linkedin.com/posts/guilleojeda_aws-reinvent-2026-all-builders-welcome-activity-7474830165307600897-0skc",
+        "cta": {
+          "en": "Read the story",
+          "es": "Leer la historia"
+        }
       }
     ]
   },
   "footer": {
-    "lead": { "en": "Let’s keep in touch.", "es": "Sigamos en contacto." },
+    "lead": {
+      "en": "Let’s keep in touch.",
+      "es": "Sigamos en contacto."
+    },
     "text": {
       "en": "Find me on LinkedIn for speaking opportunities and conversations about AWS and AI.",
       "es": "Encontrame en LinkedIn para proponer una charla o conversar sobre AWS e IA."
     },
-    "copyright": { "en": "© 2026 Guille Ojeda", "es": "© 2026 Guille Ojeda" }
+    "copyright": {
+      "en": "© 2026 Guille Ojeda",
+      "es": "© 2026 Guille Ojeda"
+    }
   }
 }

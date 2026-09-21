@@ -1,46 +1,661 @@
 [
   {
+    "id": "mexico-agent-authorization",
+    "year": 2026,
+    "event": {
+      "en": "AWS Summit México",
+      "es": "AWS Summit México"
+    },
+    "format": {
+      "en": "Summit session",
+      "es": "Sesión de Summit"
+    },
+    "title": {
+      "en": "Autorización en capas para agentes de IA con acceso a producción",
+      "es": "Autorización en capas para agentes de IA con acceso a producción"
+    },
+    "text": {
+      "en": "Layered authorization for AI agents that access production systems.",
+      "es": "Autorización en capas para agentes de IA que acceden a sistemas en producción."
+    },
+    "href": "https://www.linkedin.com/posts/caylent_join-guille-ojeda-at-the-amazon-web-services-activity-7492618314737758208-73J8",
+    "cta": {
+      "en": "About the session",
+      "es": "Sobre la sesión"
+    }
+  },
+  {
     "id": "unit-economics-ai-agents",
+    "year": 2026,
+    "event": {
+      "en": "AWS Summit Los Angeles",
+      "es": "AWS Summit Los Ángeles"
+    },
+    "format": {
+      "en": "Summit session",
+      "es": "Sesión de Summit"
+    },
+    "title": {
+      "en": "The Unit Economics of AI Agents",
+      "es": "The Unit Economics of AI Agents"
+    },
+    "text": {
+      "en": "Measuring the real cost of agentic workflows and the value of each outcome.",
+      "es": "Cómo medir el costo real de los flujos agénticos y el valor de cada resultado."
+    },
     "href": "https://www.andmore.dev/talks/aws-summit-la-2026",
-    "year": { "en": "2026 · Los Angeles", "es": "2026 · Los Ángeles" },
-    "title": { "en": "The Unit Economics of AI Agents", "es": "The Unit Economics of AI Agents" },
-    "text": {
-      "en": "AWS Summit Los Angeles — recording and slides.",
-      "es": "AWS Summit Los Angeles — grabación y presentación."
+    "cta": {
+      "en": "Recording and slides",
+      "es": "Grabación y presentación"
     },
-    "cta": { "en": "Open the event page", "es": "Abrir la página del evento" }
+    "featured": true
   },
   {
-    "id": "testing-generative-ai",
-    "href": "https://d1.awsstatic.com/events/Summits/2024-la-summit-%28amer%29/DEV202_TestingGenerative_E2_LASummit_20240522.pptx.pdf",
-    "year": { "en": "2024 · AWS Summit Los Angeles", "es": "2024 · AWS Summit Los Ángeles" },
-    "title": { "en": "Testing Generative AI Applications for Consistent Quality", "es": "Testing Generative AI Applications for Consistent Quality" },
-    "text": {
-      "en": "A presentation deck from the Los Angeles summit.",
-      "es": "Un deck de la presentación en el summit de Los Ángeles."
+    "id": "tribu-production-genai",
+    "year": 2026,
+    "event": {
+      "en": "TRIBU Tech Leaders Afterwork · Córdoba",
+      "es": "TRIBU Tech Leaders Afterwork · Córdoba"
     },
-    "cta": { "en": "Open the presentation deck", "es": "Abrir el deck de la presentación" }
+    "format": {
+      "en": "In-person talk",
+      "es": "Charla presencial"
+    },
+    "title": {
+      "en": "De POC a Producción",
+      "es": "De POC a Producción"
+    },
+    "text": {
+      "en": "Lessons from enterprise GenAI deployments and what it takes to move a proof of concept into production.",
+      "es": "Lecciones de despliegues empresariales de IA generativa y qué hace falta para llevar una prueba de concepto a producción."
+    },
+    "href": "https://www.tribulatam.com/pt/events/tech-leaders-afterwork-cordoba-505",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
   },
   {
-    "id": "dynamodb-data-modeling",
-    "href": "https://d1.awsstatic.com/events/Summits/bogsummit24/DEV303_DisenoEficiente_V2_BOGSummit_20240718.pdf",
-    "year": { "en": "2024 · AWS Summit Bogotá", "es": "2024 · AWS Summit Bogotá" },
-    "title": { "en": "Diseño Eficiente de Modelos de Datos en Amazon DynamoDB", "es": "Diseño Eficiente de Modelos de Datos en Amazon DynamoDB" },
-    "text": {
-      "en": "A presentation deck on efficient DynamoDB data modeling.",
-      "es": "Un deck sobre modelado eficiente de datos en DynamoDB."
+    "id": "reinvent-know-before-you-go",
+    "year": 2025,
+    "event": {
+      "en": "Caylent",
+      "es": "Caylent"
     },
-    "cta": { "en": "Open the presentation deck", "es": "Abrir el deck de la presentación" }
+    "format": {
+      "en": "Webinar",
+      "es": "Webinar"
+    },
+    "title": {
+      "en": "AWS re:Invent 2025: Know Before You Go",
+      "es": "AWS re:Invent 2025: Know Before You Go"
+    },
+    "text": {
+      "en": "A practical conversation about preparing for re:Invent, choosing sessions, and making the most of the conference.",
+      "es": "Una conversación práctica sobre cómo prepararse para re:Invent, elegir sesiones y aprovechar la conferencia."
+    },
+    "href": "https://www.youtube.com/watch?v=0TJ56Mt_Ke0",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "valkey-recommendations",
+    "year": 2025,
+    "event": {
+      "en": "Nerdearla Argentina",
+      "es": "Nerdearla Argentina"
+    },
+    "format": {
+      "en": "Workshop · Co-presenter",
+      "es": "Workshop · Copresentador"
+    },
+    "title": {
+      "en": "Build real-time personalized recommendations with valkey-bundle",
+      "es": "Build real-time personalized recommendations with valkey-bundle"
+    },
+    "text": {
+      "en": "Building personalized recommendations with Valkey, vector search, and Python examples.",
+      "es": "Cómo crear recomendaciones personalizadas con Valkey, búsqueda vectorial y ejemplos en Python."
+    },
+    "href": "https://nerdear.la/agenda/build-real-time-personalized-recommendations-with-valkey-bundle/",
+    "cta": {
+      "en": "View the workshop",
+      "es": "Ver el workshop"
+    }
+  },
+  {
+    "id": "valkey-cache",
+    "year": 2025,
+    "event": {
+      "en": "Nerdearla Argentina",
+      "es": "Nerdearla Argentina"
+    },
+    "format": {
+      "en": "Workshop · Co-presenter",
+      "es": "Workshop · Copresentador"
+    },
+    "title": {
+      "en": "Cache me if you can, Valkey edition",
+      "es": "Cache me if you can, Valkey edition"
+    },
+    "text": {
+      "en": "Practical caching patterns, invalidation, cache stampedes, and production operations with Valkey.",
+      "es": "Patrones de caché, invalidación, cache stampedes y operación en producción con Valkey."
+    },
+    "href": "https://nerdearla.com/nerdflix/9oiFdAnsl8c/",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "community-programs-panel",
+    "year": 2025,
+    "event": {
+      "en": "AWS Community Day Argentina",
+      "es": "AWS Community Day Argentina"
+    },
+    "format": {
+      "en": "Panel",
+      "es": "Panel"
+    },
+    "title": {
+      "en": "AWS Community Programs, el camino para acelerar tu futuro en tecnología",
+      "es": "AWS Community Programs, el camino para acelerar tu futuro en tecnología"
+    },
+    "text": {
+      "en": "How AWS community programs support learning, connections, and growth in technology.",
+      "es": "Cómo los programas de comunidad de AWS ayudan a aprender, conectar y crecer en tecnología."
+    }
+  },
+  {
+    "id": "tribu-llm-evaluations",
+    "year": 2025,
+    "event": {
+      "en": "TRIBU Tech",
+      "es": "TRIBU Tech"
+    },
+    "format": {
+      "en": "Online talk",
+      "es": "Charla online"
+    },
+    "title": {
+      "en": "Más allá de “se ve bien”: La guía esencial para evaluaciones de LLMs",
+      "es": "Más allá de “se ve bien”: La guía esencial para evaluaciones de LLMs"
+    },
+    "text": {
+      "en": "LLM evaluation methods and quality assurance with Amazon Bedrock Evaluations.",
+      "es": "Métodos de evaluación de LLMs y aseguramiento de calidad con Amazon Bedrock Evaluations."
+    },
+    "href": "https://www.tribulatam.com/pt/events/guillermo-ojeda-mas-alla-de-se-ve-bien-la-guia-esencial-para-evaluaciones-de-llms-460",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
+  },
+  {
+    "id": "summit-nyc-keynote-recap",
+    "year": 2025,
+    "event": {
+      "en": "Caylent",
+      "es": "Caylent"
+    },
+    "format": {
+      "en": "Video recap",
+      "es": "Resumen en video"
+    },
+    "title": {
+      "en": "AWS Summit New York City 2025 Keynote Recap",
+      "es": "AWS Summit New York City 2025 Keynote Recap"
+    },
+    "text": {
+      "en": "A discussion of the keynote announcements, including Amazon Q, Kiro, and Amazon Bedrock AgentCore.",
+      "es": "Una conversación sobre los anuncios del keynote, incluidos Amazon Q, Kiro y Amazon Bedrock AgentCore."
+    },
+    "href": "https://www.youtube.com/watch?v=5ZGrPaSenM0",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "neural-nebulai-agentic-ai",
+    "year": 2025,
+    "event": {
+      "en": "Neural NebulAI · Caylent",
+      "es": "Neural NebulAI · Caylent"
+    },
+    "format": {
+      "en": "Podcast guest",
+      "es": "Invitado de podcast"
+    },
+    "title": {
+      "en": "Agentic AI",
+      "es": "Agentic AI"
+    },
+    "text": {
+      "en": "AI agents, agentic workflows, and how people and AI work together.",
+      "es": "Agentes de IA, flujos agénticos y colaboración entre personas e IA."
+    },
+    "href": "https://podcasts.apple.com/us/podcast/agentic-ai/id1705439260?i=1000715625161",
+    "cta": {
+      "en": "Listen to the episode",
+      "es": "Escuchar el episodio"
+    }
+  },
+  {
+    "id": "agentful-architectures",
+    "year": 2025,
+    "event": {
+      "en": "AWS GenAI Live",
+      "es": "AWS GenAI Live"
+    },
+    "format": {
+      "en": "Livestream",
+      "es": "Livestream"
+    },
+    "title": {
+      "en": "Agentful Architectures for Enterprise AI",
+      "es": "Agentful Architectures for Enterprise AI"
+    },
+    "text": {
+      "en": "Multi-agent architectures, Amazon Bedrock orchestration, and patterns for production systems.",
+      "es": "Arquitecturas multiagente, orquestación con Amazon Bedrock y patrones para sistemas en producción."
+    },
+    "href": "https://www.linkedin.com/posts/caylent_awsgenailive-buildonaws-generativeai-activity-7333492351887151104-VcIg",
+    "cta": {
+      "en": "About the stream",
+      "es": "Sobre el stream"
+    }
+  },
+  {
+    "id": "summit-la-llm-evaluations",
+    "year": 2025,
+    "event": {
+      "en": "AWS Summit Los Angeles",
+      "es": "AWS Summit Los Ángeles"
+    },
+    "format": {
+      "en": "Summit session",
+      "es": "Sesión de Summit"
+    },
+    "title": {
+      "en": "Beyond “Looks Good”: The Essential Guide to LLM Evaluations",
+      "es": "Beyond “Looks Good”: The Essential Guide to LLM Evaluations"
+    },
+    "text": {
+      "en": "A practical guide to evaluating LLM applications and making quality measurable.",
+      "es": "Una guía práctica para evaluar aplicaciones con LLMs y hacer que la calidad sea medible."
+    }
+  },
+  {
+    "id": "beerai-llm-evaluations",
+    "year": 2025,
+    "event": {
+      "en": "BeerAI · Córdoba",
+      "es": "BeerAI · Córdoba"
+    },
+    "format": {
+      "en": "Community talk",
+      "es": "Charla de comunidad"
+    },
+    "title": {
+      "en": "Beyond “Looks Good” / LLM Evaluations",
+      "es": "Beyond “Looks Good” / LLM Evaluations"
+    },
+    "text": {
+      "en": "LLM evaluation methods and quality assurance for generative AI applications.",
+      "es": "Métodos de evaluación de LLMs y aseguramiento de calidad para aplicaciones de IA generativa."
+    }
+  },
+  {
+    "id": "summit-mexico-clown-architect",
+    "year": 2025,
+    "event": {
+      "en": "AWS Summit México",
+      "es": "AWS Summit México"
+    },
+    "format": {
+      "en": "Summit session",
+      "es": "Sesión de Summit"
+    },
+    "title": {
+      "en": "Clown Architect: Comedia Técnicamente",
+      "es": "Clown Architect: Comedia Técnicamente"
+    },
+    "text": {
+      "en": "Cloud, infrastructure, and architecture through a stand-up comedy lens.",
+      "es": "Cloud, infraestructura y arquitectura con una mirada de stand-up."
+    },
+    "href": "https://www.linkedin.com/posts/caylent_caylentmexico-caylent-activity-7370855988016390144-MlE7",
+    "cta": {
+      "en": "Read the event recap",
+      "es": "Leer el resumen del evento"
+    }
+  },
+  {
+    "id": "reinvent-2024",
+    "year": 2024,
+    "event": {
+      "en": "AWS re:Invent",
+      "es": "AWS re:Invent"
+    },
+    "format": {
+      "en": "Speaking appearance",
+      "es": "Participación como speaker"
+    },
+    "title": {
+      "en": "Speaking at AWS re:Invent",
+      "es": "Una charla en AWS re:Invent"
+    },
+    "text": {
+      "en": "I spoke at AWS re:Invent in 2024.",
+      "es": "Participé como speaker en AWS re:Invent en 2024."
+    },
+    "href": "https://www.linkedin.com/posts/guilleojeda_yeah-im-also-doing-the-2024-linkedin-rewind-activity-7278066362718015489-HdJy",
+    "cta": {
+      "en": "Read my 2024 recap",
+      "es": "Leer mi resumen de 2024"
+    }
   },
   {
     "id": "clown-architect",
-    "href": "https://app.swapcard.com/event/nerdearla-2024/planning/UGxhbm5pbmdfMjA4OTAwNw==",
-    "year": { "en": "2024 · Nerdearla", "es": "2024 · Nerdearla" },
-    "title": { "en": "Clown Architect: La nube es un chiste", "es": "Clown Architect: La nube es un chiste" },
+    "year": 2024,
+    "event": {
+      "en": "Nerdearla Argentina",
+      "es": "Nerdearla Argentina"
+    },
+    "format": {
+      "en": "Conference talk",
+      "es": "Charla de conferencia"
+    },
+    "title": {
+      "en": "Clown Architect: La nube es un chiste",
+      "es": "Clown Architect: La nube es un chiste"
+    },
     "text": {
       "en": "Cloud architecture through a stand-up comedy lens.",
       "es": "Arquitectura cloud con una mirada de stand-up."
     },
-    "cta": { "en": "Open the event agenda", "es": "Abrir la agenda del evento" }
+    "href": "https://www.youtube.com/watch?v=vmIBPjb2qkw",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    },
+    "featured": true
+  },
+  {
+    "id": "dynamodb-data-modeling",
+    "year": 2024,
+    "event": {
+      "en": "AWS Summit Bogotá",
+      "es": "AWS Summit Bogotá"
+    },
+    "format": {
+      "en": "Summit session",
+      "es": "Sesión de Summit"
+    },
+    "title": {
+      "en": "Diseño Eficiente de Modelos de Datos en Amazon DynamoDB",
+      "es": "Diseño Eficiente de Modelos de Datos en Amazon DynamoDB"
+    },
+    "text": {
+      "en": "Access patterns and efficient DynamoDB data modeling.",
+      "es": "Patrones de acceso y modelado eficiente de datos en DynamoDB."
+    },
+    "href": "https://d1.awsstatic.com/events/Summits/bogsummit24/DEV303_DisenoEficiente_V2_BOGSummit_20240718.pdf",
+    "cta": {
+      "en": "Open the slides",
+      "es": "Abrir la presentación"
+    },
+    "featured": true
+  },
+  {
+    "id": "uruguay-dynamodb",
+    "year": 2024,
+    "event": {
+      "en": "AWS User Group Uruguay",
+      "es": "AWS User Group Uruguay"
+    },
+    "format": {
+      "en": "Meetup talk",
+      "es": "Charla de meetup"
+    },
+    "title": {
+      "en": "Diseño eficiente de modelos de datos en DynamoDB",
+      "es": "Diseño eficiente de modelos de datos en DynamoDB"
+    },
+    "text": {
+      "en": "DynamoDB data design for the Uruguay AWS community.",
+      "es": "Diseño de datos en DynamoDB para la comunidad de AWS en Uruguay."
+    },
+    "href": "https://www.youtube.com/watch?v=3H-PjNG3ylA",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "testing-generative-ai",
+    "year": 2024,
+    "event": {
+      "en": "AWS Summit Los Angeles",
+      "es": "AWS Summit Los Ángeles"
+    },
+    "format": {
+      "en": "Summit session",
+      "es": "Sesión de Summit"
+    },
+    "title": {
+      "en": "Testing Generative AI Applications for Consistent Quality",
+      "es": "Testing Generative AI Applications for Consistent Quality"
+    },
+    "text": {
+      "en": "Testing generative AI applications for consistent, measurable quality.",
+      "es": "Pruebas de aplicaciones de IA generativa para lograr una calidad consistente y medible."
+    },
+    "href": "https://d1.awsstatic.com/events/Summits/2024-la-summit-%28amer%29/DEV202_TestingGenerative_E2_LASummit_20240522.pptx.pdf",
+    "cta": {
+      "en": "Open the slides",
+      "es": "Abrir la presentación"
+    },
+    "featured": true
+  },
+  {
+    "id": "charlas-tecnicas-freelance",
+    "year": 2024,
+    "event": {
+      "en": "Charlas Técnicas de AWS",
+      "es": "Charlas Técnicas de AWS"
+    },
+    "format": {
+      "en": "Podcast guest",
+      "es": "Invitado de podcast"
+    },
+    "title": {
+      "en": "La vida del freelance en la nube",
+      "es": "La vida del freelance en la nube"
+    },
+    "text": {
+      "en": "A conversation about a career in the cloud and lessons from working with AWS.",
+      "es": "Una conversación sobre la carrera profesional en cloud y aprendizajes del trabajo con AWS."
+    },
+    "href": "https://podcast.marcia.dev/932377/episodes/14763977-5-04-la-vida-del-freelance-en-la-nube",
+    "cta": {
+      "en": "Listen to the episode",
+      "es": "Escuchar el episodio"
+    }
+  },
+  {
+    "id": "maxcloud-getting-started",
+    "year": 2024,
+    "event": {
+      "en": "MaxCloud · Max Zeballos",
+      "es": "MaxCloud · Max Zeballos"
+    },
+    "format": {
+      "en": "Video conversation",
+      "es": "Conversación en video"
+    },
+    "title": {
+      "en": "Cómo empezar en la nube con AWS con Guillermo Ojeda",
+      "es": "Cómo empezar en la nube con AWS con Guillermo Ojeda"
+    },
+    "text": {
+      "en": "Getting started with AWS and developing technical skills.",
+      "es": "Cómo empezar con AWS y desarrollar habilidades técnicas."
+    },
+    "href": "https://www.youtube.com/watch?v=AFwKxNBgbV0",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "basta-bastion-host",
+    "year": 2023,
+    "event": {
+      "en": "AWS Community Day Argentina",
+      "es": "AWS Community Day Argentina"
+    },
+    "format": {
+      "en": "Conference talk",
+      "es": "Charla de conferencia"
+    },
+    "title": {
+      "en": "Basta de Bastion Host",
+      "es": "Basta de Bastion Host"
+    },
+    "text": {
+      "en": "AWS-native access patterns, including Systems Manager Session Manager.",
+      "es": "Patrones de acceso nativos de AWS, incluido Systems Manager Session Manager."
+    }
+  },
+  {
+    "id": "cordoba-dynamodb",
+    "year": 2023,
+    "event": {
+      "en": "AWS User Group Córdoba",
+      "es": "AWS User Group Córdoba"
+    },
+    "format": {
+      "en": "Meetup talk",
+      "es": "Charla de meetup"
+    },
+    "title": {
+      "en": "Diseño de Datos en DynamoDB",
+      "es": "Diseño de Datos en DynamoDB"
+    },
+    "text": {
+      "en": "Data design and modeling in DynamoDB.",
+      "es": "Diseño y modelado de datos en DynamoDB."
+    },
+    "href": "https://www.youtube.com/watch?v=7Xk0MKt69Is",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "practitioner-serverless",
+    "year": 2023,
+    "event": {
+      "en": "AWS User Group Buenos Aires",
+      "es": "AWS User Group Buenos Aires"
+    },
+    "format": {
+      "en": "Community training",
+      "es": "Formación de comunidad"
+    },
+    "title": {
+      "en": "AWS Cloud Practitioner Challenge — Sesión 8: Serverless",
+      "es": "AWS Cloud Practitioner Challenge — Sesión 8: Serverless"
+    },
+    "text": {
+      "en": "An introduction to serverless services for the Cloud Practitioner learning challenge.",
+      "es": "Una introducción a los servicios serverless para el desafío de aprendizaje de Cloud Practitioner."
+    },
+    "href": "https://www.youtube.com/watch?v=s6EYDRgfbDE",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "practitioner-billing",
+    "year": 2023,
+    "event": {
+      "en": "AWS User Group Buenos Aires",
+      "es": "AWS User Group Buenos Aires"
+    },
+    "format": {
+      "en": "Community training",
+      "es": "Formación de comunidad"
+    },
+    "title": {
+      "en": "AWS Cloud Practitioner Challenge — Sesión 10: Billing & Support",
+      "es": "AWS Cloud Practitioner Challenge — Sesión 10: Billing & Support"
+    },
+    "text": {
+      "en": "AWS billing and support for the Cloud Practitioner learning challenge.",
+      "es": "Facturación y soporte de AWS para el desafío de aprendizaje de Cloud Practitioner."
+    },
+    "href": "https://www.youtube.com/watch?v=wAHq25Llhr8",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "cordoba-low-cost",
+    "year": 2022,
+    "event": {
+      "en": "AWS User Group Córdoba",
+      "es": "AWS User Group Córdoba"
+    },
+    "format": {
+      "en": "Meetup talk",
+      "es": "Charla de meetup"
+    },
+    "title": {
+      "en": "Volver al Futuro con AWS — Un viaje Low Cost",
+      "es": "Volver al Futuro con AWS — Un viaje Low Cost"
+    },
+    "text": {
+      "en": "Practical, low-cost approaches to building with AWS.",
+      "es": "Enfoques prácticos y de bajo costo para construir con AWS."
+    },
+    "href": "https://www.youtube.com/watch?v=o1HWddG-em0",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "carameltalks-getting-started",
+    "year": 2021,
+    "event": {
+      "en": "CaramelTalks",
+      "es": "CaramelTalks"
+    },
+    "format": {
+      "en": "Talk",
+      "es": "Charla"
+    },
+    "title": {
+      "en": "AWS: Getting Started",
+      "es": "AWS: Getting Started"
+    },
+    "text": {
+      "en": "An introduction to AWS and getting started in the cloud.",
+      "es": "Una introducción a AWS y a los primeros pasos en cloud."
+    },
+    "href": "https://www.youtube.com/watch?v=GHyfzgjAM7g",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
   }
 ]

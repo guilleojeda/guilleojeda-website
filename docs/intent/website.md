@@ -4,9 +4,9 @@ The site showcases Guille Ojeda’s writing, talks, books, and community work. I
 
 LinkedIn is the contact destination, including speaking invitations. Simple AWS sponsorship inquiries go to Passionfroot. The site does not offer consulting. Publication titles can retain their original language; navigation, descriptions, metadata, and accessibility text are localized.
 
-Content lives in the repository. A work item stores common identifiers and destinations once, with its English and Spanish descriptions together. Updating a role or adding a talk should not require editing page templates. The site links to existing publications rather than importing their articles or refreshing feeds at runtime. Guille owns the content and both translations.
+Content lives in the repository. A work item stores common identifiers and destinations once, with its English and Spanish descriptions together. Updating a role or adding a talk should not require editing page templates. The site links to every supported publication hub rather than importing individual articles or refreshing feeds at runtime. Featured work cards are a selection, with the remaining writing hubs, resources, and projects available in a native disclosure. Historical experiments and prototypes carry explicit labels. Featured speaking cards are a selection; the complete year-grouped archive includes supported talks, workshops, podcasts, training sessions, and video appearances. Native disclosure keeps that archive usable without JavaScript. Records without a public destination remain readable entries. Organizing an event alone is recorded under community activities rather than presented as a speaking appearance. Guille owns the content and both translations.
 
-Historical book credits do not imply current availability. The site omits unconfirmed releases and changing audience statistics. Add them only when accurate information is available and the copy describes its date or status correctly.
+Historical book credits do not imply current availability. The third book is explicitly in progress; the historical video course is marked no longer available. These statuses are separate from published book credits. The site omits changing audience statistics. Add them only when accurate information is available and the copy describes its date or status correctly. Community Builder and User Group Leader are distinct roles; the latter names AWS AI User Group Argentina.
 
 ## Rendering and routing
 
@@ -29,3 +29,7 @@ HTML and mutable metadata revalidate; hashed assets can be cached immutably. Clo
 Rollback is a reviewed Git revert on `main`, delivered through the same workflow. AWS configuration is versioned in CloudFormation, with setup and infrastructure changes performed through a separately authorized operator session. Account-wide identity resources are reused when present rather than replaced or deleted as a side effect of this site.
 
 See the README for current editing, build, setup, and recovery commands.
+
+## Content sources
+
+The [creator résumé](https://docs.google.com/document/d/1G_aueykXFIcOXcRmW-gVHbzVcrTv5S5MxxkxjWD-6j0/edit) is the baseline inventory, supplemented by event/recording pages and direct owner confirmations. A résumé-supported historical appearance can be listed without an available recording; an announcement alone does not prove a scheduled appearance happened. Use accurate titles and distinguish repeated sessions at different events. The owner confirmed on September 21, 2026 that the August 2026 Mexico Summit talk was delivered and that *Building Highly Available Applications on AWS* remains in progress.

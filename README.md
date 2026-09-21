@@ -26,12 +26,16 @@ Edit the small files in `src/content/`:
 
 | File | Content |
 | --- | --- |
-| `profile.json` | Bio, role, interface copy, primary links, metadata, and English/Spanish descriptions |
+| `profile.json` | Bio, role, community activities, course, interface copy, primary links, and metadata |
 | `projects.json` | Selected work and its destinations |
-| `talks.json` | Speaking highlights and recording/slides links |
-| `books.json` | Authored books and their descriptions |
+| `talks.json` | Talks, workshops, podcasts, training, and video appearances; highlight selection and public links |
+| `books.json` | Authored books, descriptions, and per-book publication/status labels |
 
-Keep common identifiers, dates, and URLs in each record once. Put the two translations beside each other under `en` and `es`. To add a talk or project, copy an existing record, give it a distinct ID, and update its facts, links, and both translations. Page components should not need edits. Publication titles can stay in their original language.
+Keep common identifiers, dates, and URLs in each record once. Put the two translations beside each other under `en` and `es`. To add a talk or project, copy an existing record, give it a distinct ID, and update its facts, links, and both translations. Set a project’s `featured: true` to show a card; other projects appear in the compact work archive. Page components should not need edits. Publication titles can stay in their original language.
+
+Every record in `talks.json` appears in the complete archive, grouped by its numeric `year`. Set `featured: true` for a highlight card; provide paired `event`, `format`, `title`, and `text`. A repeated talk at a different event is a separate record. Add `href` and a paired `cta` when a public recording, deck, or event page exists; otherwise omit both. A missing recording does not require omitting a supported appearance.
+
+Community leadership and organizing records are in `profile.json` → `about.activities`. Book `meta` labels distinguish published work from a book in progress. The historical course lives under `authorship.courseTitle`, `courseMeta`, and `courseText`; its unavailable status should remain accurate.
 
 For a role change, update the paired copy in `profile.json`: `hero.intro` (opening bio), `about.intro`, `about.facts[0].value` (Now row), and `site.title`/`site.description` (metadata). `hero.roleContext` controls the organization/team label. These are editable prose, so update both languages together.
 

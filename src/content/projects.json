@@ -2,45 +2,463 @@
   {
     "id": "caylent-insights",
     "href": "https://caylent.com/insights?author=b5b5065ade8c42a6919ca40d1239b37c",
-    "label": { "en": "Caylent Insights", "es": "Caylent Insights" },
-    "title": { "en": "Caylent Insights", "es": "Caylent Insights" },
+    "label": {
+      "en": "Caylent Insights",
+      "es": "Caylent Insights"
+    },
+    "title": {
+      "en": "Caylent Insights",
+      "es": "Caylent Insights"
+    },
     "text": {
       "en": "Articles on cloud architecture, generative AI, and the systems around them.",
       "es": "Artículos sobre arquitectura cloud, IA generativa y los sistemas que las hacen posibles."
     },
-    "cta": { "en": "Read the work", "es": "Leer el trabajo" }
+    "cta": {
+      "en": "Read the work",
+      "es": "Leer el trabajo"
+    },
+    "featured": true
   },
   {
     "id": "aws-for-engineers",
     "href": "https://awsforengineers.com/",
-    "label": { "en": "Guides", "es": "Guías" },
-    "title": { "en": "AWS for Engineers", "es": "AWS for Engineers" },
-    "text": {
-      "en": "Practical guides and an archive for builders working with AWS.",
-      "es": "Guías prácticas y un archivo para quienes construyen con AWS."
+    "label": {
+      "en": "Guides",
+      "es": "Guías"
     },
-    "cta": { "en": "Visit the site", "es": "Visitar el sitio" }
+    "title": {
+      "en": "AWS for Engineers",
+      "es": "AWS for Engineers"
+    },
+    "text": {
+      "en": "AI-generated AWS guides and tutorials for engineers, with manual review.",
+      "es": "Guías y tutoriales de AWS para ingenieros, generados con IA y revisados manualmente."
+    },
+    "cta": {
+      "en": "Visit the site",
+      "es": "Visitar el sitio"
+    },
+    "featured": true
   },
   {
     "id": "donde-aprendo",
     "href": "https://dondeaprendoaws.com/",
-    "label": { "en": "Spanish community", "es": "Comunidad en español" },
-    "title": { "en": "Dónde Aprendo AWS", "es": "Dónde Aprendo AWS" },
-    "text": {
-      "en": "A Spanish-language directory of community-created AWS learning.",
-      "es": "Un directorio en español de aprendizaje sobre AWS creado por la comunidad."
+    "label": {
+      "en": "Spanish community",
+      "es": "Comunidad en español"
     },
-    "cta": { "en": "Explore the directory", "es": "Explorar el directorio" }
+    "title": {
+      "en": "Dónde Aprendo AWS",
+      "es": "Dónde Aprendo AWS"
+    },
+    "text": {
+      "en": "A Spanish-language AWS learning directory, with curated community resources and AI-generated articles that point readers to other creators.",
+      "es": "Un directorio de aprendizaje de AWS en español, con recursos de la comunidad y artículos generados con IA que llevan a otros creadores."
+    },
+    "cta": {
+      "en": "Explore the directory",
+      "es": "Explorar el directorio"
+    },
+    "featured": true
   },
   {
     "id": "cloudy-things",
     "href": "https://blog.guilleojeda.com/",
-    "label": { "en": "Notes", "es": "Notas" },
-    "title": { "en": "Cloudy Things", "es": "Cloudy Things" },
-    "text": {
-      "en": "A less structured space for ideas, notes, and experiments.",
-      "es": "Un espacio menos estructurado para ideas, notas y experimentos."
+    "label": {
+      "en": "Technical archive",
+      "es": "Archivo técnico"
     },
-    "cta": { "en": "Read the notes", "es": "Leer las notas" }
+    "title": {
+      "en": "Cloudy Things",
+      "es": "Cloudy Things"
+    },
+    "text": {
+      "en": "My archive of articles on cloud architecture, AWS services, and lessons from building systems.",
+      "es": "Mi archivo de artículos sobre arquitectura cloud, servicios de AWS y aprendizajes al construir sistemas."
+    },
+    "cta": {
+      "en": "Read the notes",
+      "es": "Leer las notas"
+    },
+    "featured": true
+  },
+  {
+    "id": "dev-community",
+    "href": "https://dev.to/guilleojeda",
+    "label": {
+      "en": "Republished articles",
+      "es": "Artículos republicados"
+    },
+    "title": {
+      "en": "DEV Community",
+      "es": "DEV Community"
+    },
+    "text": {
+      "en": "A second home for articles originally published across my other platforms.",
+      "es": "Otro lugar donde encontrar artículos publicados originalmente en mis otras plataformas."
+    },
+    "cta": {
+      "en": "Browse the articles",
+      "es": "Explorar los artículos"
+    },
+    "featured": false
+  },
+  {
+    "id": "aws-change-scout",
+    "title": {
+      "en": "AWS Change Scout",
+      "es": "AWS Change Scout"
+    },
+    "label": {
+      "en": "Live project",
+      "es": "Proyecto publicado"
+    },
+    "text": {
+      "en": "An always-on agent that turns AWS release notes into a short, source-linked brief.",
+      "es": "Un agente que transforma novedades de AWS en un resumen breve con enlaces a las fuentes."
+    },
+    "href": "https://vjbpofzpe4acawbvxybzaeuaqa0pkpog.lambda-url.us-east-1.on.aws/",
+    "cta": {
+      "en": "Open the report",
+      "es": "Abrir el informe"
+    },
+    "featured": true
+  },
+  {
+    "id": "prompt-runner-game",
+    "title": {
+      "en": "Enseñale a jugar al robot virtual",
+      "es": "Enseñale a jugar al robot virtual"
+    },
+    "label": {
+      "en": "Project in development",
+      "es": "Proyecto en desarrollo"
+    },
+    "text": {
+      "en": "An educational agent game for AWS AI User Group Argentina: configure skills and instructions, then see how the agent behaves.",
+      "es": "Un juego educativo de agentes para AWS AI User Group Argentina: configurá habilidades e instrucciones y observá cómo se comporta el agente."
+    },
+    "href": "https://d1ilpq1n58tzqo.cloudfront.net/",
+    "cta": {
+      "en": "Explore the game",
+      "es": "Explorar el juego"
+    },
+    "featured": true
+  },
+  {
+    "id": "aws-builder-center",
+    "title": {
+      "en": "AWS Builder Center",
+      "es": "AWS Builder Center"
+    },
+    "label": {
+      "en": "Community writing",
+      "es": "Artículos de comunidad"
+    },
+    "text": {
+      "en": "AWS and applied-AI explainers shared with the wider AWS builder community.",
+      "es": "Artículos sobre AWS e IA aplicada para la comunidad de builders de AWS."
+    },
+    "href": "https://builder.aws.com/community/@guilleojeda",
+    "cta": {
+      "en": "Browse my articles",
+      "es": "Explorar mis artículos"
+    },
+    "featured": false
+  },
+  {
+    "id": "linkedin-articles",
+    "title": {
+      "en": "LinkedIn Articles",
+      "es": "LinkedIn Articles"
+    },
+    "label": {
+      "en": "Long-form writing",
+      "es": "Artículos"
+    },
+    "text": {
+      "en": "Career, certification, and AWS community writing alongside my professional updates.",
+      "es": "Artículos sobre carrera, certificaciones y comunidad de AWS, junto con mis novedades profesionales."
+    },
+    "href": "https://www.linkedin.com/in/guilleojeda",
+    "cta": {
+      "en": "Visit my profile",
+      "es": "Visitar mi perfil"
+    },
+    "featured": false
+  },
+  {
+    "id": "simple-aws-learning",
+    "title": {
+      "en": "Simple AWS Learning",
+      "es": "Simple AWS Learning"
+    },
+    "label": {
+      "en": "Learning catalog",
+      "es": "Catálogo de aprendizaje"
+    },
+    "text": {
+      "en": "The catalog for my books, historical course, and learning resources.",
+      "es": "El catálogo de mis libros, curso histórico y recursos de aprendizaje."
+    },
+    "href": "https://learning.simpleaws.dev/",
+    "cta": {
+      "en": "Explore the catalog",
+      "es": "Explorar el catálogo"
+    },
+    "featured": false
+  },
+  {
+    "id": "simple-aws-reading-lists",
+    "title": {
+      "en": "Simple AWS Reading Lists",
+      "es": "Simple AWS Reading Lists"
+    },
+    "label": {
+      "en": "Learning resource",
+      "es": "Recurso de aprendizaje"
+    },
+    "text": {
+      "en": "Topic-based reading paths through Simple AWS and Cloudy Things articles.",
+      "es": "Recorridos de lectura por tema entre artículos de Simple AWS y Cloudy Things."
+    },
+    "href": "https://learning.simpleaws.dev/b/readinglists",
+    "cta": {
+      "en": "Explore the reading lists",
+      "es": "Explorar las listas"
+    },
+    "featured": false
+  },
+  {
+    "id": "cloud-architecture-jargon",
+    "title": {
+      "en": "Cloud Architecture Jargon Simplified",
+      "es": "Cloud Architecture Jargon Simplified"
+    },
+    "label": {
+      "en": "Learning resource",
+      "es": "Recurso de aprendizaje"
+    },
+    "text": {
+      "en": "A cloud architecture terminology resource in the Simple AWS Learning catalog.",
+      "es": "Un recurso sobre terminología de arquitectura cloud en el catálogo de Simple AWS Learning."
+    },
+    "href": "https://learning.simpleaws.dev/",
+    "cta": {
+      "en": "View the catalog",
+      "es": "Ver el catálogo"
+    },
+    "featured": false
+  },
+  {
+    "id": "community-content-hub",
+    "title": {
+      "en": "AWS Community Content Hub",
+      "es": "AWS Community Content Hub"
+    },
+    "label": {
+      "en": "Prototype",
+      "es": "Prototipo"
+    },
+    "text": {
+      "en": "An open-source project for discovering and organizing AWS community contributions.",
+      "es": "Un proyecto open source para descubrir y organizar contribuciones de la comunidad de AWS."
+    },
+    "href": "https://github.com/guilleojeda/community-content-tracker",
+    "cta": {
+      "en": "Explore the repository",
+      "es": "Explorar el repositorio"
+    },
+    "featured": false
+  },
+  {
+    "id": "first-agent-demo",
+    "title": {
+      "en": "De usar ChatGPT a programar tu primer agente",
+      "es": "De usar ChatGPT a programar tu primer agente"
+    },
+    "label": {
+      "en": "Teaching demo",
+      "es": "Demo educativa"
+    },
+    "text": {
+      "en": "A Bedrock and Strands demo that shows how tools turn a chat model into an agent.",
+      "es": "Una demo con Bedrock y Strands que muestra cómo las herramientas convierten un modelo de chat en un agente."
+    },
+    "href": "https://github.com/guilleojeda/de-chatgpt-a-tu-primer-agente",
+    "cta": {
+      "en": "Explore the demo",
+      "es": "Explorar la demo"
+    },
+    "featured": false
+  },
+  {
+    "id": "agent-unit-economics-code",
+    "title": {
+      "en": "AgentCore PDF Translation Unit Economics",
+      "es": "AgentCore PDF Translation Unit Economics"
+    },
+    "label": {
+      "en": "Project design",
+      "es": "Diseño de proyecto"
+    },
+    "text": {
+      "en": "A design bundle for measuring the full cost of an AI-assisted PDF translation workflow.",
+      "es": "Un diseño de proyecto para medir el costo completo de un flujo de traducción de PDF asistido por IA."
+    },
+    "href": "https://github.com/guilleojeda/unit-economics-of-ai-agents",
+    "cta": {
+      "en": "Explore the repository",
+      "es": "Explorar el repositorio"
+    },
+    "featured": false
+  },
+  {
+    "id": "aws-security-baseline",
+    "title": {
+      "en": "AWS Security Baseline",
+      "es": "AWS Security Baseline"
+    },
+    "label": {
+      "en": "2023 · Open-source utility",
+      "es": "2023 · Utilidad open source"
+    },
+    "text": {
+      "en": "An earlier project for provisioning AWS account security and operational baseline resources.",
+      "es": "Un proyecto anterior para configurar recursos base de seguridad y operación de cuentas de AWS."
+    },
+    "href": "https://github.com/guilleojeda/aws-security-baseline",
+    "cta": {
+      "en": "View the code",
+      "es": "Ver el código"
+    },
+    "featured": false
+  },
+  {
+    "id": "secure-new-aws-account",
+    "title": {
+      "en": "Secure a New AWS Account",
+      "es": "Secure a New AWS Account"
+    },
+    "label": {
+      "en": "2022 · Open-source utility",
+      "es": "2022 · Utilidad open source"
+    },
+    "text": {
+      "en": "A beginner-oriented resource for setting up security in a new AWS account.",
+      "es": "Un recurso orientado a principiantes para configurar la seguridad de una nueva cuenta de AWS."
+    },
+    "href": "https://github.com/guilleojeda/secure-new-aws-account",
+    "cta": {
+      "en": "View the code",
+      "es": "Ver el código"
+    },
+    "featured": false
+  },
+  {
+    "id": "aws-nuke-temp",
+    "title": {
+      "en": "AWS Nuke Temp",
+      "es": "AWS Nuke Temp"
+    },
+    "label": {
+      "en": "2020 · Open-source utility",
+      "es": "2020 · Utilidad open source"
+    },
+    "text": {
+      "en": "A historical CloudFormation project for scheduling cleanup of temporary AWS environments.",
+      "es": "Un proyecto histórico de CloudFormation para programar la limpieza de entornos temporales de AWS."
+    },
+    "href": "https://github.com/guilleojeda/aws-nuke-temp",
+    "cta": {
+      "en": "View the code",
+      "es": "Ver el código"
+    },
+    "featured": false
+  },
+  {
+    "id": "caramel-nfts",
+    "title": {
+      "en": "CaramelNfts",
+      "es": "CaramelNfts"
+    },
+    "label": {
+      "en": "2021 · Experiment",
+      "es": "2021 · Experimento"
+    },
+    "text": {
+      "en": "An earlier experiment with NFTs and JavaScript at Caramel Point.",
+      "es": "Un experimento anterior con NFTs y JavaScript en Caramel Point."
+    },
+    "href": "https://github.com/guilleojeda/CaramelNfts",
+    "cta": {
+      "en": "View the code",
+      "es": "Ver el código"
+    },
+    "featured": false
+  },
+  {
+    "id": "q-conversation-simulator",
+    "title": {
+      "en": "Q Conversation Simulator",
+      "es": "Q Conversation Simulator"
+    },
+    "label": {
+      "en": "2025 · Browser experiment",
+      "es": "2025 · Experimento web"
+    },
+    "text": {
+      "en": "A playful simulation of conversations with an overenthusiastic AI coding assistant.",
+      "es": "Una simulación con humor de conversaciones con un asistente de programación con IA demasiado entusiasta."
+    },
+    "href": "https://github.com/guilleojeda/q-conversation-simulator",
+    "cta": {
+      "en": "View the code",
+      "es": "Ver el código"
+    },
+    "featured": false
+  },
+  {
+    "id": "stackoverflow",
+    "title": {
+      "en": "Stack Overflow",
+      "es": "Stack Overflow"
+    },
+    "label": {
+      "en": "Earlier community contributions",
+      "es": "Contribuciones anteriores"
+    },
+    "text": {
+      "en": "Technical questions and answers from earlier in my software engineering career.",
+      "es": "Preguntas y respuestas técnicas de etapas anteriores de mi carrera en ingeniería de software."
+    },
+    "href": "https://stackoverflow.com/users/3482428/guilleojeda",
+    "cta": {
+      "en": "Browse the profile",
+      "es": "Explorar el perfil"
+    },
+    "featured": false
+  },
+  {
+    "id": "deploying-on-aws-code",
+    "href": "https://github.com/guilleojeda/deployingonaws",
+    "label": {
+      "en": "Course companion code",
+      "es": "Código del curso"
+    },
+    "title": {
+      "en": "Deploying on AWS — Companion Code",
+      "es": "Deploying on AWS — Código del curso"
+    },
+    "text": {
+      "en": "The public code repository accompanying my historical AWS deployment course.",
+      "es": "El repositorio público de código que acompaña mi curso histórico de despliegue en AWS."
+    },
+    "cta": {
+      "en": "Explore the repository",
+      "es": "Explorar el repositorio"
+    },
+    "featured": false
   }
 ]

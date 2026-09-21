@@ -9,21 +9,28 @@ export interface ProjectRecord {
   title: LocalizedText;
   text: LocalizedText;
   cta: LocalizedText;
+  featured?: boolean;
 }
 
 export interface TalkRecord {
   id: string;
-  href: string;
-  year: LocalizedText;
+  year: number;
+  event: LocalizedText;
+  format: LocalizedText;
   title: LocalizedText;
   text: LocalizedText;
-  cta: LocalizedText;
+  href?: string;
+  cta?: LocalizedText;
+  featured?: boolean;
 }
 
 export interface BookRecord {
   id: string;
   title: LocalizedText;
   text: LocalizedText;
+  meta: LocalizedText;
+  href?: string;
+  cta?: LocalizedText;
 }
 
 export interface SiteContent {
@@ -41,11 +48,12 @@ export interface SiteContent {
   };
   nav: Record<'work' | 'talks' | 'about' | 'switchTo' | 'switchLabel', LocalizedText>;
   hero: Record<'eyebrow' | 'title' | 'intro' | 'primaryCta' | 'contactCta' | 'roleContext' | 'portraitNote', LocalizedText>;
-  work: Record<'kicker' | 'title' | 'intro' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom', LocalizedText>;
+  work: Record<'kicker' | 'title' | 'intro' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
   projects: ProjectRecord[];
-  talks: Record<'kicker' | 'title' | 'intro' | 'availabilityLabel' | 'availabilityText' | 'availabilityCta', LocalizedText>;
+  talks: Record<'kicker' | 'title' | 'intro' | 'availabilityLabel' | 'availabilityText' | 'availabilityCta' | 'archiveLabel', LocalizedText>;
   talkItems: TalkRecord[];
-  authorship: Record<'kicker' | 'title' | 'intro' | 'bookLabel', LocalizedText>;
+  talkArchive: TalkRecord[];
+  authorship: Record<'kicker' | 'title' | 'intro' | 'courseTitle' | 'courseText' | 'courseMeta', LocalizedText>;
   books: BookRecord[];
   about: {
     kicker: LocalizedText;
@@ -53,6 +61,13 @@ export interface SiteContent {
     intro: LocalizedText;
     community: LocalizedText;
     facts: Array<{ label: LocalizedText; value: LocalizedText }>;
+    activities: Array<{
+      id: string;
+      title: LocalizedText;
+      text: LocalizedText;
+      href?: string;
+      cta?: LocalizedText;
+    }>;
   };
   footer: Record<'lead' | 'text' | 'copyright', LocalizedText>;
 }

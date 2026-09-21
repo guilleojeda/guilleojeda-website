@@ -26,6 +26,28 @@ function read(relativePath) {
   return readFileSync(filePath, 'utf8');
 }
 
+function readContent(relativePath) {
+  return JSON.parse(readFileSync(join(root, 'src/content', relativePath), 'utf8'));
+}
+
+const talks = readContent('talks.json');
+const books = readContent('books.json');
+const projects = readContent('projects.json');
+const profile = readContent('profile.json');
+
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function mustContainText(html, value, message = value) {
+  assert.ok(html.includes(value) || html.includes(escapeHtml(value)), `expected ${message}`);
+}
+
 function mustContain(html, fragment, message = fragment) {
   assert.ok(html.includes(fragment), `expected ${message}`);
 }
@@ -59,6 +81,28 @@ for (const page of pages) {
   mustNotContain(html, 'un sitio estático, simple y bilingüe', `${page.lang} implementation-detail footer`);
   mustContain(html, 'https://www.linkedin.com/in/guilleojeda', `${page.lang} LinkedIn link`);
   mustContain(html, 'https://www.passionfroot.me/guilleojeda', `${page.lang} sponsorship link`);
+  mustNotContain(html, '<script', `${page.lang} runtime JavaScript`);
+
+  const featuredProjectCards = html.match(/class="support-card"/g) ?? [];
+  const archivedProjectRows = html.match(/class="talk-archive-item work-archive-item"/g) ?? [];
+  assert.equal(featuredProjectCards.length, projects.filter((project) => project.featured).length, `${page.lang} featured project count`);
+  assert.equal(archivedProjectRows.length, projects.filter((project) => !project.featured).length, `${page.lang} archived project count`);
+  for (const project of projects) mustContainText(html, project.title[page.lang], `${page.lang} project ${project.id}`);
+  for (const book of books) {
+    mustContainText(html, book.title[page.lang], `${page.lang} book title ${book.id}`);
+    mustContainText(html, book.text[page.lang], `${page.lang} book text ${book.id}`);
+    mustContainText(html, book.meta[page.lang], `${page.lang} book metadata ${book.id}`);
+  }
+  for (const activity of profile.about.activities) {
+    mustContainText(html, activity.title[page.lang], `${page.lang} activity title ${activity.id}`);
+    mustContainText(html, activity.text[page.lang], `${page.lang} activity text ${activity.id}`);
+  }
+
+  const archiveItems = html.match(/class="talk-archive-item"/g) ?? [];
+  assert.equal(archiveItems.length, talks.length, `${page.lang} archive item count`);
+  const yearGroups = html.match(/class="talk-year-group"/g) ?? [];
+  assert.equal(yearGroups.length, new Set(talks.map((talk) => talk.year)).size, `${page.lang} archive year count`);
+  for (const talk of talks) mustContainText(html, talk.title[page.lang], `${page.lang} archive item ${talk.id}`);
 }
 
 const notFound = read('404.html');
