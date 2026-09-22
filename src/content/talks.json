@@ -336,31 +336,6 @@
     }
   },
   {
-    "id": "reinvent-2024",
-    "year": 2024,
-    "event": {
-      "en": "AWS re:Invent",
-      "es": "AWS re:Invent"
-    },
-    "format": {
-      "en": "Speaking appearance",
-      "es": "Participación como speaker"
-    },
-    "title": {
-      "en": "Speaking at AWS re:Invent",
-      "es": "Una charla en AWS re:Invent"
-    },
-    "text": {
-      "en": "I spoke at AWS re:Invent in 2024.",
-      "es": "Participé como speaker en AWS re:Invent en 2024."
-    },
-    "href": "https://www.linkedin.com/posts/guilleojeda_yeah-im-also-doing-the-2024-linkedin-rewind-activity-7278066362718015489-HdJy",
-    "cta": {
-      "en": "Read my 2024 recap",
-      "es": "Leer mi resumen de 2024"
-    }
-  },
-  {
     "id": "clown-architect",
     "year": 2024,
     "event": {
