@@ -21,6 +21,48 @@
     "featured": true
   },
   {
+    "id": "caylent-2026-generative-ai-outlook",
+    "href": "https://caylent.com/blog/the-2026-outlook-on-generative-ai-whitepaper",
+    "label": {
+      "en": "Caylent white paper · Author",
+      "es": "Whitepaper de Caylent · Autor"
+    },
+    "title": {
+      "en": "The 2026 Outlook on Generative AI",
+      "es": "The 2026 Outlook on Generative AI"
+    },
+    "text": {
+      "en": "Written with Caylent colleagues, this outlook explores the economics of autonomous agents and what it takes to operate them safely in production.",
+      "es": "Escrito con colegas de Caylent, este informe explora la economía de los agentes autónomos y qué hace falta para operarlos de forma segura en producción."
+    },
+    "cta": {
+      "en": "Read the whitepaper",
+      "es": "Leer el whitepaper"
+    },
+    "featured": true
+  },
+  {
+    "id": "caylent-2025-generative-ai-outlook",
+    "href": "https://www.linkedin.com/posts/guilleojeda_what-should-you-expect-in-2025-for-generative-activity-7298043939184369664-KHaX",
+    "label": {
+      "en": "2025 · Caylent white paper · Co-author",
+      "es": "2025 · Whitepaper de Caylent · Coautor"
+    },
+    "title": {
+      "en": "The 2025 Outlook on Generative AI",
+      "es": "The 2025 Outlook on Generative AI"
+    },
+    "text": {
+      "en": "A whitepaper I co-authored on agentic AI, multimodal systems, RAG and search, cost optimization, governance, LLMOps, generative UX, and build-versus-buy decisions.",
+      "es": "Un whitepaper que coescribí sobre IA agéntica, sistemas multimodales, RAG y búsqueda, optimización de costos, gobernanza, LLMOps, experiencia generativa y decisiones entre construir o comprar."
+    },
+    "cta": {
+      "en": "Read the launch post",
+      "es": "Leer el anuncio"
+    },
+    "featured": false
+  },
+  {
     "id": "aws-for-engineers",
     "href": "https://awsforengineers.com/",
     "label": {
@@ -103,27 +145,6 @@
       "es": "Explorar los artículos"
     },
     "featured": false
-  },
-  {
-    "id": "aws-change-scout",
-    "title": {
-      "en": "AWS Change Scout",
-      "es": "AWS Change Scout"
-    },
-    "label": {
-      "en": "Live project",
-      "es": "Proyecto publicado"
-    },
-    "text": {
-      "en": "An always-on agent that turns AWS release notes into a short, source-linked brief.",
-      "es": "Un agente que transforma novedades de AWS en un resumen breve con enlaces a las fuentes."
-    },
-    "href": "https://vjbpofzpe4acawbvxybzaeuaqa0pkpog.lambda-url.us-east-1.on.aws/",
-    "cta": {
-      "en": "Open the report",
-      "es": "Abrir el informe"
-    },
-    "featured": true
   },
   {
     "id": "prompt-runner-game",

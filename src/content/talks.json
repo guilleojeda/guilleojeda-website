@@ -1,5 +1,50 @@
 [
   {
+    "id": "nerdearla-2026-aws-booth-agent",
+    "year": 2026,
+    "event": {
+      "en": "Nerdearla Argentina · AWS booth",
+      "es": "Nerdearla Argentina · Stand de AWS"
+    },
+    "format": {
+      "en": "Scheduled talk",
+      "es": "Charla programada"
+    },
+    "title": {
+      "en": "De usar ChatGPT a construir tu primer agente con Amazon Bedrock",
+      "es": "De usar ChatGPT a construir tu primer agente con Amazon Bedrock"
+    },
+    "text": {
+      "en": "An upcoming talk at the AWS booth about moving from ChatGPT to building a first agent with Amazon Bedrock.",
+      "es": "Una próxima charla en el stand de AWS sobre cómo pasar de usar ChatGPT a construir un primer agente con Amazon Bedrock."
+    }
+  },
+  {
+    "id": "aws-ai-meetup-2-host",
+    "year": 2026,
+    "event": {
+      "en": "AWS AI User Group Argentina",
+      "es": "AWS AI User Group Argentina"
+    },
+    "format": {
+      "en": "Host",
+      "es": "Anfitrión"
+    },
+    "title": {
+      "en": "Meetup #2 - AWS AI User Group Argentina",
+      "es": "Meetup #2 - AWS AI User Group Argentina"
+    },
+    "text": {
+      "en": "Hosted the second AWS AI User Group Argentina meetup, with guest sessions from Chelo Ciceri, Matías Santoro, and Mateo Fernández.",
+      "es": "Anfitrión del segundo meetup de AWS AI User Group Argentina, con sesiones invitadas a cargo de Chelo Ciceri, Matías Santoro y Mateo Fernández."
+    },
+    "href": "https://www.youtube.com/watch?v=oq3LS3wnrGg",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
     "id": "mexico-agent-authorization",
     "year": 2026,
     "event": {
@@ -22,6 +67,81 @@
     "cta": {
       "en": "About the session",
       "es": "Sobre la sesión"
+    }
+  },
+  {
+    "id": "aws-sbg-utn-agent",
+    "year": 2026,
+    "event": {
+      "en": "AWS Student Builder Group at UTN Córdoba",
+      "es": "AWS Student Builder Group en UTN Córdoba"
+    },
+    "format": {
+      "en": "Community talk · Speaker and co-host",
+      "es": "Charla de comunidad · Orador y coanfitrión"
+    },
+    "title": {
+      "en": "De usar ChatGPT a programar tu primer agente con Amazon Bedrock",
+      "es": "De usar ChatGPT a programar tu primer agente con Amazon Bedrock"
+    },
+    "text": {
+      "en": "An August 1, 2026 hands-on session at UTN Córdoba: calling a model with Amazon Bedrock and building a Python agent with Strands Agents and tools.",
+      "es": "Una sesión práctica del 1 de agosto de 2026 en UTN Córdoba: cómo llamar a un modelo con Amazon Bedrock y construir un agente en Python con Strands Agents y herramientas."
+    },
+    "href": "https://www.youtube.com/watch?v=IvoBEq1prWk",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "aws-ai-meetup-1-agent",
+    "year": 2026,
+    "event": {
+      "en": "AWS AI User Group Argentina · Meetup #1",
+      "es": "AWS AI User Group Argentina · Meetup #1"
+    },
+    "format": {
+      "en": "Meetup talk · Speaker and host",
+      "es": "Charla de meetup · Orador y anfitrión"
+    },
+    "title": {
+      "en": "De usar ChatGPT a programar tu primer agente con Amazon Bedrock",
+      "es": "De usar ChatGPT a programar tu primer agente con Amazon Bedrock"
+    },
+    "text": {
+      "en": "A July 23, 2026 hands-on introduction to building a first Python agent with Amazon Bedrock and Strands Agents, moving from ChatGPT to tool-using agents.",
+      "es": "Una introducción práctica del 23 de julio de 2026 para construir un primer agente en Python con Amazon Bedrock y Strands Agents, pasando de ChatGPT a agentes que usan herramientas."
+    },
+    "href": "https://www.meetup.com/aws-ai-user-group-argentina/events/314852605/",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
+  },
+  {
+    "id": "summit-nyc-keynote-recap-2026",
+    "year": 2026,
+    "event": {
+      "en": "Caylent",
+      "es": "Caylent"
+    },
+    "format": {
+      "en": "Keynote recap",
+      "es": "Resumen de keynote"
+    },
+    "title": {
+      "en": "AWS Summit New York City 2026 Keynote Recap",
+      "es": "AWS Summit New York City 2026 Keynote Recap"
+    },
+    "text": {
+      "en": "A recap with Brian Tarbox of the keynote announcements, including Amazon Bedrock AgentCore, Kiro, Amazon Quick, AWS Continuum, and AWS Context.",
+      "es": "Un resumen junto a Brian Tarbox de los anuncios del keynote, incluidos Amazon Bedrock AgentCore, Kiro, Amazon Quick, AWS Continuum y AWS Context."
+    },
+    "href": "https://www.youtube.com/watch?v=XuiX-IprZ-8",
+    "cta": {
+      "en": "Watch the keynote recap",
+      "es": "Ver el resumen del keynote"
     }
   },
   {
@@ -76,6 +196,31 @@
     }
   },
   {
+    "id": "werner-reinvent-2025-keynote-recap",
+    "year": 2025,
+    "event": {
+      "en": "Caylent",
+      "es": "Caylent"
+    },
+    "format": {
+      "en": "Keynote recap",
+      "es": "Resumen de keynote"
+    },
+    "title": {
+      "en": "Werner Vogels Keynote Recap - AWS re:Invent 2025",
+      "es": "Werner Vogels Keynote Recap - AWS re:Invent 2025"
+    },
+    "text": {
+      "en": "A recap of Werner Vogels' keynote on renaissance developers, AI-assisted coding, and the responsibility to understand and own the code we generate.",
+      "es": "Un resumen del keynote de Werner Vogels sobre los desarrolladores renacentistas, la programación asistida por IA y la responsabilidad de entender y hacerse cargo del código que generamos."
+    },
+    "href": "https://www.youtube.com/watch?v=an5EbdPG-YA",
+    "cta": {
+      "en": "Watch the keynote recap",
+      "es": "Ver el resumen del keynote"
+    }
+  },
+  {
     "id": "reinvent-know-before-you-go",
     "year": 2025,
     "event": {
@@ -119,10 +264,10 @@
       "en": "Building personalized recommendations with Valkey, vector search, and Python examples.",
       "es": "Cómo crear recomendaciones personalizadas con Valkey, búsqueda vectorial y ejemplos en Python."
     },
-    "href": "https://nerdear.la/agenda/build-real-time-personalized-recommendations-with-valkey-bundle/",
+    "href": "https://www.youtube.com/watch?v=efSF03l8op4",
     "cta": {
-      "en": "View the workshop",
-      "es": "Ver el workshop"
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
     }
   },
   {
@@ -489,6 +634,31 @@
     }
   },
   {
+    "id": "cordoba-security-ci-cd",
+    "year": 2024,
+    "event": {
+      "en": "AWS User Group Córdoba",
+      "es": "AWS User Group Córdoba"
+    },
+    "format": {
+      "en": "Meetup talk · Co-speaker",
+      "es": "Charla compartida"
+    },
+    "title": {
+      "en": "Seguridad Desde el Principio: Cómo evitar que te despierten a las 3 de la mañana",
+      "es": "Seguridad Desde el Principio: Cómo evitar que te despierten a las 3 de la mañana"
+    },
+    "text": {
+      "en": "A practical talk with María Lourdes Dorado about building security into CI/CD pipelines before deployment.",
+      "es": "Una charla junto a María Lourdes Dorado sobre cómo incorporar seguridad en los pipelines de CI/CD antes del despliegue."
+    },
+    "href": "https://www.meetup.com/aws-user-group-cordoba-argentina/events/300719283/",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
+  },
+  {
     "id": "basta-bastion-host",
     "year": 2023,
     "event": {
@@ -578,6 +748,56 @@
       "es": "Facturación y soporte de AWS para el desafío de aprendizaje de Cloud Practitioner."
     },
     "href": "https://www.youtube.com/watch?v=wAHq25Llhr8",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "practitioner-databases",
+    "year": 2023,
+    "event": {
+      "en": "AWS User Group Buenos Aires",
+      "es": "AWS User Group Buenos Aires"
+    },
+    "format": {
+      "en": "Community training · Speaker",
+      "es": "Formación de comunidad · Orador"
+    },
+    "title": {
+      "en": "AWS Cloud Practitioner Challenge — Sesión 7: Databases",
+      "es": "AWS Cloud Practitioner Challenge — Sesión 7: Databases"
+    },
+    "text": {
+      "en": "A community training session on RDS, Aurora, Redshift, ElastiCache, and DynamoDB.",
+      "es": "Una sesión de formación de comunidad sobre RDS, Aurora, Redshift, ElastiCache y DynamoDB."
+    },
+    "href": "https://www.youtube.com/watch?v=UqvVg1X4WIg",
+    "cta": {
+      "en": "Watch the recording",
+      "es": "Ver la grabación"
+    }
+  },
+  {
+    "id": "practitioner-kickoff",
+    "year": 2023,
+    "event": {
+      "en": "AWS User Group Buenos Aires",
+      "es": "AWS User Group Buenos Aires"
+    },
+    "format": {
+      "en": "Community training · Speaker / kickoff participant",
+      "es": "Formación de comunidad · Orador / participante de apertura"
+    },
+    "title": {
+      "en": "AWS Cloud Practitioner Challenge — Sesión 0",
+      "es": "AWS Cloud Practitioner Challenge — Sesión 0"
+    },
+    "text": {
+      "en": "An introductory kickoff for the 2023 Cloud Practitioner Challenge, with Guille joining the AWS UG Buenos Aires speaker team.",
+      "es": "Una sesión introductoria de apertura del Cloud Practitioner Challenge 2023, con Guille como parte del equipo de oradores de AWS UG Buenos Aires."
+    },
+    "href": "https://www.youtube.com/watch?v=156Qovhl9tk",
     "cta": {
       "en": "Watch the recording",
       "es": "Ver la grabación"
