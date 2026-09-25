@@ -1,5 +1,26 @@
 [
   {
+    "id": "reinvent-2026-agent-evaluations",
+    "year": 2026,
+    "event": {
+      "en": "AWS re:Invent",
+      "es": "AWS re:Invent"
+    },
+    "format": {
+      "en": "Upcoming session · COM317-R",
+      "es": "Próxima sesión · COM317-R"
+    },
+    "title": {
+      "en": "Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations",
+      "es": "Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations"
+    },
+    "text": {
+      "en": "An upcoming AWS re:Invent session on evaluating AI agents with Strands Evaluation and AgentCore Evaluations.",
+      "es": "Una próxima sesión en AWS re:Invent sobre cómo evaluar agentes de IA con Strands Evaluation y AgentCore Evaluations."
+    },
+    "featured": true
+  },
+  {
     "id": "nerdearla-2026-aws-booth-agent",
     "year": 2026,
     "event": {
@@ -581,7 +602,7 @@
       "en": "Open the slides",
       "es": "Abrir la presentación"
     },
-    "featured": true
+    "featured": false
   },
   {
     "id": "charlas-tecnicas-freelance",
