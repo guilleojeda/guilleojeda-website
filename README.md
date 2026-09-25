@@ -30,12 +30,14 @@ Edit the small files in `src/content/`:
 | --- | --- |
 | `profile.json` | Bio, role, community activities, course, interface copy, primary links, and metadata |
 | `projects.json` | Selected work and its destinations |
-| `talks.json` | Talks, workshops, podcasts, training, and video appearances; highlight selection and public links |
+| `talks.json` | Talks, workshops, hosting, podcasts, training, and video appearances; highlight selection and public links |
 | `books.json` | Authored books, descriptions, and per-book publication/status labels |
 
 Keep common identifiers, dates, and URLs in each record once. Put the two translations beside each other under `en` and `es`. To add a talk or project, copy an existing record, give it a distinct ID, and update its facts, links, and both translations. Set a project’s `featured: true` to show a card; other projects appear in the compact work archive. Page components should not need edits. Publication titles can stay in their original language.
 
 Every record in `talks.json` appears in the complete archive, grouped by its numeric `year`. Set `featured: true` for a highlight card; provide paired `event`, `format`, `title`, and `text`. A repeated talk at a different event is a separate record. Add `href` and a paired `cta` when a public recording, deck, or event page exists; otherwise omit both. A missing recording does not require omitting a supported appearance.
+
+Use `format` and the description to distinguish speaking, hosting, and video commentary. Hosting an event does not imply presenting its guest talks, and reacting to a keynote does not imply speaking at the conference. Label announced sessions as scheduled until delivery is confirmed. White papers belong in `projects.json`, with the author or co-author role stated explicitly. If an old publication URL redirects to a different edition, use a reliable link to the original edition or its author announcement.
 
 Community leadership and organizing records are in `profile.json` → `about.activities`. Book `meta` labels distinguish published work from a book in progress. The historical course lives under `authorship.courseTitle`, `courseMeta`, and `courseText`; its unavailable status should remain accurate.
 
