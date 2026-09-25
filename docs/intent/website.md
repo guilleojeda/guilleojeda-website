@@ -12,11 +12,11 @@ Historical book credits do not imply current availability. The third book is exp
 
 The complete content and ordinary language links work without JavaScript. English and Spanish are separate HTML documents. Language selection is explicit and returns to the top of the other language’s home page; it is not inferred from browser settings or persisted in cookies.
 
-The public origin comes from the build’s `SITE_URL`. Both locales use that value consistently for canonical, alternate-language, and social metadata. It must describe the deployed endpoint.
+The public origin comes from the build’s `SITE_URL`, which is `https://guilleojeda.com` in production. Both locales use that value consistently for canonical, alternate-language, and social metadata. It must describe the deployed endpoint.
 
-CloudFront reads a private S3 bucket through Origin Access Control. A small viewer-request function handles the two page paths: `/` serves `index.html`, `/es/` serves `es/index.html`, and `/es` redirects to `/es/` while retaining the query. Assets pass through. Unknown paths return HTTP 404 with links to both home pages rather than a successful homepage response.
+CloudFront reads a private S3 bucket through Origin Access Control. A small viewer-request function first redirects only the exact `www.guilleojeda.com` host to `https://guilleojeda.com`, retaining the complete URI and raw query string. The apex and CloudFront hostnames continue through the normal routing: `/` serves `index.html`, `/es/` serves `es/index.html`, and `/es` redirects to `/es/` while retaining the query. Assets pass through. Unknown paths return HTTP 404 with links to both home pages rather than a successful homepage response.
 
-The initial deployment uses CloudFront’s own HTTPS domain. It does not change the existing personal domain, its blog, or email DNS.
+The custom certificate covers the apex and `www` names and is DNS validated through the Route 53 hosted zone. The apex A and AAAA records alias the existing CloudFront distribution; `www` uses the same aliases so the function can issue the canonical redirect. Registration remains at GoDaddy. The Route 53 zone preserves the blog, mail, verification, and other non-provider records copied during the launch.
 
 ## Delivery and recovery
 
@@ -26,7 +26,7 @@ Production publication is serialized. A superseded main-branch push must not rep
 
 HTML and mutable metadata revalidate; hashed assets can be cached immutably. CloudFront invalidation and direct live checks are part of deployment. Uploading several objects is not atomic: a failure can leave mixed files until the same intended revision is redeployed. A failed build publishes nothing, and a failed deployment is reported as failed rather than hidden by a successful build.
 
-Rollback is a reviewed Git revert on `main`, delivered through the same workflow. AWS configuration is versioned in CloudFormation, with setup and infrastructure changes performed through a separately authorized operator session. Account-wide identity resources are reused when present rather than replaced or deleted as a side effect of this site.
+Rollback is a reviewed Git revert on `main`, delivered through the same workflow. AWS configuration is versioned in CloudFormation, with setup and infrastructure changes performed through a separately authorized operator session. Before changing DNS authority, compare the full unrelated-record inventory and reconcile DNSSEC/parent DS state. DNS rollback requires a verified complete zone at the previous provider before restoring its delegation. The Route 53 hosted zone is retained if removed from the stack. Account-wide identity resources are reused when present rather than replaced or deleted as a side effect of this site.
 
 See the README for current editing, build, setup, and recovery commands.
 

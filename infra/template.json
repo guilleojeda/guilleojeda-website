@@ -89,10 +89,16 @@
         },
         "Name": "guilleojeda.com.",
         "Type": "A",
-        "TTL": "600",
-        "ResourceRecords": [
-          "44.218.84.107"
-        ]
+        "AliasTarget": {
+          "HostedZoneId": "Z2FDTNDATAQYW2",
+          "DNSName": {
+            "Fn::GetAtt": [
+              "SiteDistribution",
+              "DomainName"
+            ]
+          },
+          "EvaluateTargetHealth": false
+        }
       }
     },
     "SiteWwwRecord": {
@@ -103,10 +109,56 @@
         },
         "Name": "www.guilleojeda.com.",
         "Type": "A",
-        "TTL": "600",
-        "ResourceRecords": [
-          "44.218.84.107"
-        ]
+        "AliasTarget": {
+          "HostedZoneId": "Z2FDTNDATAQYW2",
+          "DNSName": {
+            "Fn::GetAtt": [
+              "SiteDistribution",
+              "DomainName"
+            ]
+          },
+          "EvaluateTargetHealth": false
+        }
+      }
+    },
+    "SiteApexIpv6Record": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "guilleojeda.com.",
+        "Type": "AAAA",
+        "AliasTarget": {
+          "HostedZoneId": "Z2FDTNDATAQYW2",
+          "DNSName": {
+            "Fn::GetAtt": [
+              "SiteDistribution",
+              "DomainName"
+            ]
+          },
+          "EvaluateTargetHealth": false
+        }
+      }
+    },
+    "SiteWwwIpv6Record": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "www.guilleojeda.com.",
+        "Type": "AAAA",
+        "AliasTarget": {
+          "HostedZoneId": "Z2FDTNDATAQYW2",
+          "DNSName": {
+            "Fn::GetAtt": [
+              "SiteDistribution",
+              "DomainName"
+            ]
+          },
+          "EvaluateTargetHealth": false
+        }
       }
     },
     "BlogRecord": {
@@ -213,6 +265,30 @@
         ]
       }
     },
+    "SiteCertificate": {
+      "Type": "AWS::CertificateManager::Certificate",
+      "Properties": {
+        "DomainName": "guilleojeda.com",
+        "SubjectAlternativeNames": [
+          "www.guilleojeda.com"
+        ],
+        "ValidationMethod": "DNS",
+        "DomainValidationOptions": [
+          {
+            "DomainName": "guilleojeda.com",
+            "HostedZoneId": {
+              "Ref": "SiteHostedZone"
+            }
+          },
+          {
+            "DomainName": "www.guilleojeda.com",
+            "HostedZoneId": {
+              "Ref": "SiteHostedZone"
+            }
+          }
+        ]
+      }
+    },
     "SiteBucket": {
       "Type": "AWS::S3::Bucket",
       "DeletionPolicy": "Retain",
@@ -301,7 +377,11 @@
       "Type": "AWS::CloudFront::Distribution",
       "Properties": {
         "DistributionConfig": {
-          "Comment": "Guille Ojeda personal website Phase 1",
+          "Aliases": [
+            "guilleojeda.com",
+            "www.guilleojeda.com"
+          ],
+          "Comment": "Guille Ojeda personal website at guilleojeda.com",
           "DefaultCacheBehavior": {
             "AllowedMethods": ["GET", "HEAD"],
             "CachedMethods": ["GET", "HEAD"],
@@ -344,7 +424,11 @@
           ],
           "PriceClass": "PriceClass_100",
           "ViewerCertificate": {
-            "CloudFrontDefaultCertificate": true
+            "AcmCertificateArn": {
+              "Ref": "SiteCertificate"
+            },
+            "MinimumProtocolVersion": "TLSv1.2_2021",
+            "SslSupportMethod": "sni-only"
           },
           "CustomErrorResponses": [
             {
