@@ -2,6 +2,8 @@
 
 A bilingual work showcase built with Astro. English is at `/`, Spanish at `/es/`. The generated site is hosted in private S3 behind CloudFront and published by GitHub Actions.
 
+The production canonical origin is `https://guilleojeda.com`. The apex serves the site, while `https://www.guilleojeda.com` permanently redirects to the same apex path and preserves the raw query string. CloudFront's generated hostname remains usable for infrastructure checks and rollback.
+
 ## Local development
 
 Use Node 24 LTS (see `.nvmrc`) and npm.
@@ -71,7 +73,7 @@ aws cloudformation deploy \
 rm "$guille_stack_template"
 ```
 
-For reuse, replace the parameter override with `GitHubOidcProviderArn=YOUR_EXISTING_PROVIDER_ARN`. Keep the same provider choice on later stack updates. Setup creates private storage, CloudFront routing/cache configuration, and a restricted site-deployment role. It does not upload the site or modify custom-domain DNS.
+For reuse, replace the parameter override with `GitHubOidcProviderArn=YOUR_EXISTING_PROVIDER_ARN`. Keep the same provider choice on later stack updates. Setup creates private storage, CloudFront routing/cache configuration, and a restricted site-deployment role. It does not upload the site.
 
 Read the outputs after the stack finishes:
 
@@ -91,7 +93,7 @@ Configure these GitHub Actions **repository variables**:
 | `AWS_ROLE_ARN` | `DeploymentRoleArn` output |
 | `S3_BUCKET` | `BucketName` output |
 | `CLOUDFRONT_DISTRIBUTION_ID` | `DistributionId` output |
-| `SITE_URL` | `https://` followed by `DistributionDomainName` |
+| `SITE_URL` | `https://guilleojeda.com` |
 
 These values are identifiers, not credentials. For example, `gh variable set AWS_REGION --body us-east-1`. GitHub assumes the deployment role through OIDC; do not add AWS access-key secrets to the repository.
 
@@ -105,4 +107,14 @@ If a deployment fails, inspect the failing Actions step and its error before ret
 
 To roll back a published content/code change, revert its commit on `main` and let the same workflow publish the revert. Old hashed assets are retained for cached pages and rollback. Do not delete them merely because they are absent from the latest build.
 
-The initial live endpoint is CloudFront’s HTTPS domain. The existing `guilleojeda.com`, blog, and mail DNS remain separate until the approved custom-domain migration is delivered. This repository does not silently perform that migration during a content deployment.
+## Domain operations and recovery
+
+The existing `guilleojeda-website` stack in `us-east-1` owns the Route 53 zone, DNS records, ACM certificate, and CloudFront configuration. Apply infrastructure updates with the render/validate/deploy commands above, preserving the stack's OIDC parameters. The production zone is `Z08987431TLTN2P7IRTQJ`; registration remains at GoDaddy. Edit DNS records in `infra/template.json` and apply the stack so the repository stays authoritative. The content-deployment role cannot change DNS.
+
+The certificate covers `guilleojeda.com` and `www.guilleojeda.com`. ACM creates its validation CNAMEs in the zone; keep those records for automatic renewal. Wait for a completed stack update and CloudFront deployment before treating a certificate or routing change as live.
+
+If recreating the zone, first inventory the currently authoritative DNS and check DNSSEC/parent DS state. The current template can wait for certificate validation until the new zone is delegated. While it is pending, retrieve the zone ID with `aws cloudformation describe-stack-resource --stack-name guilleojeda-website --logical-resource-id SiteHostedZone --region us-east-1`, then inspect its nameservers and records with `aws route53 get-hosted-zone` and `aws route53 list-resource-record-sets`. Compare every unrelated record before changing only the nameserver delegation at GoDaddy. Public certificate validation and dependent website aliases can then complete. Do not create a second live zone or change registration during an ordinary update.
+
+For a web-only infrastructure rollback, apply the reviewed previous CloudFormation configuration. Content rollbacks use the Git revert workflow above. A DNS-provider rollback requires the previous provider's complete zone to still exist and serve correct records; verify it before restoring its delegation. The prelaunch nameservers were `ns03.domaincontrol.com` and `ns04.domaincontrol.com`. Keep the Route 53 zone, bucket, and old hashed assets during recovery.
+
+Blog, mail, verification, and other unrelated records remain under the same names. Normal content deployments use `SITE_URL=https://guilleojeda.com` and do not change DNS or infrastructure.

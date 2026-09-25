@@ -1,5 +1,5 @@
 /*
- * CloudFront viewer-request function for the Phase 1 distribution.
+ * CloudFront viewer-request function for guilleojeda.com.
  *
  * This is the authoritative routing source. The CloudFormation template is
  * rendered with this file's contents so the deployed function and the local
@@ -29,8 +29,20 @@ function permanentRedirect(path, request) {
   };
 }
 
+function canonicalRedirect(request) {
+  return permanentRedirect(
+    "https://guilleojeda.com" + request.uri,
+    request
+  );
+}
+
 function handler(event) {
   var request = event.request;
+  var hostHeader = request.headers && request.headers.host;
+
+  if (hostHeader && hostHeader.value.toLowerCase() === "www.guilleojeda.com") {
+    return canonicalRedirect(request);
+  }
 
   if (request.uri === "/") {
     request.uri = "/index.html";
