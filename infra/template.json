@@ -70,6 +70,149 @@
     }
   },
   "Resources": {
+    "SiteHostedZone": {
+      "Type": "AWS::Route53::HostedZone",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Name": "guilleojeda.com.",
+        "HostedZoneConfig": {
+          "Comment": "Public DNS for guilleojeda.com; registration remains at GoDaddy."
+        }
+      }
+    },
+    "SiteApexRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "guilleojeda.com.",
+        "Type": "A",
+        "TTL": "600",
+        "ResourceRecords": [
+          "44.218.84.107"
+        ]
+      }
+    },
+    "SiteWwwRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "www.guilleojeda.com.",
+        "Type": "A",
+        "TTL": "600",
+        "ResourceRecords": [
+          "44.218.84.107"
+        ]
+      }
+    },
+    "BlogRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "blog.guilleojeda.com.",
+        "Type": "CNAME",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "hashnode.network."
+        ]
+      }
+    },
+    "RoadmapIntelligenceRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "roadmapintelligence.guilleojeda.com.",
+        "Type": "CNAME",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "d1rx8g6zaejqpb.cloudfront.net."
+        ]
+      }
+    },
+    "RoadmapCertificateValidationRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "_66675cb6a658f2ad1f2a908f31c19669.roadmapintelligence.guilleojeda.com.",
+        "Type": "CNAME",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "_2ee22fec37a5b8436c15c4ebd6e03d8e.jkddzztszm.acm-validations.aws."
+        ]
+      }
+    },
+    "DomainConnectRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "_domainconnect.guilleojeda.com.",
+        "Type": "CNAME",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "_domainconnect.gd.domaincontrol.com."
+        ]
+      }
+    },
+    "GoogleMailRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "guilleojeda.com.",
+        "Type": "MX",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "1 aspmx.l.google.com.",
+          "10 alt3.aspmx.l.google.com.",
+          "10 alt4.aspmx.l.google.com.",
+          "5 alt1.aspmx.l.google.com.",
+          "5 alt2.aspmx.l.google.com."
+        ]
+      }
+    },
+    "SiteVerificationAndSpfRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "guilleojeda.com.",
+        "Type": "TXT",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "\"google-site-verification=2ecdyUNm1Idm6KJLEWLPkkHq2H7CFQRoVbFnP6xMW_M\"",
+          "\"google-site-verification=Xl6_0sQP-WFuhCPthzr6Vm_EjG4OGFEy4LtdowuZraY\"",
+          "\"v=spf1 include:dc-aa8e722993._spfm.guilleojeda.com ~all\""
+        ]
+      }
+    },
+    "GoogleSpfRecord": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneId": {
+          "Ref": "SiteHostedZone"
+        },
+        "Name": "dc-aa8e722993._spfm.guilleojeda.com.",
+        "Type": "TXT",
+        "TTL": "3600",
+        "ResourceRecords": [
+          "\"v=spf1 include:_spf.google.com ~all\""
+        ]
+      }
+    },
     "SiteBucket": {
       "Type": "AWS::S3::Bucket",
       "DeletionPolicy": "Retain",
@@ -363,6 +506,26 @@
     }
   },
   "Outputs": {
+    "HostedZoneId": {
+      "Description": "Authoritative public DNS hosted zone.",
+      "Value": {
+        "Ref": "SiteHostedZone"
+      }
+    },
+    "HostedZoneNameServers": {
+      "Description": "Set these four name servers at GoDaddy; registration remains there.",
+      "Value": {
+        "Fn::Join": [
+          ",",
+          {
+            "Fn::GetAtt": [
+              "SiteHostedZone",
+              "NameServers"
+            ]
+          }
+        ]
+      }
+    },
     "BucketName": {
       "Description": "Private bucket receiving the generated site.",
       "Value": {
