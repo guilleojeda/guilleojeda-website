@@ -1,5 +1,26 @@
 [
   {
+    "id": "donde-aprendo",
+    "href": "https://dondeaprendoaws.com/",
+    "label": {
+      "en": "Learn AWS in Spanish",
+      "es": "Aprender AWS en español"
+    },
+    "title": {
+      "en": "Dónde Aprendo AWS",
+      "es": "Dónde Aprendo AWS"
+    },
+    "text": {
+      "en": "My directory for learning AWS in Spanish: resources, learning paths, creators, communities, and events.",
+      "es": "Mi directorio para aprender AWS en español: recursos, rutas de aprendizaje, creadores, comunidades y eventos."
+    },
+    "cta": {
+      "en": "Visit dondeaprendoaws.com",
+      "es": "Visitá dondeaprendoaws.com"
+    },
+    "featured": true
+  },
+  {
     "id": "caylent-insights",
     "href": "https://caylent.com/insights?author=b5b5065ade8c42a6919ca40d1239b37c",
     "label": {
@@ -80,27 +101,6 @@
     "cta": {
       "en": "Visit the site",
       "es": "Visitar el sitio"
-    },
-    "featured": true
-  },
-  {
-    "id": "donde-aprendo",
-    "href": "https://dondeaprendoaws.com/",
-    "label": {
-      "en": "Spanish community",
-      "es": "Comunidad en español"
-    },
-    "title": {
-      "en": "Dónde Aprendo AWS",
-      "es": "Dónde Aprendo AWS"
-    },
-    "text": {
-      "en": "A Spanish-language AWS learning directory, with curated community resources and AI-generated articles that point readers to other creators.",
-      "es": "Un directorio de aprendizaje de AWS en español, con recursos de la comunidad y artículos generados con IA que llevan a otros creadores."
-    },
-    "cta": {
-      "en": "Explore the directory",
-      "es": "Explorar el directorio"
     },
     "featured": true
   },
