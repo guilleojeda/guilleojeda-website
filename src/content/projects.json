@@ -21,6 +21,27 @@
     "featured": true
   },
   {
+    "id": "prompt-runner-game",
+    "title": {
+      "en": "Robot Runner: A puro prompt",
+      "es": "Robot Runner: A puro prompt"
+    },
+    "label": {
+      "en": "AI agent game · Public beta",
+      "es": "Juego de agentes de IA · Beta pública"
+    },
+    "text": {
+      "en": "An AI agent game in Spanish: configure a robot’s tools and instructions, watch it navigate a level, and refine its behavior. Play on desktop.",
+      "es": "Un juego de agentes de IA en español: configurá las herramientas e instrucciones de un robot, observá cómo recorre un nivel y ajustá su comportamiento. Para jugar desde una computadora."
+    },
+    "href": "https://robotrunner.guilleojeda.com/",
+    "cta": {
+      "en": "Visit robotrunner.guilleojeda.com",
+      "es": "Visitá robotrunner.guilleojeda.com"
+    },
+    "featured": true
+  },
+  {
     "id": "caylent-insights",
     "href": "https://caylent.com/insights?author=b5b5065ade8c42a6919ca40d1239b37c",
     "label": {
@@ -145,27 +166,6 @@
       "es": "Explorar los artículos"
     },
     "featured": false
-  },
-  {
-    "id": "prompt-runner-game",
-    "title": {
-      "en": "Enseñale a jugar al robot virtual",
-      "es": "Enseñale a jugar al robot virtual"
-    },
-    "label": {
-      "en": "Project in development",
-      "es": "Proyecto en desarrollo"
-    },
-    "text": {
-      "en": "An educational agent game for AWS AI User Group Argentina: configure skills and instructions, then see how the agent behaves.",
-      "es": "Un juego educativo de agentes para AWS AI User Group Argentina: configurá habilidades e instrucciones y observá cómo se comporta el agente."
-    },
-    "href": "https://d1ilpq1n58tzqo.cloudfront.net/",
-    "cta": {
-      "en": "Explore the game",
-      "es": "Explorar el juego"
-    },
-    "featured": true
   },
   {
     "id": "aws-builder-center",
