@@ -7,18 +7,43 @@
       "es": "AWS re:Invent"
     },
     "format": {
-      "en": "Upcoming session · COM317-R",
-      "es": "Próxima sesión · COM317-R"
+      "en": "Upcoming sessions · COM317-R and COM317-R1",
+      "es": "Próximas sesiones · COM317-R y COM317-R1"
     },
     "title": {
       "en": "Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations",
       "es": "Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations"
     },
     "text": {
-      "en": "An upcoming AWS re:Invent session on evaluating AI agents with Strands Evaluation and AgentCore Evaluations.",
-      "es": "Una próxima sesión en AWS re:Invent sobre cómo evaluar agentes de IA con Strands Evaluation y AgentCore Evaluations."
+      "en": "An upcoming AWS re:Invent session on evaluating AI agents with Strands Evaluation and AgentCore Evaluations, offered in two time slots.",
+      "es": "Una próxima sesión en AWS re:Invent sobre cómo evaluar agentes de IA con Strands Evaluation y AgentCore Evaluations, que se presenta en dos horarios."
     },
     "featured": true
+  },
+  {
+    "id": "cordoba-agent-economics-2026",
+    "year": 2026,
+    "event": {
+      "en": "AWS User Group Córdoba & AWS AI User Group Argentina",
+      "es": "AWS User Group Córdoba & AWS AI User Group Argentina"
+    },
+    "format": {
+      "en": "Upcoming meetup talk",
+      "es": "Próxima charla de meetup"
+    },
+    "title": {
+      "en": "La Economía de los Agentes de IA",
+      "es": "La Economía de los Agentes de IA"
+    },
+    "text": {
+      "en": "October 22, 2026: calculating cost per outcome and the real costs of an Amazon Bedrock AgentCore agent before production. Also joining the event’s AWS certification panel.",
+      "es": "22 de octubre de 2026: cómo calcular el costo por resultado y los costos reales de un agente con Amazon Bedrock AgentCore antes de llevarlo a producción. También participo del panel sobre certificaciones de AWS."
+    },
+    "href": "https://www.meetup.com/es-es/aws-user-group-cordoba-argentina/events/316964435/",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
   },
   {
     "id": "nerdearla-2026-aws-booth-agent",
