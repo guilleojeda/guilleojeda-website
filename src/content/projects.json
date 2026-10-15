@@ -84,6 +84,27 @@
     "featured": true
   },
   {
+    "id": "caylent-business-value-realization-ai",
+    "href": "https://caylent.com/blog/the-business-value-realization-of-ai",
+    "label": {
+      "en": "Caylent white paper · Co-author",
+      "es": "Whitepaper de Caylent · Coautor"
+    },
+    "title": {
+      "en": "The Business Value Realization of AI",
+      "es": "The Business Value Realization of AI"
+    },
+    "text": {
+      "en": "Co-authored with Caylent colleagues, this white paper examines how to measure and realize AI’s business value after deployment.",
+      "es": "Escrito en coautoría con colegas de Caylent, este whitepaper aborda cómo medir y lograr valor de negocio con IA después del despliegue."
+    },
+    "cta": {
+      "en": "Read the whitepaper",
+      "es": "Leer el whitepaper"
+    },
+    "featured": false
+  },
+  {
     "id": "caylent-2025-generative-ai-outlook",
     "href": "https://www.linkedin.com/posts/guilleojeda_what-should-you-expect-in-2025-for-generative-activity-7298043939184369664-KHaX",
     "label": {

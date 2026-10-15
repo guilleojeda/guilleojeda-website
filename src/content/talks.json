@@ -53,16 +53,16 @@
       "es": "Nerdearla Argentina · Stand de AWS"
     },
     "format": {
-      "en": "Scheduled talk",
-      "es": "Charla programada"
+      "en": "Conference talk",
+      "es": "Charla de conferencia"
     },
     "title": {
       "en": "De usar ChatGPT a construir tu primer agente con Amazon Bedrock",
       "es": "De usar ChatGPT a construir tu primer agente con Amazon Bedrock"
     },
     "text": {
-      "en": "An upcoming talk at the AWS booth about moving from ChatGPT to building a first agent with Amazon Bedrock.",
-      "es": "Una próxima charla en el stand de AWS sobre cómo pasar de usar ChatGPT a construir un primer agente con Amazon Bedrock."
+      "en": "Delivered a talk at the AWS booth about moving from ChatGPT to building a first agent with Amazon Bedrock.",
+      "es": "Di una charla en el stand de AWS sobre cómo pasar de usar ChatGPT a construir un primer agente con Amazon Bedrock."
     }
   },
   {
