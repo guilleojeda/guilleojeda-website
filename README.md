@@ -66,6 +66,8 @@ aws sts get-caller-identity
 aws iam list-open-id-connect-providers
 ```
 
+The collector reserves one concurrent execution. The regional Lambda concurrency quota must leave AWS's required 100 unreserved slots available; with no other reservations, it must be at least 101. Check `aws lambda get-account-settings --region us-east-1` before initial deployment. Accounts with reduced quotas may need an AWS quota/support request before the stack can create the collector.
+
 If the account already has the provider for `https://token.actions.githubusercontent.com`, pass its ARN as `GitHubOidcProviderArn`. Do not create another provider or replace one owned by another application. If none exists, the stack can create it with `CreateOidcProviderIfMissing=true`.
 
 For a new provider:
