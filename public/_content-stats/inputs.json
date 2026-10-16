@@ -13,5 +13,10 @@
       "id": "builder-center",
       "authorId": "251f1678-ab8f-4f22-afb9-1ee13511c7ee"
     }
-  ]
+  ],
+  "newsletter": {
+    "id": "simple-aws",
+    "publicationId": "pub_ed281676-a90b-4ea4-8399-5bd595846499",
+    "language": "en"
+  }
 }
