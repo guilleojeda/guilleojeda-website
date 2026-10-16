@@ -39,6 +39,9 @@ function invokeWith(records) {
   class PutObjectCommand {
     constructor(input) { this.input = input; }
   }
+  class GetSecretValueCommand {
+    constructor(input) { this.input = input; }
+  }
   class S3Client {
     async send(command) {
       if (command instanceof GetObjectCommand) {
@@ -51,6 +54,11 @@ function invokeWith(records) {
       throw new Error("Unexpected S3 command");
     }
   }
+  class SecretsManagerClient {
+    async send() {
+      throw new Error("Unexpected Secrets Manager command for legacy input");
+    }
+  }
 
   const moduleObject = { exports: {} };
   const sandbox = {
@@ -58,6 +66,7 @@ function invokeWith(records) {
     exports: moduleObject.exports,
     require(name) {
       if (name === "@aws-sdk/client-s3") return { S3Client, GetObjectCommand, PutObjectCommand };
+      if (name === "@aws-sdk/client-secrets-manager") return { SecretsManagerClient, GetSecretValueCommand };
       return requireFromHere(name);
     },
     process: { env: {

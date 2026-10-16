@@ -1,16 +1,19 @@
 const endpointPath = '/content-stats/v1/current.json';
-const knownKinds = ['articles', 'talks', 'books'];
+const knownKinds = ['articles', 'talks', 'books', 'newsletter'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
   counts: ['all', 'en', 'es'],
-  source: ['id', 'label']
+  source: ['id', 'label'],
+  newsletterGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'subscribers'],
+  publication: ['id', 'label', 'language']
 };
 const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
   ['builder-center', 'AWS Builder Center']
 ]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
+const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -44,6 +47,10 @@ function isNonnegativeCount(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+function isSha256(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
 function hasSources(group, kind) {
   const { sources } = group;
   if (!Array.isArray(sources) || sources.length === 0) return false;
@@ -69,6 +76,21 @@ function hasSources(group, kind) {
 }
 
 function validateGroup(value, kind) {
+  if (kind === 'newsletter') {
+    if (!hasOnlyKeys(value, allowedKeys.newsletterGroup)
+      || value.definitionVersion !== 1
+      || value.basis !== 'current'
+      || !isSupportedTimestamp(value.collectedAt)
+      || !isSha256(value.scopeId)
+      || !hasOnlyKeys(value.publication, allowedKeys.publication)
+      || value.publication.id !== supportedNewsletter.id
+      || value.publication.label !== supportedNewsletter.label
+      || !['en', 'es'].includes(value.publication.language)
+      || !isNonnegativeCount(value.subscribers)) return null;
+
+    return value;
+  }
+
   if (!hasOnlyKeys(value, allowedKeys.group)
     || value.definitionVersion !== 1
     || value.basis !== 'cumulative'
@@ -135,9 +157,14 @@ function localizeSource(source, locale) {
 
 function renderGroup(group, locale, language, elements) {
   const count = group.counts[language];
+  renderCount(count, group.sources.map((source) => localizeSource(source, locale)).join(', '), group.collectedAt, locale, elements);
+}
+
+function renderCount(count, coverage, collectedAt, locale, elements) {
+  elements.card.hidden = false;
   elements.count.textContent = new Intl.NumberFormat(locale).format(count);
-  elements.coverage.textContent = group.sources.map((source) => localizeSource(source, locale)).join(', ');
-  elements.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
+  elements.coverage.textContent = coverage;
+  elements.collectedDate.textContent = formatCollectedDate(collectedAt, locale);
   elements.results.hidden = false;
   elements.status.hidden = true;
   elements.status.textContent = '';
@@ -145,6 +172,7 @@ function renderGroup(group, locale, language, elements) {
 }
 
 function renderUnavailable(elements) {
+  elements.card.hidden = false;
   elements.results.hidden = true;
   elements.count.textContent = '';
   elements.coverage.textContent = '';
@@ -152,6 +180,22 @@ function renderUnavailable(elements) {
   elements.status.textContent = elements.card.dataset.statsUnavailable?.trim() || 'Statistics are temporarily unavailable.';
   elements.status.hidden = false;
   elements.card.setAttribute('aria-busy', 'false');
+}
+
+function renderNewsletterGroup(group, locale, language, elements) {
+  if (language !== 'all' && language !== group.publication.language) {
+    elements.card.hidden = true;
+    elements.results.hidden = true;
+    elements.count.textContent = '';
+    elements.coverage.textContent = '';
+    elements.collectedDate.textContent = '';
+    elements.status.hidden = true;
+    elements.status.textContent = '';
+    elements.card.setAttribute('aria-busy', 'false');
+    return;
+  }
+
+  renderCount(group.subscribers, group.publication.label, group.collectedAt, locale, elements);
 }
 
 function renderAll(groups, locale, language, elements) {
@@ -162,7 +206,8 @@ function renderAll(groups, locale, language, elements) {
       if (card) renderUnavailable(card);
       continue;
     }
-    renderGroup(group, locale, language, card);
+    if (kind === 'newsletter') renderNewsletterGroup(group, locale, language, card);
+    else renderGroup(group, locale, language, card);
   }
 }
 

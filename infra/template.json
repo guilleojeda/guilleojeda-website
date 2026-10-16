@@ -2,6 +2,11 @@
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "Private S3 and CloudFront hosting for the Guille Ojeda personal website.",
   "Parameters": {
+    "BeehiivApiKeySecretArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$",
+      "Description": "Full ARN of the operator-owned Beehiiv secret, whose JSON SecretString contains apiKey."
+    },
     "GitHubOidcProviderArn": {
       "Type": "String",
       "Default": "",
@@ -717,6 +722,13 @@
                       ]
                     ]
                   }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "secretsmanager:GetSecretValue",
+                  "Resource": {
+                    "Ref": "BeehiivApiKeySecretArn"
+                  }
                 }
               ]
             }
@@ -746,7 +758,7 @@
       "Type": "AWS::Lambda::Function",
       "DependsOn": "ContentStatsCollectorLogGroup",
       "Properties": {
-        "Description": "Refresh the public article aggregate once a day.",
+        "Description": "Refresh public content statistics once a day.",
         "FunctionName": {
           "Fn::Sub": "${AWS::StackName}-ContentStatsCollector"
         },
@@ -768,7 +780,10 @@
               "Ref": "SiteBucket"
             },
             "STATS_INPUT_KEY": "_content-stats/inputs.json",
-            "STATS_OUTPUT_KEY": "content-stats/v1/current.json"
+            "STATS_OUTPUT_KEY": "content-stats/v1/current.json",
+            "BEEHIIV_API_KEY_SECRET_ARN": {
+              "Ref": "BeehiivApiKeySecretArn"
+            }
           }
         }
       }
@@ -839,7 +854,7 @@
           "Fn::Sub": "${AWS::StackName}-content-stats-daily"
         },
         "GroupName": "default",
-        "Description": "Daily refresh of cumulative article statistics.",
+        "Description": "Daily refresh of public content statistics.",
         "ScheduleExpression": "cron(15 9 * * ? *)",
         "ScheduleExpressionTimezone": "America/Argentina/Cordoba",
         "FlexibleTimeWindow": {
