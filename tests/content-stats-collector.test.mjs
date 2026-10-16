@@ -10,6 +10,10 @@ const outputKey = "content-stats/v1/current.json";
 const bucket = "stats-test-bucket";
 const cacheControl = "public,max-age=0,must-revalidate";
 const secretKey = "synthetic-public-delivery-key";
+const beehiivSecretArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:synthetic-beehiiv-key";
+const beehiivApiKey = "synthetic-beehiiv-api-key-canary";
+const beehiivSecretExtraFieldCanary = "synthetic-secret-extra-field-canary";
+const beehiivPublicationId = "synthetic-publication-id";
 const privateAuthorId = "synthetic-author-id";
 const builderAuthorId = "251f1678-ab8f-4f22-afb9-1ee13511c7ee";
 
@@ -48,6 +52,18 @@ function phaseThreeInput({ sources, curated } = {}) {
   };
 }
 
+function phaseFourInput({ sources, curated, newsletter } = {}) {
+  return {
+    schemaVersion: 4,
+    definitionVersion: 1,
+    sources: sources ?? [sourceInput().source, builderCenterSource()],
+    curated: curated ?? { talks: [], books: [] },
+    newsletter: newsletter === undefined
+      ? { id: "simple-aws", publicationId: beehiivPublicationId, language: "en" }
+      : newsletter
+  };
+}
+
 function talkFact(id, kind = "talk", status = "delivered", language = "en") {
   return { id, kind, status, language };
 }
@@ -69,6 +85,22 @@ function priorGroup({
     scopeId,
     sources,
     counts
+  };
+}
+
+function priorNewsletterGroup({
+  collectedAt = "2026-10-10T12:00:00.000Z",
+  scopeId = "b".repeat(64),
+  publication = { id: "simple-aws", label: "Simple AWS", language: "en" },
+  subscribers = 17
+} = {}) {
+  return {
+    definitionVersion: 1,
+    basis: "current",
+    collectedAt,
+    scopeId,
+    publication,
+    subscribers
   };
 }
 
@@ -159,6 +191,11 @@ function createHarness({
   fetchFn = async () => jsonResponse({ results: [] }),
   clock = createClock(),
   getFailures = new Map(),
+  secretArn = beehiivSecretArn,
+  secretResponse = {
+    SecretString: JSON.stringify({ apiKey: beehiivApiKey, operatorNote: beehiivSecretExtraFieldCanary })
+  },
+  secretFailures = new Map(),
   putFailure,
   createHashFaultAfter = null,
   createHashFault = new Error("synthetic createHash fault")
@@ -170,8 +207,12 @@ function createHarness({
   const source = readFileSync(collectorPath, "utf8");
   const objects = new Map([[inputKey, JSON.stringify(input)]]);
   const getCalls = [];
+  const secretCalls = [];
   const putCalls = [];
   const logs = [];
+  const abortSignalRecords = [];
+  const secretResponses = new Map();
+  if (typeof secretArn === "string" && secretArn.trim() !== "") secretResponses.set(secretArn, secretResponse);
 
   class GetObjectCommand {
     constructor(params) {
@@ -179,6 +220,11 @@ function createHarness({
     }
   }
   class PutObjectCommand {
+    constructor(params) {
+      this.input = params;
+    }
+  }
+  class GetSecretValueCommand {
     constructor(params) {
       this.input = params;
     }
@@ -207,6 +253,23 @@ function createHarness({
     }
   }
 
+  class SecretsManagerClient {
+    async send(command) {
+      if (!(command instanceof GetSecretValueCommand)) {
+        throw new Error(`Unexpected Secrets Manager command: ${command?.constructor?.name}`);
+      }
+      secretCalls.push(JSON.parse(JSON.stringify(command.input)));
+      if (secretFailures.has(command.input.SecretId)) throw secretFailures.get(command.input.SecretId);
+      const response = secretResponses.get(command.input.SecretId);
+      if (response === undefined) {
+        const error = new Error(`Synthetic secret is absent: ${command.input.SecretId}`);
+        error.name = "ResourceNotFoundException";
+        throw error;
+      }
+      return response;
+    }
+  }
+
   const moduleObject = { exports: {} };
   const nativeRequire = createRequire(import.meta.url);
   const nativeCrypto = nativeRequire("node:crypto");
@@ -222,28 +285,36 @@ function createHarness({
       }
     };
   const sdk = { S3Client, GetObjectCommand, PutObjectCommand };
+  const secretsManagerSdk = { SecretsManagerClient, GetSecretValueCommand };
+  const env = {
+    STATS_BUCKET: bucket,
+    STATS_INPUT_KEY: inputKey,
+    STATS_OUTPUT_KEY: outputKey
+  };
+  if (secretArn !== null) env.BEEHIIV_API_KEY_SECRET_ARN = secretArn;
   const sandbox = {
     module: moduleObject,
     exports: moduleObject.exports,
     require(request) {
       if (request === "@aws-sdk/client-s3") return sdk;
+      if (request === "@aws-sdk/client-secrets-manager") return secretsManagerSdk;
       if (request === "node:crypto") return crypto;
       return nativeRequire(request);
     },
-    process: {
-      env: {
-        STATS_BUCKET: bucket,
-        STATS_INPUT_KEY: inputKey,
-        STATS_OUTPUT_KEY: outputKey
-      }
-    },
+    process: { env },
     fetch: fetchFn,
     Date: clock.Date,
     URL,
     URLSearchParams,
     Buffer,
     AbortController,
-    AbortSignal,
+    AbortSignal: {
+      timeout(milliseconds) {
+        const signal = AbortSignal.timeout(milliseconds);
+        abortSignalRecords.push({ signal, milliseconds });
+        return signal;
+      }
+    },
     setTimeout,
     clearTimeout,
     console: Object.fromEntries(["log", "info", "warn", "error"].map((level) => [
@@ -259,13 +330,20 @@ function createHarness({
     handler: moduleObject.exports.handler,
     objects,
     getCalls,
+    secretCalls,
     putCalls,
     logs,
+    abortSignalRecords,
+    env,
+    clock,
     setInput(nextInput) {
       objects.set(inputKey, JSON.stringify(nextInput));
     },
     setGetFailure(key, error) {
       getFailures.set(key, error);
+    },
+    setSecretResponse(key, response) {
+      secretResponses.set(key, response);
     }
   };
 }
@@ -320,6 +398,37 @@ function builderApiFetch({
       return jsonResponse({ error: "detail reads are outside the Phase 2 count contract" }, 404);
     }
     throw new Error(`Unexpected synthetic provider endpoint: ${url.origin}${url.pathname}`);
+  };
+}
+
+function phaseFourApiFetch({ requestLog = [], newsletterResponder, articleFetcher } = {}) {
+  const articleFetch = articleFetcher ?? builderApiFetch({ requestLog });
+  let newsletterAttempts = 0;
+  return async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === "api.beehiiv.com") {
+      newsletterAttempts += 1;
+      const request = {
+        kind: "beehiiv",
+        url: url.toString(),
+        method: init?.method,
+        headers: init?.headers ?? {},
+        redirect: init?.redirect,
+        signal: init?.signal
+      };
+      requestLog.push(request);
+      if (typeof newsletterResponder === "function") {
+        return newsletterResponder({ request, attempt: newsletterAttempts });
+      }
+      if (newsletterResponder !== undefined) return responseFromFixture(newsletterResponder);
+      return jsonResponse({
+        data: {
+          id: beehiivPublicationId,
+          stats: { active_subscriptions: 0 }
+        }
+      });
+    }
+    return articleFetch(input, init);
   };
 }
 
@@ -1618,4 +1727,527 @@ test("an unexpected curated scope process error aborts without fallback, write, 
   const logs = harness.logs.join("\n");
   assert.equal(logs.includes("COLLECTION_FAILED"), true);
   assert.equal(logs.includes(privatePayload), false);
+});
+
+function newsletterEnvelope(publicationId = beehiivPublicationId, subscribers = 0) {
+  return { data: { id: publicationId, stats: { active_subscriptions: subscribers } } };
+}
+
+function newsletterRequestHeader(request, name) {
+  const key = Object.keys(request.headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  return key === undefined ? undefined : request.headers[key];
+}
+
+function assertNoNewsletterCanaries(harness, ...values) {
+  const published = harness.putCalls.map((call) => bodyText(call.Body)).join("\n");
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(published.includes(value), false, `public aggregate must omit ${value}`);
+    assert.equal(logs.includes(value), false, `collector logs must omit ${value}`);
+  }
+}
+
+test("input 1, 2, and 3 remain compatible and never read Beehiiv credentials or call its API", async () => {
+  const cases = [
+    { name: "input 1", input: sourceInput(), expectedGroups: ["articles"] },
+    { name: "input 2", input: phaseTwoInput(), expectedGroups: ["articles"] },
+    { name: "input 3", input: phaseThreeInput(), expectedGroups: ["articles", "books", "talks"] }
+  ];
+
+  for (const { name, input, expectedGroups } of cases) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseFourApiFetch({ requestLog }) });
+    await harness.handler({}, {});
+    assert.deepEqual(harness.secretCalls, [], `${name} must not read the configured Beehiiv secret`);
+    assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 0, `${name} must not call Beehiiv`);
+    assert.deepEqual(Object.keys((await readPut(harness.putCalls[0])).groups).sort(), expectedGroups);
+  }
+});
+
+test("input 4 reads apiKey from Secrets Manager JSON, requests only active subscriptions, and publishes the current aggregate including zero", async () => {
+  let subscribers = 0;
+  let currentApiKey = beehiivApiKey;
+  const requestLog = [];
+  const fetchFn = phaseFourApiFetch({
+    requestLog,
+    newsletterResponder: ({ request }) => {
+      const requestedPublication = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+      return jsonResponse(newsletterEnvelope(requestedPublication, subscribers));
+    }
+  });
+  const harness = createHarness({ input: phaseFourInput(), fetchFn, clock: createClock() });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const firstGroup = first.groups.newsletter;
+  assert.deepEqual(Object.keys(first.groups).sort(), ["articles", "books", "newsletter", "talks"]);
+  assert.deepEqual(Object.keys(firstGroup).sort(), [
+    "basis", "collectedAt", "definitionVersion", "publication", "scopeId", "subscribers"
+  ]);
+  assert.equal(firstGroup.definitionVersion, 1);
+  assert.equal(firstGroup.basis, "current");
+  assert.equal(firstGroup.collectedAt, "2026-10-16T12:00:00.000Z");
+  assert.match(firstGroup.scopeId, /^[a-f0-9]{64}$/);
+  assert.deepEqual(firstGroup.publication, { id: "simple-aws", label: "Simple AWS", language: "en" });
+  assert.equal(firstGroup.subscribers, 0, "a verified zero remains a current measured count");
+
+  const firstRequest = requestLog.find(({ kind }) => kind === "beehiiv");
+  assert.equal(firstRequest.url, `https://api.beehiiv.com/v2/publications/${encodeURIComponent(beehiivPublicationId)}?expand=stat_active_subscriptions`);
+  assert.equal(firstRequest.method, "GET");
+  assert.equal(newsletterRequestHeader(firstRequest, "authorization"), `Bearer ${currentApiKey}`);
+  assert.equal(firstRequest.redirect, "error", "the request carrying the private key must refuse redirects");
+  assert.ok(firstRequest.signal, "the provider request carries an abort signal");
+  assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === firstRequest.signal)?.milliseconds, 10_000, "the credential-bearing provider request itself keeps the ten-second timeout");
+  assert.deepEqual(harness.secretCalls, [{ SecretId: beehiivSecretArn }], "GetSecretValue uses AWSCURRENT by default and passes no private value in its request");
+
+  const rotatedArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:synthetic-beehiiv-key-rotated";
+  currentApiKey = "synthetic-rotated-beehiiv-api-key-canary";
+  const rotatedSecretExtraCanary = "synthetic-rotated-secret-extra-canary";
+  harness.setSecretResponse(rotatedArn, {
+    SecretString: JSON.stringify({ apiKey: currentApiKey, operatorNote: rotatedSecretExtraCanary })
+  });
+  harness.env.BEEHIIV_API_KEY_SECRET_ARN = rotatedArn;
+  subscribers = 27;
+  harness.setInput(phaseFourInput({
+    sources: [builderCenterSource(), sourceInput().source],
+    curated: { talks: [talkFact("unrelated-scope-talk")], books: [bookFact("unrelated-scope-book")] }
+  }));
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+  assert.equal(second.groups.newsletter.subscribers, 27);
+  assert.equal(second.groups.newsletter.scopeId, firstGroup.scopeId, "count, secret ARN/value, unrelated family facts, and source order are outside newsletter scope");
+  assert.equal(newsletterRequestHeader(requestLog.filter(({ kind }) => kind === "beehiiv")[1], "authorization"), `Bearer ${currentApiKey}`);
+  assert.deepEqual(harness.secretCalls, [
+    { SecretId: beehiivSecretArn },
+    { SecretId: rotatedArn }
+  ]);
+  assertNoNewsletterCanaries(
+    harness,
+    beehiivApiKey,
+    currentApiKey,
+    beehiivSecretExtraFieldCanary,
+    rotatedSecretExtraCanary,
+    beehiivPublicationId,
+    beehiivSecretArn
+  );
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 2);
+});
+
+test("input 4 rejects malformed document roots before provider work while present newsletter config failures isolate", async () => {
+  const invalidDocuments = [
+    (() => { const input = phaseFourInput(); delete input.newsletter; return input; })(),
+    { ...phaseFourInput(), unexpected: true },
+    { ...phaseFourInput(), schemaVersion: 5 }
+  ];
+  for (const input of invalidDocuments) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseFourApiFetch({ requestLog }) });
+    await assertFailedWithoutReplacing(harness);
+    assert.deepEqual(harness.secretCalls, []);
+    assert.deepEqual(requestLog, [], "root validation must finish before any provider request");
+  }
+
+  const invalidNewsletterSelections = [
+    null,
+    {},
+    [],
+    { id: "another-publication", publicationId: beehiivPublicationId, language: "en" },
+    { id: "simple-aws", publicationId: " \t ", language: "en" },
+    { id: "simple-aws", publicationId: beehiivPublicationId, language: "fr" },
+    { id: "simple-aws", publicationId: beehiivPublicationId, language: "en", extra: "private selector" }
+  ];
+  for (const newsletter of invalidNewsletterSelections) {
+    const requestLog = [];
+    const harness = createHarness({ input: phaseFourInput({ newsletter }), fetchFn: phaseFourApiFetch({ requestLog }) });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"], "a malformed known family is omitted, never represented by a zero");
+    assert.equal(harness.secretCalls.length, 0, "invalid publication selection is rejected before secret retrieval");
+    assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 0);
+    const canaries = [beehiivPublicationId, "private selector"];
+    if (newsletter && typeof newsletter.publicationId === "string" && newsletter.publicationId.trim() !== "") {
+      canaries.push(newsletter.publicationId);
+    }
+    assertNoNewsletterCanaries(harness, ...canaries);
+  }
+});
+
+test("input 4 accepts only a matching publication and safe nonnegative integer active-subscription aggregate", async () => {
+  const malformedResponses = [
+    ["boolean true", { data: { id: beehiivPublicationId, stats: { active_subscriptions: true } } }],
+    ["boolean false", { data: { id: beehiivPublicationId, stats: { active_subscriptions: false } } }],
+    ["null", { data: { id: beehiivPublicationId, stats: { active_subscriptions: null } } }],
+    ["missing value", { data: { id: beehiivPublicationId, stats: {} } }],
+    ["string", { data: { id: beehiivPublicationId, stats: { active_subscriptions: "12" } } }],
+    ["negative", { data: { id: beehiivPublicationId, stats: { active_subscriptions: -1 } } }],
+    ["fractional", { data: { id: beehiivPublicationId, stats: { active_subscriptions: 1.5 } } }],
+    ["unsafe integer", { data: { id: beehiivPublicationId, stats: { active_subscriptions: Number.MAX_SAFE_INTEGER + 1 } } }],
+    ["array", { data: { id: beehiivPublicationId, stats: { active_subscriptions: [12] } } }],
+    ["object", { data: { id: beehiivPublicationId, stats: { active_subscriptions: { count: 12 } } } }],
+    ["wrong publication id", { data: { id: "different-private-publication", stats: { active_subscriptions: 12 } } }],
+    ["missing stats", { data: { id: beehiivPublicationId } }],
+    ["missing data", {}]
+  ];
+
+  for (const [description, responseBody] of malformedResponses) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput(),
+      fetchFn: phaseFourApiFetch({ requestLog, newsletterResponder: () => jsonResponse(responseBody) })
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "newsletter"), false, `${description} must fail only newsletter collection and must not become zero`);
+    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+    assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 1);
+    assertNoNewsletterCanaries(harness, beehiivApiKey, beehiivPublicationId, "different-private-publication");
+  }
+});
+
+test("input 4 retries only the bounded transient provider failures and never retries authorization or redirects", async () => {
+  for (const status of [408, 425, 429, 500, 599]) {
+    let attempts = 0;
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput(),
+      fetchFn: phaseFourApiFetch({
+        requestLog,
+        newsletterResponder: () => {
+          attempts += 1;
+          return attempts === 1
+            ? jsonResponse({ error: "synthetic private Beehiiv body" }, status)
+            : jsonResponse(newsletterEnvelope(beehiivPublicationId, 23));
+        }
+      })
+    });
+    await harness.handler({}, {});
+    assert.equal(attempts, 2, `HTTP ${status} receives exactly one retry`);
+    assert.equal((await readPut(harness.putCalls[0])).groups.newsletter.subscribers, 23);
+    for (const request of requestLog.filter(({ kind }) => kind === "beehiiv")) {
+      assert.equal(request.redirect, "error");
+    }
+    assertNoNewsletterCanaries(harness, beehiivApiKey, "synthetic private Beehiiv body");
+  }
+
+  let networkAttempts = 0;
+  const networkRequestLog = [];
+  const recoveredNetwork = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseFourApiFetch({
+      requestLog: networkRequestLog,
+      newsletterResponder: () => {
+        networkAttempts += 1;
+        if (networkAttempts === 1) throw new Error("synthetic private key network error");
+        return jsonResponse(newsletterEnvelope(beehiivPublicationId, 4));
+      }
+    })
+  });
+  await recoveredNetwork.handler({}, {});
+  assert.equal(networkAttempts, 2, "one network failure receives exactly one retry");
+  assert.equal((await readPut(recoveredNetwork.putCalls[0])).groups.newsletter.subscribers, 4);
+  assertNoNewsletterCanaries(recoveredNetwork, beehiivApiKey, "synthetic private key network error");
+
+  for (const status of [401, 403, 404, 302]) {
+    let attempts = 0;
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput(),
+      fetchFn: phaseFourApiFetch({
+        requestLog,
+        newsletterResponder: () => {
+          attempts += 1;
+          return jsonResponse({ error: "private provider response canary" }, status);
+        }
+      })
+    });
+    await harness.handler({}, {});
+    assert.equal(attempts, 1, `HTTP ${status} is not retried`);
+    assert.equal(Object.hasOwn((await readPut(harness.putCalls[0])).groups, "newsletter"), false);
+    assert.equal(requestLog.find(({ kind }) => kind === "beehiiv").redirect, "error");
+    assertNoNewsletterCanaries(harness, beehiivApiKey, "private provider response canary");
+  }
+
+  let persistentTransientAttempts = 0;
+  const persistentTransient = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseFourApiFetch({
+      newsletterResponder: () => {
+        persistentTransientAttempts += 1;
+        return jsonResponse({ error: "synthetic temporary failure" }, 503);
+      }
+    })
+  });
+  await persistentTransient.handler({}, {});
+  assert.equal(persistentTransientAttempts, 2, "a repeated transient response stops after the single retry");
+  assert.equal(Object.hasOwn((await readPut(persistentTransient.putCalls[0])).groups, "newsletter"), false);
+});
+
+test("missing, unreadable, empty, or binary-only Secrets Manager credentials isolate newsletter collection", async () => {
+  const secretReadCanary = "synthetic-secret-read-error-canary";
+  const cases = [
+    { name: "missing ARN", options: { secretArn: null }, expectedCalls: 0 },
+    { name: "blank ARN", options: { secretArn: " \t " }, expectedCalls: 0 },
+    { name: "GetSecretValue error", options: { secretFailures: new Map([[beehiivSecretArn, new Error(secretReadCanary)]]) }, expectedCalls: 1 },
+    { name: "missing SecretString", options: { secretResponse: {} }, expectedCalls: 1 },
+    { name: "empty SecretString", options: { secretResponse: { SecretString: " \t\n " } }, expectedCalls: 1 },
+    { name: "binary-only value", options: { secretResponse: { SecretBinary: Buffer.from("synthetic-binary-secret-canary") } }, expectedCalls: 1 },
+    { name: "malformed JSON", options: { secretResponse: { SecretString: `{"apiKey":"${beehiivApiKey}"` } }, expectedCalls: 1 },
+    { name: "JSON null", options: { secretResponse: { SecretString: "null" } }, expectedCalls: 1 },
+    { name: "JSON array", options: { secretResponse: { SecretString: "[]" } }, expectedCalls: 1 },
+    { name: "missing apiKey", options: { secretResponse: { SecretString: JSON.stringify({ operatorNote: secretReadCanary }) } }, expectedCalls: 1 },
+    { name: "non-string apiKey", options: { secretResponse: { SecretString: JSON.stringify({ apiKey: 42 }) } }, expectedCalls: 1 },
+    { name: "blank apiKey", options: { secretResponse: { SecretString: JSON.stringify({ apiKey: " \t " }) } }, expectedCalls: 1 }
+  ];
+
+  for (const { name, options, expectedCalls } of cases) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput(),
+      fetchFn: phaseFourApiFetch({ requestLog }),
+      ...options
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"], `${name} omits newsletter without affecting fresh siblings`);
+    assert.equal(harness.secretCalls.length, expectedCalls, `${name} uses only the expected secret lookup`);
+    assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 0, `${name} cannot make a credential-less provider request`);
+    assertNoNewsletterCanaries(
+      harness,
+      beehiivApiKey,
+      secretReadCanary,
+      beehiivSecretExtraFieldCanary,
+      "synthetic-binary-secret-canary"
+    );
+  }
+});
+
+test("newsletter failures retain their exact prior group, omit it on first failure, and recover with a fresh record", async () => {
+  let mode = "success";
+  let subscribers = 31;
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFourInput({ curated: { talks: [talkFact("first-talk")], books: [bookFact("first-book")] } }),
+    fetchFn: phaseFourApiFetch({
+      requestLog,
+      newsletterResponder: ({ request, attempt }) => {
+        if (mode === "failure") return jsonResponse({ error: "synthetic private response canary" }, 503);
+        const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(publicationId, subscribers));
+      }
+    }),
+    clock: createClock("2026-10-16T12:00:00.000Z")
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const firstNewsletter = first.groups.newsletter;
+
+  mode = "failure";
+  harness.setInput(phaseFourInput({ curated: {
+    talks: [talkFact("second-talk")],
+    books: [bookFact("second-book"), bookFact("another-second-book", "published", "es")]
+  } }));
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls[1]);
+  assert.deepEqual(retained.groups.newsletter, firstNewsletter, "fallback preserves count, collection date, scope, and public identity byte-for-byte");
+  assert.equal(retained.groups.talks.collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.deepEqual(retained.groups.talks.counts, { all: 1, en: 1, es: 0 }, "fresh curated siblings are published while the family is retained");
+  assert.deepEqual(retained.groups.books.counts, { all: 2, en: 1, es: 1 });
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "fallback reads the previous aggregate only after newsletter failure");
+
+  mode = "success";
+  subscribers = 47;
+  harness.clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.equal(recovered.groups.newsletter.subscribers, 47);
+  assert.notEqual(recovered.groups.newsletter.collectedAt, firstNewsletter.collectedAt);
+  assert.equal(recovered.groups.newsletter.scopeId, firstNewsletter.scopeId);
+  assert.equal(recovered.groups.newsletter.publication.id, firstNewsletter.publication.id);
+  assert.equal(Object.hasOwn(recovered.groups.newsletter, "retained"), false);
+  for (const family of ["articles", "talks", "books"]) {
+    assert.deepEqual(recovered.groups[family].counts, retained.groups[family].counts, `newsletter recovery does not change ${family} values`);
+    assert.equal(recovered.groups[family].scopeId, retained.groups[family].scopeId, `newsletter recovery does not change ${family} scope`);
+  }
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 4, "success calls once; the failed 503 refresh gets one retry; recovery calls once");
+  assertNoNewsletterCanaries(harness, beehiivApiKey, "synthetic private response canary", beehiivPublicationId);
+});
+
+test("a first newsletter failure omits the family and does not publish a placeholder zero", async () => {
+  let attempts = 0;
+  const harness = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseFourApiFetch({
+      newsletterResponder: () => {
+        attempts += 1;
+        return jsonResponse({ error: "synthetic Beehiiv outage" }, 503);
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(attempts, 2);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+  assert.equal(Object.values(output.groups).some((group) => group.subscribers === 0), false);
+  assertNoNewsletterCanaries(harness, beehiivApiKey, "synthetic Beehiiv outage");
+});
+
+test("a sole fresh newsletter family publishes alone, while all-family failure performs no fallback read or write", async () => {
+  let failNewsletter = false;
+  const requestLog = [];
+  const articleFetcher = builderApiFetch({
+    requestLog,
+    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+  });
+  const harness = createHarness({
+    input: phaseFourInput({ curated: {
+      talks: [talkFact("duplicate-talk"), talkFact("duplicate-talk")],
+      books: [bookFact("duplicate-book"), bookFact("duplicate-book")]
+    } }),
+    fetchFn: phaseFourApiFetch({
+      requestLog,
+      articleFetcher,
+      newsletterResponder: () => failNewsletter
+        ? jsonResponse({ error: "synthetic newsletter failure" }, 503)
+        : jsonResponse(newsletterEnvelope(beehiivPublicationId, 9))
+    })
+  });
+
+  await harness.handler({}, {});
+  const onlyNewsletterBytes = bodyText(harness.putCalls[0].Body);
+  const onlyNewsletter = JSON.parse(onlyNewsletterBytes);
+  assert.deepEqual(Object.keys(onlyNewsletter.groups), ["newsletter"]);
+  assert.equal(onlyNewsletter.groups.newsletter.subscribers, 9);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "fresh newsletter permits one prior-family fallback lookup");
+
+  failNewsletter = true;
+  await assert.rejects(() => harness.handler({}, {}));
+  assert.equal(harness.putCalls.length, 1, "when every family fails the existing newsletter bytes are not replaced");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "all-family failure does not perform another fallback lookup");
+  assert.equal(harness.objects.get(outputKey), onlyNewsletterBytes);
+});
+
+test("newsletter source-scope changes never relabel a prior count under new publication or language metadata", async () => {
+  let failProvider = false;
+  let subscribers = 12;
+  const requestLog = [];
+  const responder = ({ request }) => {
+    if (failProvider) return jsonResponse({ error: "synthetic changed-scope failure" }, 503);
+    const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    return jsonResponse(newsletterEnvelope(publicationId, subscribers));
+  };
+  const harness = createHarness({
+    input: phaseFourInput({ newsletter: { id: "simple-aws", publicationId: "publication-a", language: "en" } }),
+    fetchFn: phaseFourApiFetch({ requestLog, newsletterResponder: responder })
+  });
+
+  await harness.handler({}, {});
+  const first = (await readPut(harness.putCalls[0])).groups.newsletter;
+
+  harness.setInput(phaseFourInput({ newsletter: { id: "simple-aws", publicationId: "publication-b/encoded", language: "en" } }));
+  failProvider = true;
+  await harness.handler({}, {});
+  const afterSelectorFailure = await readPut(harness.putCalls[1]);
+  assert.deepEqual(afterSelectorFailure.groups.newsletter, first, "a failed refresh keeps every prior newsletter field unchanged even when configuration has changed");
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv")[1].url, "https://api.beehiiv.com/v2/publications/publication-b%2Fencoded?expand=stat_active_subscriptions");
+
+  failProvider = false;
+  subscribers = 19;
+  await harness.handler({}, {});
+  const second = (await readPut(harness.putCalls[2])).groups.newsletter;
+  assert.equal(second.publication.id, "simple-aws");
+  assert.equal(second.publication.language, "en");
+  assert.notEqual(second.scopeId, first.scopeId, "the provider publication selector belongs to semantic scope");
+
+  harness.setInput(phaseFourInput({ newsletter: { id: "simple-aws", publicationId: "publication-b/encoded", language: "es" } }));
+  await harness.handler({}, {});
+  const spanish = (await readPut(harness.putCalls[3])).groups.newsletter;
+  assert.equal(spanish.publication.language, "es");
+  assert.notEqual(spanish.scopeId, second.scopeId, "the configured content language belongs to semantic scope");
+});
+
+test("a failed article family retains its exact record while a fresh newsletter publishes", async () => {
+  let failArticles = false;
+  let subscribers = 8;
+  const requestLog = [];
+  const articleFetcher = builderApiFetch({
+    requestLog,
+    caylentPages: new Map([[0, () => failArticles
+      ? jsonResponse({ error: "synthetic article source failure" }, 503)
+      : { results: [article({ id: "successful-article" })] }]])
+  });
+  const harness = createHarness({
+    input: phaseFourInput({ curated: { talks: [talkFact("talk-before-article-failure")], books: [bookFact("book-before-article-failure")] } }),
+    fetchFn: phaseFourApiFetch({
+      requestLog,
+      articleFetcher,
+      newsletterResponder: ({ request }) => {
+        const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(publicationId, subscribers));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const previous = await readPut(harness.putCalls[0]);
+  const previousArticles = previous.groups.articles;
+
+  failArticles = true;
+  subscribers = 13;
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  harness.setInput(phaseFourInput({ curated: {
+    talks: [talkFact("talk-after-article-failure")],
+    books: [bookFact("book-after-article-failure")]
+  } }));
+  await harness.handler({}, {});
+  const current = await readPut(harness.putCalls[1]);
+  assert.deepEqual(current.groups.articles, previousArticles, "article fallback keeps its own original value and metadata");
+  assert.equal(current.groups.newsletter.subscribers, 13, "a successful sibling is fresh even when articles fail");
+  assert.notEqual(current.groups.newsletter.collectedAt, previous.groups.newsletter.collectedAt);
+  assert.deepEqual(current.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(current.groups.books.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 2);
+});
+
+test("malformed known newsletter fallback is isolated, but prior document and storage errors still abort publication", async () => {
+  const newsletterFailureFetch = phaseFourApiFetch({
+    newsletterResponder: () => jsonResponse({ error: "synthetic newsletter failure" }, 503)
+  });
+  const websiteInventoryGroup = priorGroup({ sources: [{ id: "website-inventory", label: "Website inventory" }] });
+  const malformedNewsletterPrevious = JSON.stringify({
+    schemaVersion: 1,
+    groups: {
+      articles: priorGroup(),
+      talks: websiteInventoryGroup,
+      books: websiteInventoryGroup,
+      newsletter: { ...priorNewsletterGroup(), subscribers: "not-a-safe-count" }
+    }
+  });
+  const isolated = createHarness({ input: phaseFourInput(), fetchFn: newsletterFailureFetch });
+  isolated.objects.set(outputKey, malformedNewsletterPrevious);
+  await isolated.handler({}, {});
+  assert.deepEqual(Object.keys((await readPut(isolated.putCalls[0])).groups).sort(), ["articles", "books", "talks"]);
+
+  const badPriorDocuments = [
+    "not-json",
+    JSON.stringify({ schemaVersion: 1, groups: { articles: priorGroup(), future: priorGroup() } })
+  ];
+  for (const previous of badPriorDocuments) {
+    const harness = createHarness({ input: phaseFourInput(), fetchFn: newsletterFailureFetch });
+    harness.objects.set(outputKey, previous);
+    await assert.rejects(() => harness.handler({}, {}));
+    assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+    assert.equal(harness.putCalls.length, 0, "a document-level fallback error cannot publish fresh partial groups");
+    assert.equal(harness.objects.get(outputKey), previous);
+  }
+
+  const storagePrevious = JSON.stringify({ schemaVersion: 1, groups: { articles: priorGroup() } });
+  const storage = createHarness({ input: phaseFourInput(), fetchFn: newsletterFailureFetch });
+  storage.objects.set(outputKey, storagePrevious);
+  storage.setGetFailure(outputKey, new Error("synthetic aggregate read failure"));
+  await assert.rejects(() => storage.handler({}, {}));
+  assert.equal(storage.putCalls.length, 0);
+  assert.equal(storage.objects.get(outputKey), storagePrevious);
 });

@@ -67,12 +67,21 @@ function checkContentStatsShell(page, html) {
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
 
   const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
-  assert.deepEqual(cardKinds, ['articles', 'talks', 'books'], `${locale} statistics must group articles, delivered sessions and published books by content type`);
+  assert.deepEqual(cardKinds, ['articles', 'talks', 'books', 'newsletter'], `${locale} statistics must group articles, delivered sessions, published books and newsletter subscribers by content type`);
   mustContain(statsHtml, 'data-stats-kind="articles"', `${locale} Articles card`);
   mustContainText(statsHtml, locale === 'en' ? 'Articles' : 'Artículos', `${locale} Articles card title`);
   mustContainText(statsHtml, locale === 'en' ? 'Talks & sessions' : 'Charlas y sesiones', `${locale} speaking card title`);
   mustContainText(statsHtml, locale === 'en' ? 'Books' : 'Libros', `${locale} books card title`);
-  for (const kind of ['articles', 'talks', 'books']) {
+  const newsletterCard = statsHtml.match(/<article\b(?=[^>]*\bdata-stats-kind=["']newsletter["'])[^>]*>[\s\S]*?<\/article>/i)?.[0];
+  assert.ok(newsletterCard, `${locale} newsletter must have a distinct accessible card`);
+  const newsletterHeading = newsletterCard.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
+  const newsletterCardText = newsletterCard.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (locale === 'en') assert.match(newsletterHeading, /newsletter/i, 'English newsletter card heading');
+  else assert.match(newsletterHeading, /newsletter|bolet.n|suscriptores?/i, 'Spanish newsletter card heading');
+  if (locale === 'en') assert.match(newsletterCardText, /current|currently/i, 'English newsletter card labels its total as current');
+  else assert.match(newsletterCardText, /actual(?:es|mente)?|vigentes?/i, 'Spanish newsletter card labels its total as current');
+  mustNotContain(newsletterCard, locale === 'en' ? 'cumulative' : 'total acumulado', `${locale} newsletter card must not label current subscribers as a cumulative total`);
+  for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
     const card = statsHtml.match(new RegExp(`<article\\b(?=[^>]*\\bdata-stats-kind=["']${kind}["'])[^>]*>[\\s\\S]*?<\\/article>`, 'i'))?.[0];
     assert.ok(card, `${locale} ${kind} must have a distinct accessible card`);
     for (const field of ['status', 'results', 'count', 'count-label', 'coverage', 'collected-date']) {
@@ -80,6 +89,9 @@ function checkContentStatsShell(page, html) {
     }
     mustContain(card, 'aria-live="polite"', `${locale} ${kind} accessible updates`);
   }
+  const newsletterUnit = newsletterCard.match(/<[^>]*\bdata-stats-count-label\b[^>]*>([\s\S]*?)<\//i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
+  if (locale === 'en') assert.match(newsletterUnit, /subscribers?|subscriptions?/i, 'English newsletter count uses a subscriber unit');
+  else assert.match(newsletterUnit, /suscriptores?|suscripciones?/i, 'Spanish newsletter count uses a subscriber unit');
   mustContainText(statsHtml, 'Caylent', `${locale} Caylent source disclosure`);
   mustContainText(statsHtml, 'AWS Builder Center', `${locale} AWS Builder Center source disclosure`);
   for (const phrase of locale === 'en'
@@ -91,6 +103,18 @@ function checkContentStatsShell(page, html) {
     ? 'Talk and book languages follow their original titles'
     : 'El idioma de las charlas y los libros se determina por sus títulos originales',
   `${locale} title-language classification disclosure`);
+  const disclosure = statsHtml.match(/<details\b[^>]*>[\s\S]*?<\/details>/i)?.[0] ?? statsHtml;
+  if (locale === 'en') {
+    assert.match(disclosure, /active\s+subscriptions?/i, 'English source disclosure names active subscriptions');
+    assert.match(disclosure, /current/i, 'English source disclosure says the subscriber total is current');
+    assert.match(disclosure, /Simple AWS/i, 'English source disclosure names the newsletter publication');
+    assert.match(disclosure, /English/i, 'English source disclosure identifies the supported content language');
+  } else {
+    assert.match(disclosure, /suscripciones?\s+activas?/i, 'Spanish source disclosure names active subscriptions');
+    assert.match(disclosure, /actual(?:es)?|vigentes?/i, 'Spanish source disclosure says the subscriber total is current');
+    assert.match(disclosure, /Simple AWS/i, 'Spanish source disclosure names the newsletter publication');
+    assert.match(disclosure, /ingl[eé]s/i, 'Spanish source disclosure identifies the supported content language');
+  }
   assert.ok(!/\bdata-stats-period\b/i.test(statsHtml), `${locale} statistics must not expose a reach-period selector`);
 
   const selector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-language\b)[^>]*>([\s\S]*?)<\/select>/i);
@@ -193,10 +217,25 @@ mustContain(notFound, 'href="/"', '404 English recovery link');
 mustContain(notFound, 'href="/es/"', '404 Spanish recovery link');
 
 const inputs = JSON.parse(read('_content-stats/inputs.json'));
-assert.deepEqual(Object.keys(inputs).sort(), ['curated', 'definitionVersion', 'schemaVersion', 'sources'], 'protected build input must combine source configuration and maintained facts without credentials');
-assert.equal(inputs.schemaVersion, 3, 'protected build input schema version');
+const sourceConfig = JSON.parse(readFileSync(join(root, 'public/_content-stats/inputs.json'), 'utf8'));
+const hasNewsletterSelection = Object.hasOwn(inputs, 'newsletter');
+assert.deepEqual(Object.keys(inputs).sort(), hasNewsletterSelection
+  ? ['curated', 'definitionVersion', 'newsletter', 'schemaVersion', 'sources']
+  : ['curated', 'definitionVersion', 'schemaVersion', 'sources'],
+'protected build input must combine source configuration and maintained facts without credentials');
+assert.equal(inputs.schemaVersion, hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
+if (hasNewsletterSelection) {
+  assert.ok(sourceConfig.newsletter, 'newsletter build input must come from a maintained newsletter selection');
+  assert.deepEqual(Object.keys(sourceConfig.newsletter).sort(), ['id', 'language', 'publicationId'], 'maintained newsletter selection must contain only its identity and content language');
+  assert.equal(sourceConfig.newsletter.id, 'simple-aws', 'maintained newsletter selection must name Simple AWS');
+  assert.equal(sourceConfig.newsletter.language, 'en', 'Simple AWS initial content-language policy');
+  assert.ok(typeof sourceConfig.newsletter.publicationId === 'string' && sourceConfig.newsletter.publicationId.trim() !== '', 'maintained newsletter selection must contain a publication ID');
+  assert.deepEqual(inputs.newsletter, sourceConfig.newsletter, 'newsletter build input must project the exact maintained publication selection');
+} else {
+  assert.ok(!Object.hasOwn(sourceConfig, 'newsletter'), 'schema-v3 output must match a source configuration without a newsletter selection');
+}
 assert.deepEqual(inputs.sources.map((source) => source?.id).sort(), ['builder-center', 'caylent'], 'protected build input must contain exactly the approved article sources');
 const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
 assert.deepEqual(Object.keys(caylentSource).sort(), ['apiKey', 'authorId', 'id', 'language', 'originality'], 'Caylent input must contain only its public delivery key and counting configuration');

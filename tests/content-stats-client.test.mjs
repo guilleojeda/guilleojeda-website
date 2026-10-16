@@ -7,9 +7,11 @@ const clientSource = readFileSync(new URL('../src/scripts/content-stats.js', imp
 const collectedAt = '2026-08-04T00:00:00.000Z';
 const talksCollectedAt = '2026-07-28T00:00:00.000Z';
 const booksCollectedAt = '2026-06-30T00:00:00.000Z';
+const newsletterCollectedAt = '2026-08-01T00:00:00.000Z';
 const caylent = { id: 'caylent', label: 'Caylent' };
 const builderCenter = { id: 'builder-center', label: 'AWS Builder Center' };
 const websiteInventory = { id: 'website-inventory', label: 'Website inventory' };
+const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
 
 function aggregateGroup({
   counts,
@@ -64,6 +66,23 @@ function threeGroupSnapshot() {
       })
     }
   };
+}
+
+function newsletterGroup({
+  subscribers = 27,
+  collectedAt: groupCollectedAt = newsletterCollectedAt,
+  scopeId = 'a'.repeat(64),
+  publication = { ...simpleAws, language: 'en' },
+  definitionVersion = 1,
+  basis = 'current'
+} = {}) {
+  return { definitionVersion, basis, collectedAt: groupCollectedAt, scopeId, publication, subscribers };
+}
+
+function snapshotWithNewsletter(options = {}) {
+  const data = threeGroupSnapshot();
+  data.groups.newsletter = newsletterGroup(options);
+  return data;
 }
 
 function toDatasetKey(attribute) {
@@ -158,23 +177,25 @@ const unavailableCopy = {
   en: {
     articles: 'Article statistics are temporarily unavailable.',
     talks: 'Speaking statistics are temporarily unavailable.',
-    books: 'Book statistics are temporarily unavailable.'
+    books: 'Book statistics are temporarily unavailable.',
+    newsletter: 'Newsletter statistics are temporarily unavailable.'
   },
   es: {
     articles: 'No se pueden cargar las estadísticas de artículos por el momento.',
     talks: 'Las estadísticas de sesiones no están disponibles por el momento.',
-    books: 'Las estadísticas de libros no están disponibles por el momento.'
+    books: 'Las estadísticas de libros no están disponibles por el momento.',
+    newsletter: 'Las estadísticas del boletín no están disponibles por el momento.'
   }
 };
 
 const loadingCopy = {
-  en: { articles: 'Loading article statistics…', talks: 'Loading speaking statistics…', books: 'Loading book statistics…' },
-  es: { articles: 'Cargando estadísticas de artículos…', talks: 'Cargando estadísticas de sesiones…', books: 'Cargando estadísticas de libros…' }
+  en: { articles: 'Loading article statistics…', talks: 'Loading speaking statistics…', books: 'Loading book statistics…', newsletter: 'Loading newsletter statistics…' },
+  es: { articles: 'Cargando estadísticas de artículos…', talks: 'Cargando estadísticas de sesiones…', books: 'Cargando estadísticas de libros…', newsletter: 'Cargando estadísticas del boletín…' }
 };
 
 const initialUnits = {
-  en: { articles: 'published articles', talks: 'sessions', books: 'published books' },
-  es: { articles: 'artículos publicados', talks: 'sesiones', books: 'libros publicados' }
+  en: { articles: 'published articles', talks: 'sessions', books: 'published books', newsletter: 'active subscribers' },
+  es: { articles: 'artículos publicados', talks: 'sesiones', books: 'libros publicados', newsletter: 'suscriptores activos' }
 };
 
 function makeCard(kind, locale) {
@@ -213,7 +234,7 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     value: 'all',
     disabled: true
   }));
-  const cards = Object.fromEntries(['articles', 'talks', 'books'].map((kind) => {
+  const cards = Object.fromEntries(['articles', 'talks', 'books', 'newsletter'].map((kind) => {
     const card = makeCard(kind, locale);
     section.appendChild(card.card);
     return [kind, card];
@@ -243,6 +264,7 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     results: cards.articles.results,
     selector,
     section,
+    location: context.window.location,
     status: cards.articles.status,
     async settle() { await new Promise((resolve) => setImmediate(resolve)); },
     get fetchCount() { return fetchCalls.length; },
@@ -257,6 +279,7 @@ function expectedDate(locale, timestamp = collectedAt) {
 
 function assertUnavailable(page, locale, kind = 'articles') {
   const { card, results, count, status } = page.cards[kind];
+  assert.equal(card.hidden, false, `${kind}: invalid or missing data must show an unavailable card`);
   assert.equal(results.hidden, true, `${kind}: unavailable data must not reveal a count`);
   assert.equal(count.textContent, '', `${kind}: unavailable data must not leave a number`);
   assert.equal(status.hidden, false, `${kind}: unavailable state must be visible`);
@@ -277,14 +300,16 @@ function assertLocalizedUnit(page, kind, locale) {
     const expected = {
       articles: /artículos/i,
       talks: /sesion|charla|presentaci/i,
-      books: /libros/i
+      books: /libros/i,
+      newsletter: /suscriptores?|suscripciones?/i
     }[kind];
     assert.match(label, expected, `${kind}: count unit should be clear in Spanish`);
   } else {
     const expected = {
       articles: /articles?/i,
       talks: /sessions?|talks?/i,
-      books: /books?/i
+      books: /books?/i,
+      newsletter: /subscribers?/i
     }[kind];
     assert.match(label, expected, `${kind}: count unit should be clear in English`);
   }
@@ -301,15 +326,19 @@ function assertCuratedCoverage(page, kind, locale) {
   }
 }
 
+function assertNewsletterUnavailable(page, locale) {
+  assertUnavailable(page, locale, 'newsletter');
+}
+
 function assertAllUnavailable(page, locale) {
-  for (const kind of ['articles', 'talks', 'books']) assertUnavailable(page, locale, kind);
+  for (const kind of ['articles', 'talks', 'books', 'newsletter']) assertUnavailable(page, locale, kind);
 }
 
 for (const locale of ['en', 'es']) {
   test(`${locale} UI shows a localized loading status in each card`, async () => {
     const page = createPage({ locale, data: threeGroupSnapshot() });
 
-    for (const kind of ['articles', 'talks', 'books']) {
+    for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
       const { card, status } = page.cards[kind];
       assert.equal(status.hidden, false, `${kind}: loading state should be visible`);
       assert.match(status.textContent, locale === 'es' ? /cargando/i : /loading/i);
@@ -358,12 +387,12 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} shared language filter updates all independent cards from one aggregate request`, async () => {
-    const page = createPage({ locale, data: threeGroupSnapshot() });
+    const page = createPage({ locale, data: snapshotWithNewsletter() });
     await page.settle();
 
-    const all = { articles: '11', talks: '6', books: '3' };
-    const dates = { articles: collectedAt, talks: talksCollectedAt, books: booksCollectedAt };
-    for (const kind of ['articles', 'talks', 'books']) {
+    const all = { articles: '11', talks: '6', books: '3', newsletter: '27' };
+    const dates = { articles: collectedAt, talks: talksCollectedAt, books: booksCollectedAt, newsletter: newsletterCollectedAt };
+    for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
       assert.equal(page.cards[kind].results.hidden, false, `${kind} should render independently`);
       assert.equal(page.cards[kind].count.textContent, all[kind], `${kind} should start at All`);
       assert.equal(page.cards[kind].collectedDate.textContent, expectedDate(locale, dates[kind]), `${kind} keeps its own collection date`);
@@ -372,9 +401,10 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.coverage.textContent, 'Caylent, AWS Builder Center', 'article source labels stay unchanged');
     assertCuratedCoverage(page, 'talks', locale);
     assertCuratedCoverage(page, 'books', locale);
+    assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label, 'newsletter coverage uses its publication label');
 
     for (const [language, counts] of [
-      ['en', { articles: '7', talks: '2', books: '2' }],
+      ['en', { articles: '7', talks: '2', books: '2', newsletter: '27' }],
       ['es', { articles: '4', talks: '4', books: '1' }],
       ['all', all]
     ]) {
@@ -384,11 +414,39 @@ for (const locale of ['en', 'es']) {
         assert.equal(page.cards[kind].count.textContent, counts[kind], `${kind} should independently show ${language}`);
         assert.equal(page.cards[kind].results.hidden, false);
       }
+      if (language === 'es') {
+        assert.equal(page.cards.newsletter.card.hidden, true, 'a publication without Spanish subscribers hides its whole card');
+      } else {
+        assert.equal(page.cards.newsletter.card.hidden, false, `${language} restores the supported newsletter card`);
+        assert.equal(page.cards.newsletter.count.textContent, counts.newsletter, `${language} subscriber total is current and unchanged`);
+        assert.equal(page.cards.newsletter.results.hidden, false);
+      }
       assert.equal(page.section.dataset.statsLocale, locale, 'filtering must not change the page UI locale');
     }
 
     assert.equal(page.fetchCount, 1, 'all cards and filter changes use one aggregate request');
     assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json'], 'no provider requests are made');
+    assert.equal(page.location.href, 'https://guilleojeda.com/', 'filtering must not navigate');
+  });
+
+  test(`${locale} valid Spanish newsletter publication follows content language rather than interface language`, async () => {
+    const page = createPage({ locale, data: snapshotWithNewsletter({ publication: { ...simpleAws, language: 'es' } }) });
+    await page.settle();
+
+    assert.equal(page.cards.newsletter.card.hidden, false, 'All includes a valid Spanish publication');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'Spanish content selection includes the matching publication');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'English content selection hides the Spanish publication');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'All restores the publication');
+    assert.equal(page.fetchCount, 1);
+    assert.equal(page.location.href, 'https://guilleojeda.com/');
   });
 
   test(`${locale} article-only snapshots preserve article provenance and leave new cards unavailable`, async () => {
@@ -404,11 +462,29 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
     assertUnavailable(page, locale, 'talks');
     assertUnavailable(page, locale, 'books');
+    assertNewsletterUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} legacy three-group snapshots preserve the original cards and leave Newsletter unavailable`, async () => {
+    const page = createPage({ locale, data: threeGroupSnapshot() });
+    await page.settle();
+
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    assertNewsletterUnavailable(page, locale);
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.talks.count.textContent, '4');
+    assert.equal(page.cards.books.count.textContent, '1');
+    assertNewsletterUnavailable(page, locale);
     assert.equal(page.fetchCount, 1);
   });
 
   test(`${locale} UI displays a supported measured zero as zero`, async () => {
-    const data = threeGroupSnapshot();
+    const data = snapshotWithNewsletter({ subscribers: 0 });
     data.groups.books.counts = { all: 0, en: 0, es: 0 };
     const page = createPage({ locale, data });
     await page.settle();
@@ -418,21 +494,34 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.books.count.textContent, '0');
     assertCuratedCoverage(page, 'books', locale);
     assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
+    assert.equal(page.cards.newsletter.count.textContent, '0', 'a valid current subscriber total of zero remains visible');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'the measured zero is supported for All');
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.count.textContent, '0', 'English retains the measured zero');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'unsupported Spanish is hidden instead of shown as zero');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.count.textContent, '0', 'All restores the measured zero');
   });
 
   test(`${locale} malformed book group affects only Books while valid families keep filtering`, async () => {
-    const data = threeGroupSnapshot();
+    const data = snapshotWithNewsletter();
     data.groups.books.counts.all = 4;
     const page = createPage({ locale, data });
     await page.settle();
 
     assert.equal(page.cards.articles.count.textContent, '11');
     assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
     assertUnavailable(page, locale, 'books');
     page.selector.value = 'es';
     page.selector.dispatch('change');
     assert.equal(page.cards.articles.count.textContent, '4');
     assert.equal(page.cards.talks.count.textContent, '4');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'a supported English newsletter is hidden by the Spanish content filter');
     assertUnavailable(page, locale, 'books');
     assert.equal(page.fetchCount, 1);
   });
@@ -468,7 +557,7 @@ for (const locale of ['en', 'es']) {
   }
 
   test(`${locale} missing Articles group leaves valid Talks and Books usable`, async () => {
-    const data = threeGroupSnapshot();
+    const data = snapshotWithNewsletter();
     delete data.groups.articles;
     const page = createPage({ locale, data });
     await page.settle();
@@ -476,13 +565,84 @@ for (const locale of ['en', 'es']) {
     assertUnavailable(page, locale, 'articles');
     assert.equal(page.cards.talks.count.textContent, '6');
     assert.equal(page.cards.books.count.textContent, '3');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
     page.selector.value = 'en';
     page.selector.dispatch('change');
     assertUnavailable(page, locale, 'articles');
     assert.equal(page.cards.talks.count.textContent, '2');
     assert.equal(page.cards.books.count.textContent, '2');
+    assert.equal(page.cards.newsletter.count.textContent, '27', 'newsletter aggregate remains unchanged under the English filter');
     assert.equal(page.fetchCount, 1);
   });
+
+  test(`${locale} invalid Newsletter group leaves the original three cards available`, async () => {
+    const data = snapshotWithNewsletter();
+    data.groups.newsletter.subscribers = -1;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertNewsletterUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertNewsletterUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.talks.count.textContent, '4');
+    assert.equal(page.cards.books.count.textContent, '1');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  for (const [description, subscribers] of [
+    ['boolean', true],
+    ['null', null],
+    ['string', '27'],
+    ['negative', -1],
+    ['fractional', 27.5],
+    ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+    ['missing', undefined]
+  ]) {
+    test(`${locale} Newsletter ${description} subscriber count is unavailable without affecting other cards`, async () => {
+      const data = snapshotWithNewsletter();
+      if (subscribers === undefined) delete data.groups.newsletter.subscribers;
+      else data.groups.newsletter.subscribers = subscribers;
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertNewsletterUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.talks.count.textContent, '6');
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+
+  for (const [description, updateGroup] of [
+    ['future definition version', (group) => ({ ...group, definitionVersion: 2 })],
+    ['non-current basis', (group) => ({ ...group, basis: 'cumulative' })],
+    ['invalid collection date', (group) => ({ ...group, collectedAt: 'not-a-date' })],
+    ['non-canonical collection date', (group) => ({ ...group, collectedAt: '2026-08-01T00:00:00Z' })],
+    ['invalid scope hash', (group) => ({ ...group, scopeId: 'not-a-sha256' })],
+    ['cumulative counts payload', (group) => ({ ...group, counts: { all: 27, en: 27, es: 0 } })],
+    ['unsupported source language', (group) => ({ ...group, publication: { ...group.publication, language: 'fr' } })],
+    ['missing source language', (group) => ({ ...group, publication: { id: 'simple-aws', label: 'Simple AWS' } })],
+    ['wrong publication identity', (group) => ({ ...group, publication: { ...group.publication, id: 'other-publication' } })],
+    ['wrong publication label', (group) => ({ ...group, publication: { ...group.publication, label: 'Other publication' } })]
+  ]) {
+    test(`${locale} Newsletter ${description} makes only that card unavailable`, async () => {
+      const data = snapshotWithNewsletter();
+      data.groups.newsletter = updateGroup(data.groups.newsletter);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertNewsletterUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.talks.count.textContent, '6');
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.fetchCount, 1);
+    });
+  }
 }
 
 const invalidSnapshots = [
@@ -504,9 +664,12 @@ for (const [description, data] of invalidSnapshots) {
   });
 }
 
+const unknownRootGroupSnapshot = snapshotWithNewsletter();
+unknownRootGroupSnapshot.groups.newsletters = unknownRootGroupSnapshot.groups.books;
+
 const invalidDocuments = [
   ['unsupported root schema', { ...threeGroupSnapshot(), schemaVersion: 2 }],
-  ['unknown group key', { ...threeGroupSnapshot(), groups: { ...threeGroupSnapshot().groups, newsletters: threeGroupSnapshot().groups.books } }],
+  ['unknown group key beside valid newsletter', unknownRootGroupSnapshot],
   ['malformed fetch response', null]
 ];
 

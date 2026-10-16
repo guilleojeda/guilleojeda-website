@@ -242,3 +242,50 @@ test('real book facts retain the verified historical publication credits with ti
     assert.equal(book.publication.language, 'en', `${id} publication language follows its title`);
   }
 });
+
+test('a configured newsletter generates input4 from the existing configuration without changing maintained counts or legacy input3', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  const legacy = build(source);
+  const selection = { id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en' };
+  source.articleConfig.newsletter = selection;
+  freeze(source);
+  const result = build(source);
+  assert.deepEqual(result, {
+    ...legacy,
+    schemaVersion: 4,
+    newsletter: selection
+  });
+  assert.notEqual(result.newsletter, selection, 'the generated artifact cannot mutate maintained configuration');
+  assert.deepEqual(result.sources, legacy.sources);
+  assert.deepEqual(result.curated, legacy.curated);
+  assert.equal(Object.hasOwn(result.newsletter, 'subscribers'), false, 'the build does not invent a provider measurement');
+  assert.equal(Object.hasOwn(result.newsletter, 'secretArn'), false, 'credential references belong to the operator runtime');
+  assert.equal(Object.hasOwn(result.newsletter, 'apiKey'), false, 'private keys never enter generated inputs');
+  const withoutNewsletter = fixture();
+  assert.deepEqual(build(withoutNewsletter), legacy, 'compatibility publication can still generate input3 without newsletter selection');
+});
+
+test('newsletter selection rejects missing selectors, unsupported languages and credential-bearing or unknown fields', async () => {
+  const build = await inputBuilder();
+  const selection = { id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en' };
+  const invalid = [
+    null,
+    [],
+    {},
+    { ...selection, id: 'another-publication' },
+    { ...selection, publicationId: '' },
+    { ...selection, publicationId: null },
+    { ...selection, language: 'fr' },
+    { ...selection, language: null },
+    { ...selection, apiKey: 'synthetic-private-beehiiv-key' },
+    { ...selection, secretArn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:synthetic-key-AbCdEf' },
+    { ...selection, subscribers: 1234 },
+    { ...selection, typo: true }
+  ];
+  for (const value of invalid) {
+    const source = fixture();
+    source.articleConfig.newsletter = value;
+    assert.throws(() => build(source), /newsletter|publication|language|credential|input/i, `invalid newsletter selection ${JSON.stringify(value)}`);
+  }
+});
