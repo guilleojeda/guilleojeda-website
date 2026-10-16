@@ -193,3 +193,27 @@ test("the existing private site bucket, distribution, and routing remain attache
   assert.ok(referencesResource(distribution.Properties.DistributionConfig.DefaultCacheBehavior.FunctionAssociations, routingFunctionId));
   assert.ok(resources[distributionId]);
 });
+
+test("the collector reads only the operator-selected Beehiiv secret and no credential value enters infrastructure", () => {
+  const [collectorId, collector] = oneOfType("AWS::Lambda::Function");
+  const [[collectorRoleId, role]] = roleTrustedBy("lambda.amazonaws.com");
+  const secretParameter = rendered.Parameters.BeehiivApiKeySecretArn;
+  assert.ok(secretParameter, "the operator must provide the already-created Beehiiv secret ARN");
+  assert.equal(secretParameter.Type, "String");
+  assert.equal(typeof secretParameter.AllowedPattern, "string", "the reference must require a complete secret ARN");
+  const matches = new RegExp(`^(?:${secretParameter.AllowedPattern})$`);
+  assert.ok(matches.test("arn:aws:secretsmanager:us-east-1:719535286359:secret:guilleojeda-website/content-stats/beehiiv-api-key-AbCdEf"));
+  assert.equal(matches.test("*"), false);
+  assert.equal(matches.test("arn:aws:secretsmanager:us-east-1:719535286359:secret:*"), false);
+  assert.deepEqual(collector.Properties.Environment.Variables.BEEHIIV_API_KEY_SECRET_ARN, { Ref: "BeehiivApiKeySecretArn" });
+  const statements = policyStatementsForRole(role);
+  const reads = statements.filter((statement) => actionList(statement).some((action) => action.startsWith("secretsmanager:")));
+  assert.equal(reads.length, 1, "the collector needs one credential read grant");
+  assert.equal(reads[0].Effect, "Allow");
+  assert.deepEqual(actionList(reads[0]), ["secretsmanager:GetSecretValue"]);
+  assert.deepEqual(reads[0].Resource, { Ref: "BeehiivApiKeySecretArn" }, "IAM and runtime must reference the same exact secret");
+  assert.ok(referencesResource(collector.Properties.Role, collectorRoleId));
+  assert.ok(resources[collectorId]);
+  assert.equal(statements.some((statement) => actionList(statement).some((action) => action.startsWith("ssm:"))), false, "the owner selected Secrets Manager for Beehiiv");
+  assert.equal(entriesOfType("AWS::SecretsManager::Secret").length, 0, "credential contents and the separately created secret remain operator-owned");
+});

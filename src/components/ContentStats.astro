@@ -10,12 +10,13 @@ const copy = locale === 'en'
   ? {
       kicker: 'Content statistics',
       title: 'Content & reach',
-      intro: 'Published articles, delivered talks and sessions, and published books, with partial coverage of the wider body of work.',
+      intro: 'Published articles, delivered talks and sessions, published books, and current newsletter subscribers, with partial coverage of the wider body of work.',
       filterLabel: 'Content language',
       all: 'All',
       english: 'English',
       spanish: 'Español',
       cumulative: 'Cumulative total',
+      current: 'Current',
       coverage: 'Coverage',
       lastCollected: 'Last updated',
       reachUnavailable: 'Reach statistics are not available yet.',
@@ -38,20 +39,27 @@ const copy = locale === 'en'
           unit: 'published books',
           loading: 'Loading book statistics…',
           unavailable: 'Book statistics are temporarily unavailable.'
+        },
+        newsletter: {
+          title: 'Newsletter',
+          unit: 'active subscribers',
+          loading: 'Loading newsletter statistics…',
+          unavailable: 'Newsletter statistics are temporarily unavailable.'
         }
       },
       sourcesSummary: 'Sources and counting',
-      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in this count. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. This is partial coverage; other publication archives are not included. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles.'
+      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in this count. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. This is partial coverage; other publication archives are not included. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
     }
   : {
       kicker: 'Estadísticas de contenido',
       title: 'Contenido y alcance',
-      intro: 'Artículos publicados, charlas y sesiones realizadas, y libros publicados, con cobertura parcial del conjunto más amplio de trabajo.',
+      intro: 'Artículos publicados, charlas y sesiones realizadas, libros publicados y suscriptores actuales del boletín, con cobertura parcial del conjunto más amplio de trabajo.',
       filterLabel: 'Idioma del contenido',
       all: 'Todos',
       english: 'English',
       spanish: 'Español',
       cumulative: 'Total acumulado',
+      current: 'Suscriptores actuales',
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
       reachUnavailable: 'Las estadísticas de alcance todavía no están disponibles.',
@@ -74,13 +82,19 @@ const copy = locale === 'en'
           unit: 'libros publicados',
           loading: 'Cargando estadísticas de libros…',
           unavailable: 'Las estadísticas de libros no están disponibles por el momento.'
+        },
+        newsletter: {
+          title: 'Boletín',
+          unit: 'suscriptores activos',
+          loading: 'Cargando estadísticas del boletín…',
+          unavailable: 'Las estadísticas del boletín no están disponibles por el momento.'
         }
       },
       sourcesSummary: 'Fuentes y conteo',
-      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de este conteo. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. La cobertura parcial deja fuera otros archivos de publicaciones. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales.'
+      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de este conteo. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. La cobertura parcial deja fuera otros archivos de publicaciones. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
     };
 
-const cardKinds = ['articles', 'talks', 'books'] as const;
+const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
 ---
 
 <section
@@ -115,7 +129,7 @@ const cardKinds = ['articles', 'talks', 'books'] as const;
           <article class="content-stats-card" data-stats-kind={kind} data-stats-unavailable={card.unavailable} aria-labelledby={`content-stats-${kind}-title`} aria-busy="false">
             <div class="content-stats-card-heading">
               <div>
-                <div class="work-kicker">{copy.cumulative}</div>
+                <div class="work-kicker">{kind === 'newsletter' ? copy.current : copy.cumulative}</div>
                 <h3 id={`content-stats-${kind}-title`}>{card.title}</h3>
               </div>
             </div>

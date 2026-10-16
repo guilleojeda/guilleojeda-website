@@ -99,16 +99,28 @@ function projectBooks(books) {
   });
 }
 
+function projectNewsletter(newsletter) {
+  assertObject(newsletter, 'newsletter');
+  const keys = Object.keys(newsletter).sort();
+  if (keys.join(',') !== 'id,language,publicationId') invalid('newsletter must contain only id, publicationId, and language');
+  if (newsletter.id !== 'simple-aws') invalid('unsupported newsletter id');
+  assertNonEmptyString(newsletter.publicationId, 'newsletter publicationId');
+  if (!['en', 'es'].includes(newsletter.language)) invalid('newsletter language must be en or es');
+  return { id: newsletter.id, publicationId: newsletter.publicationId, language: newsletter.language };
+}
+
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   validateArticleConfig(articleConfig);
+  const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
   return {
-    schemaVersion: 3,
+    schemaVersion: hasNewsletter ? 4 : 3,
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
       talks: projectTalks(talks),
       books: projectBooks(books)
-    }
+    },
+    ...(hasNewsletter ? { newsletter: projectNewsletter(articleConfig.newsletter) } : {})
   };
 }
 

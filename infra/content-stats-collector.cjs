@@ -1,7 +1,9 @@
 const { createHash } = require("node:crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
+const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 
 const s3 = new S3Client({});
+const secretsManager = new SecretsManagerClient({});
 const CONTENT_API_ENDPOINT = "https://cdn.builder.io/api/v3/content/blog-post";
 const BUILDER_API_ENDPOINT = "https://api.builder.aws.com/cs/v2/articles/user/";
 const PAGE_SIZE = 10;
@@ -29,6 +31,8 @@ const TALK_STATUSES = new Set(["delivered", "scheduled", "unknown"]);
 const BOOK_STATUSES = new Set(["published", "in-progress", "unknown"]);
 const SPEAKING_KINDS = new Set(["talk", "workshop", "training", "panel", "session"]);
 const CURATED_SOURCE = Object.freeze({ id: "website-inventory", label: "Website inventory" });
+const NEWSLETTER_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
+const BEEHIIV_API_ENDPOINT = "https://api.beehiiv.com/v2/publications/";
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center"
@@ -63,7 +67,8 @@ function validateEnvironment(env) {
   const configuration = {
     bucket: requireString(env.STATS_BUCKET, "CONFIGURATION_INVALID"),
     inputKey: requireString(env.STATS_INPUT_KEY, "CONFIGURATION_INVALID"),
-    outputKey: requireString(env.STATS_OUTPUT_KEY, "CONFIGURATION_INVALID")
+    outputKey: requireString(env.STATS_OUTPUT_KEY, "CONFIGURATION_INVALID"),
+    BEEHIIV_API_KEY_SECRET_ARN: env.BEEHIIV_API_KEY_SECRET_ARN
   };
   if (configuration.inputKey === configuration.outputKey) throw fail("CONFIGURATION_INVALID");
   return configuration;
@@ -134,7 +139,7 @@ function validateBuilderSource(source) {
 
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3) {
+  if (![1, 2, 3, 4].includes(input.schemaVersion)) {
     throw fail("INPUT_VERSION_UNSUPPORTED");
   }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
@@ -156,15 +161,19 @@ function validateInput(input) {
     throw fail("SOURCE_SET_INVALID");
   }
 
-  if (input.schemaVersion === 3) {
-    if (!exactKeys(input, ["schemaVersion", "definitionVersion", "sources", "curated"]) ||
+  if (input.schemaVersion === 3 || input.schemaVersion === 4) {
+    const expectedKeys = input.schemaVersion === 3
+      ? ["schemaVersion", "definitionVersion", "sources", "curated"]
+      : ["schemaVersion", "definitionVersion", "sources", "curated", "newsletter"];
+    if (!exactKeys(input, expectedKeys) ||
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"])) {
       throw fail("INPUT_SCHEMA_INVALID");
     }
     return {
-      schemaVersion: 3,
+      schemaVersion: input.schemaVersion,
       sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
-      curated: input.curated
+      curated: input.curated,
+      ...(input.schemaVersion === 4 ? { newsletter: input.newsletter } : {})
     };
   }
 
@@ -241,6 +250,79 @@ function deriveCuratedGroup(family, value, collectedAt) {
   });
 }
 
+function validateNewsletterSelection(value) {
+  if (!exactKeys(value, ["id", "publicationId", "language"]) || value.id !== NEWSLETTER_PUBLICATION.id) {
+    throw fail("NEWSLETTER_CONFIGURATION_INVALID");
+  }
+  const publicationId = requireString(value.publicationId, "NEWSLETTER_CONFIGURATION_INVALID");
+  const language = requireString(value.language, "NEWSLETTER_CONFIGURATION_INVALID");
+  if (!SUPPORTED_LANGUAGES.has(language)) throw fail("NEWSLETTER_CONFIGURATION_INVALID");
+  return { id: NEWSLETTER_PUBLICATION.id, publicationId, language };
+}
+
+function newsletterScopeFingerprint(selection) {
+  const scope = {
+    definitionVersion: 1,
+    family: "newsletter",
+    policy: "beehiiv-active-subscribers-v1",
+    publication: { ...NEWSLETTER_PUBLICATION, language: selection.language },
+    providerPublicationId: selection.publicationId
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function makeNewsletterGroup(selection, subscribers, collectedAt) {
+  return {
+    definitionVersion: 1,
+    basis: "current",
+    collectedAt,
+    scopeId: newsletterScopeFingerprint(selection),
+    publication: { ...NEWSLETTER_PUBLICATION, language: selection.language },
+    subscribers
+  };
+}
+
+async function readBeehiivApiKey(env) {
+  const secretId = requireString(env.BEEHIIV_API_KEY_SECRET_ARN, "NEWSLETTER_CREDENTIAL_INVALID");
+  let response;
+  try {
+    response = await secretsManager.send(new GetSecretValueCommand({ SecretId: secretId }));
+  } catch {
+    throw fail("NEWSLETTER_CREDENTIAL_INVALID");
+  }
+
+  if (!isObject(response) || typeof response.SecretString !== "string" || response.SecretString.trim() === "") {
+    throw fail("NEWSLETTER_CREDENTIAL_INVALID");
+  }
+  let secret;
+  try {
+    secret = JSON.parse(response.SecretString);
+  } catch {
+    throw fail("NEWSLETTER_CREDENTIAL_INVALID");
+  }
+  if (!isObject(secret) || typeof secret.apiKey !== "string" || secret.apiKey.trim() === "") {
+    throw fail("NEWSLETTER_CREDENTIAL_INVALID");
+  }
+  return secret.apiKey;
+}
+
+async function collectNewsletter(value, env, collectedAt) {
+  const selection = validateNewsletterSelection(value);
+  const apiKey = await readBeehiivApiKey(env);
+  const url = `${BEEHIIV_API_ENDPOINT}${encodeURIComponent(selection.publicationId)}?expand=stat_active_subscriptions`;
+  const envelope = await fetchJson(url, selection.id, 1, {
+    headers: { accept: "application/json", authorization: `Bearer ${apiKey}` },
+    redirect: "error"
+  });
+  if (!isObject(envelope) || !isObject(envelope.data) || envelope.data.id !== selection.publicationId ||
+      !isObject(envelope.data.stats)) {
+    throw fail("NEWSLETTER_RESPONSE_INVALID");
+  }
+  const subscribers = envelope.data.stats.active_subscriptions;
+  if (!Number.isSafeInteger(subscribers) || subscribers < 0) throw fail("NEWSLETTER_RESPONSE_INVALID");
+  return makeNewsletterGroup(selection, subscribers, collectedAt);
+}
+
 function scopeFingerprint(sources) {
   const sourceSelectors = sources.map((source) => source.id === "caylent"
     ? { id: source.id, authorId: source.authorId, language: source.language }
@@ -281,15 +363,17 @@ function isTransientStatus(status) {
   return status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599);
 }
 
-async function fetchJson(url, sourceId, page) {
+async function fetchJson(url, sourceId, page, options = {}) {
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     let response;
     try {
-      response = await fetch(url, {
+      const requestOptions = {
         method: "GET",
-        headers: { accept: "application/json" },
+        headers: options.headers ?? { accept: "application/json" },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-      });
+      };
+      if (options.redirect !== undefined) requestOptions.redirect = options.redirect;
+      response = await fetch(url, requestOptions);
     } catch {
       if (attempt < MAX_TRANSIENT_RETRIES) {
         log("warn", { event: "content_stats_source_retry", sourceId, page, reason: "network" });
@@ -590,17 +674,38 @@ function isValidGroup(group, family) {
   return group.counts.all === group.counts.en + group.counts.es;
 }
 
+function isValidNewsletterGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "publication", "subscribers"])) {
+    return false;
+  }
+  if (group.definitionVersion !== 1 || group.basis !== "current") return false;
+  if (typeof group.collectedAt !== "string") return false;
+  const collected = Date.parse(group.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt) return false;
+  if (typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId)) return false;
+  if (!exactKeys(group.publication, ["id", "label", "language"]) ||
+      group.publication.id !== NEWSLETTER_PUBLICATION.id || group.publication.label !== NEWSLETTER_PUBLICATION.label ||
+      !SUPPORTED_LANGUAGES.has(group.publication.language)) {
+    return false;
+  }
+  return Number.isSafeInteger(group.subscribers) && group.subscribers >= 0;
+}
+
 function validateOutput(output) {
   if (!exactKeys(output, ["schemaVersion", "groups"]) || output.schemaVersion !== 1 ||
       !isObject(output.groups)) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const families = Object.keys(output.groups);
-  if (families.length < 1 || families.some((family) => !["articles", "talks", "books"].includes(family))) {
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter"]);
+  if (families.length < 1 || families.some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   for (const family of families) {
-    if (!isValidGroup(output.groups[family], family)) throw fail("OUTPUT_SCHEMA_INVALID");
+    const valid = family === "newsletter"
+      ? isValidNewsletterGroup(output.groups[family])
+      : isValidGroup(output.groups[family], family);
+    if (!valid) throw fail("OUTPUT_SCHEMA_INVALID");
   }
 }
 
@@ -633,13 +738,16 @@ async function readPreviousAggregate(bucket, key) {
       !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
-  const supportedFamilies = new Set(["articles", "talks", "books"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter"]);
   if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const groups = {};
   for (const family of supportedFamilies) {
-    if (Object.hasOwn(previous.groups, family) && isValidGroup(previous.groups[family], family)) {
+    const valid = family === "newsletter"
+      ? isValidNewsletterGroup(previous.groups[family])
+      : isValidGroup(previous.groups[family], family);
+    if (Object.hasOwn(previous.groups, family) && valid) {
       groups[family] = previous.groups[family];
     }
   }
@@ -677,7 +785,7 @@ async function collectLegacy(configuration, env, collectedAt, now) {
   return { status: "published", collectedAt, count: collection.counts.all };
 }
 
-async function collectSchemaThree(configuration, env, collectedAt, now) {
+async function collectIndependentGroups(configuration, env, collectedAt, now) {
   const groups = {};
   const failures = {};
   let articleCollection;
@@ -695,6 +803,15 @@ async function collectSchemaThree(configuration, env, collectedAt, now) {
     } catch (error) {
       if (!(error instanceof CollectorError)) throw error;
       failures[family] = error.code;
+    }
+  }
+
+  if (configuration.schemaVersion === 4) {
+    try {
+      groups.newsletter = await collectNewsletter(configuration.newsletter, env, collectedAt);
+    } catch (error) {
+      if (!(error instanceof CollectorError)) throw error;
+      failures.newsletter = error.code;
     }
   }
 
@@ -720,7 +837,7 @@ async function collectSchemaThree(configuration, env, collectedAt, now) {
     pagesBySource: articleCollection?.pagesBySource ?? {},
     ...(articleCollection ? { publicationCount: articleCollection.publications.length } : {}),
     families: Object.fromEntries(Object.entries(groups).map(([family, group]) => [family, {
-      counts: group.counts,
+      ...(group.counts ? { counts: group.counts } : { subscribers: group.subscribers }),
       collectedAt: group.collectedAt,
       scopeId: group.scopeId,
       retained: Object.hasOwn(failures, family)
@@ -743,8 +860,8 @@ async function handler() {
 
     const collectedAt = new Date().toISOString();
     const now = Date.parse(collectedAt);
-    return configuration.schemaVersion === 3
-      ? await collectSchemaThree(configuration, env, collectedAt, now)
+    return configuration.schemaVersion === 3 || configuration.schemaVersion === 4
+      ? await collectIndependentGroups(configuration, env, collectedAt, now)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {
     const code = error instanceof CollectorError ? error.code : "COLLECTION_FAILED";
