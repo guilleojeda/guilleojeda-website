@@ -56,6 +56,67 @@ function mustNotContain(html, fragment, message = fragment) {
   assert.ok(!html.toLowerCase().includes(fragment.toLowerCase()), `unexpected ${message}`);
 }
 
+function checkContentStatsShell(page, html) {
+  const locale = page.lang;
+  const sectionIdPosition = html.indexOf('id="content-stats"');
+  const workPosition = html.indexOf('id="work"');
+  const talksPosition = html.indexOf('id="talks"');
+  assert.ok(sectionIdPosition > workPosition && sectionIdPosition < talksPosition, `${locale} statistics section must sit between work and talks`);
+  const sectionPosition = html.lastIndexOf('<', sectionIdPosition);
+  const statsHtml = html.slice(sectionPosition, talksPosition);
+  mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
+
+  const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
+  assert.deepEqual(cardKinds, ['articles'], `${locale} phase-one statistics should contain only the Articles card`);
+  mustContain(statsHtml, 'data-stats-kind="articles"', `${locale} Articles card`);
+  mustContainText(statsHtml, locale === 'en' ? 'Articles' : 'Artículos', `${locale} Articles card title`);
+  mustContainText(statsHtml, 'Caylent', `${locale} source coverage label`);
+  assert.ok(!/\bdata-stats-period\b/i.test(statsHtml), `${locale} statistics must not expose a reach-period selector`);
+
+  const selector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-language\b)[^>]*>([\s\S]*?)<\/select>/i);
+  assert.ok(selector, `${locale} must use a native content-language selector`);
+  const options = [...selector[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((match) => ({
+    attributes: match[1],
+    label: match[2].replace(/<[^>]*>/g, '').trim(),
+    value: match[1].match(/\bvalue=["']([^"']+)["']/i)?.[1]
+  }));
+  assert.deepEqual(options.map((option) => option.value), ['all', 'en', 'es'], `${locale} content-language options`);
+  const optionLabels = options.map((option) => option.label.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, ''));
+  if (locale === 'en') {
+    assert.ok(/\ball\b/.test(optionLabels[0]) && optionLabels[1].includes('english') && optionLabels[2].includes('espanol'), 'English language filter labels');
+  } else {
+    assert.ok(/\ball\b|\btodos?\b/.test(optionLabels[0]) && /ingles|english/.test(optionLabels[1]) && optionLabels[2].includes('espanol'), 'Spanish language filter labels');
+  }
+  const isSelected = (option) => /(?:^|\s)selected(?:\s|=|$)/i.test(option.attributes);
+  const selectedOptions = options.flatMap((option, index) => isSelected(option) ? [index] : []);
+  assert.ok(selectedOptions.length === 0 || (selectedOptions.length === 1 && selectedOptions[0] === 0), `${locale} must default content language to All`);
+  if (locale === 'en') {
+    assert.ok(/loading/i.test(statsHtml), 'English statistics need a loading state');
+    assert.ok(/unavailable|unable to load|could not load|couldn't load/i.test(statsHtml), 'English statistics need an unavailable state');
+  } else {
+    assert.ok(/cargando/i.test(statsHtml), 'Spanish statistics need a loading state');
+    assert.ok(/no se pudo|no se pueden|no fue posible|no disponibles|no disponible/i.test(statsHtml), 'Spanish statistics need an unavailable state');
+  }
+
+  const noScriptBlocks = [...html.matchAll(/<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gi)];
+  assert.equal(noScriptBlocks.length, 1, `${locale} needs one stats-only no-JavaScript message`);
+  const noScriptPosition = noScriptBlocks[0].index;
+  assert.ok(noScriptPosition > sectionPosition && noScriptPosition < talksPosition, `${locale} no-JavaScript message must stay within the statistics section`);
+  const noScriptText = noScriptBlocks[0][1].replace(/<[^>]*>/g, '').normalize('NFD').replace(/\p{Diacritic}/gu, '');
+  if (locale === 'en') {
+    assert.ok(/enable JavaScript|turn on JavaScript|JavaScript is required/i.test(noScriptText), 'English statistics need a localized no-JavaScript message');
+  } else {
+    assert.ok(/activar JavaScript|activa JavaScript|habilita JavaScript|JavaScript es necesario/i.test(noScriptText), 'Spanish statistics need a localized no-JavaScript message');
+  }
+
+  const scriptTags = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
+  assert.equal(scriptTags.length, 1, `${locale} may load one statistics module`);
+  assert.ok(/\btype=["']module["']/i.test(scriptTags[0]), `${locale} statistics script must be an external module`);
+  const scriptPath = scriptTags[0].match(/\bsrc=["']([^"']+)["']/i)?.[1];
+  assert.ok(scriptPath?.startsWith('/_astro/'), `${locale} statistics module must use a built asset`);
+  assert.ok(existsSync(join(dist, decodeURIComponent(scriptPath.slice(1)))), `${locale} statistics module asset must exist in the build output`);
+}
+
 const pages = [
   { path: 'index.html', lang: 'en', canonical: new URL('/', siteUrl).href, otherLocale: '/es/' },
   { path: 'es/index.html', lang: 'es', canonical: new URL('/es/', siteUrl).href, otherLocale: '/' }
@@ -81,7 +142,7 @@ for (const page of pages) {
   mustNotContain(html, 'un sitio estático, simple y bilingüe', `${page.lang} implementation-detail footer`);
   mustContain(html, 'https://www.linkedin.com/in/guilleojeda', `${page.lang} LinkedIn link`);
   mustContain(html, 'https://www.passionfroot.me/guilleojeda', `${page.lang} sponsorship link`);
-  mustNotContain(html, '<script', `${page.lang} runtime JavaScript`);
+  checkContentStatsShell(page, html);
 
   const featuredProjectCards = html.match(/class="support-card"/g) ?? [];
   const archivedProjectRows = html.match(/class="talk-archive-item work-archive-item"/g) ?? [];
@@ -110,5 +171,15 @@ mustContain(notFound, '<meta name="robots" content="noindex">', '404 noindex met
 mustNotContain(notFound, '<link rel="canonical"', '404 canonical metadata');
 mustContain(notFound, 'href="/"', '404 English recovery link');
 mustContain(notFound, 'href="/es/"', '404 Spanish recovery link');
+
+const inputs = JSON.parse(read('_content-stats/inputs.json'));
+assert.equal(inputs.schemaVersion, 1, 'protected build input schema version');
+assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
+assert.equal(inputs.source?.id, 'caylent', 'protected build input must describe the Caylent source');
+assert.ok(typeof inputs.source.authorId === 'string' && inputs.source.authorId.length > 0, 'Caylent author ID must be configured');
+assert.ok(typeof inputs.source.apiKey === 'string' && inputs.source.apiKey.length > 0, 'Caylent public delivery key must be configured');
+assert.equal(inputs.source.originality, 'original', 'Caylent source must use its confirmed originality policy');
+assert.ok(['en', 'es'].includes(inputs.source.language), 'Caylent needs an explicit supported content-language policy; this check does not choose English or Spanish');
+assert.ok(!existsSync(join(dist, 'content-stats/v1/current.json')), 'the build must not contain a placeholder or collector-owned public aggregate');
 
 console.log('Static output checks passed for /, /es/, and /404.html.');
