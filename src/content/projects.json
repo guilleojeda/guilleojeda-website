@@ -207,7 +207,7 @@
       "en": "Browse my articles",
       "es": "Explorar mis artículos"
     },
-    "featured": false
+    "featured": true
   },
   {
     "id": "linkedin-articles",
