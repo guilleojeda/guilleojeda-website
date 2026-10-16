@@ -39,6 +39,39 @@ function phaseTwoInput({ sources } = {}) {
   };
 }
 
+function phaseThreeInput({ sources, curated } = {}) {
+  return {
+    schemaVersion: 3,
+    definitionVersion: 1,
+    sources: sources ?? [sourceInput().source, builderCenterSource()],
+    curated: curated ?? { talks: [], books: [] }
+  };
+}
+
+function talkFact(id, kind = "talk", status = "delivered", language = "en") {
+  return { id, kind, status, language };
+}
+
+function bookFact(id, status = "published", language = "en") {
+  return { id, status, language };
+}
+
+function priorGroup({
+  collectedAt = "2026-10-10T12:00:00.000Z",
+  scopeId = "a".repeat(64),
+  sources = [{ id: "caylent", label: "Caylent" }, { id: "builder-center", label: "AWS Builder Center" }],
+  counts = { all: 4, en: 3, es: 1 }
+} = {}) {
+  return {
+    definitionVersion: 1,
+    basis: "cumulative",
+    collectedAt,
+    scopeId,
+    sources,
+    counts
+  };
+}
+
 function article({
   id,
   url = `/blog/${id}`,
@@ -124,7 +157,11 @@ function bodyText(body) {
 function createHarness({
   input = sourceInput(),
   fetchFn = async () => jsonResponse({ results: [] }),
-  clock = createClock()
+  clock = createClock(),
+  getFailures = new Map(),
+  putFailure,
+  createHashFaultAfter = null,
+  createHashFault = new Error("synthetic createHash fault")
 } = {}) {
   assert.ok(
     existsSync(collectorPath),
@@ -150,12 +187,19 @@ function createHarness({
     async send(command) {
       if (command instanceof GetObjectCommand) {
         getCalls.push(JSON.parse(JSON.stringify(command.input)));
+        if (getFailures.has(command.input.Key)) throw getFailures.get(command.input.Key);
         const value = objects.get(command.input.Key);
-        if (value === undefined) throw new Error(`Unexpected missing test object: ${command.input.Key}`);
+        if (value === undefined) {
+          const error = new Error(`Synthetic object is absent: ${command.input.Key}`);
+          error.name = "NoSuchKey";
+          error.Code = "NoSuchKey";
+          throw error;
+        }
         return { Body: { transformToString: async () => bodyText(value) } };
       }
       if (command instanceof PutObjectCommand) {
         putCalls.push(command.input);
+        if (putFailure) throw putFailure;
         objects.set(command.input.Key, bodyText(command.input.Body));
         return { ETag: '"synthetic-etag"' };
       }
@@ -165,12 +209,25 @@ function createHarness({
 
   const moduleObject = { exports: {} };
   const nativeRequire = createRequire(import.meta.url);
+  const nativeCrypto = nativeRequire("node:crypto");
+  let hashCalls = 0;
+  const crypto = createHashFaultAfter === null
+    ? nativeCrypto
+    : {
+      ...nativeCrypto,
+      createHash(...args) {
+        hashCalls += 1;
+        if (hashCalls === createHashFaultAfter) throw createHashFault;
+        return nativeCrypto.createHash(...args);
+      }
+    };
   const sdk = { S3Client, GetObjectCommand, PutObjectCommand };
   const sandbox = {
     module: moduleObject,
     exports: moduleObject.exports,
     require(request) {
       if (request === "@aws-sdk/client-s3") return sdk;
+      if (request === "node:crypto") return crypto;
       return nativeRequire(request);
     },
     process: {
@@ -206,6 +263,9 @@ function createHarness({
     logs,
     setInput(nextInput) {
       objects.set(inputKey, JSON.stringify(nextInput));
+    },
+    setGetFailure(key, error) {
+      getFailures.set(key, error);
     }
   };
 }
@@ -237,7 +297,9 @@ function builderApiFetch({
     if (url.hostname === "cdn.builder.io" && url.pathname === "/api/v3/content/blog-post") {
       const offset = Number(url.searchParams.get("offset"));
       requestLog.push({ kind: "caylent-list", offset, fields: url.searchParams.get("fields") });
-      return responseFromFixture(caylentPages.get(offset), { results: [] });
+      const page = caylentPages.get(offset);
+      if (typeof page === "function") return page();
+      return responseFromFixture(page, { results: [] });
     }
     if (url.hostname === "api.builder.aws.com" && url.pathname.startsWith("/cs/v2/articles/user/")) {
       const cursor = url.searchParams.get("cursor") ?? "";
@@ -925,4 +987,635 @@ test("transient Builder list errors retry once and a complete title-bearing list
   assert.equal(requests.some(({ kind }) => kind === "builder-detail"), false);
   assert.equal(harness.putCalls.length, 1);
   assert.deepEqual((await readPut(harness.putCalls[0])).groups.articles.counts, { all: 1, en: 1, es: 0 });
+});
+
+test("input 3 publishes independent article, delivered-session, and published-book groups without item facts", async () => {
+  const input = phaseThreeInput({
+    curated: {
+      talks: [
+        // These distinct occurrence IDs represent two deliveries with the same display title. Titles are deliberately absent from the collector facts.
+        talkFact("speaker-plus-host", "talk", "delivered", "en"),
+        talkFact("same-display-title-second-occurrence", "talk", "delivered", "en"),
+        talkFact("workshop-en", "workshop", "delivered", "en"),
+        talkFact("training-es", "training", "delivered", "es"),
+        talkFact("panel-es", "panel", "delivered", "es"),
+        talkFact("technical-session-en", "session", "delivered", "en"),
+        talkFact("host-only", "hosting", "delivered", "en"),
+        talkFact("podcast", "podcast", "delivered", "en"),
+        talkFact("commentary", "commentary", "delivered", "es"),
+        talkFact("conversation", "conversation", "delivered", "en"),
+        talkFact("unknown-kind", "unknown", "delivered", "en"),
+        talkFact("scheduled", "talk", "scheduled", "en"),
+        talkFact("unknown-status", "talk", "unknown", "es"),
+        talkFact("null-language", "talk", "delivered", null),
+        talkFact("unsupported-language", "talk", "delivered", "fr")
+      ],
+      books: [
+        bookFact("historical-unavailable-book-en", "published", "en"),
+        bookFact("published-book-es", "published", "es"),
+        bookFact("in-progress-book", "in-progress", "en"),
+        bookFact("unknown-book-status", "unknown", "en"),
+        bookFact("null-book-language", "published", null),
+        bookFact("unsupported-book-language", "published", "fr")
+      ]
+    }
+  });
+  const requests = [];
+  const harness = createHarness({
+    input,
+    fetchFn: builderApiFetch({ requestLog: requests })
+  });
+
+  await harness.handler({}, {});
+
+  assert.deepEqual(requests.map(({ kind }) => kind), ["caylent-list", "builder-list"]);
+  assert.equal(requests[1].cursorParameterPresent, false);
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(output.schemaVersion, 1);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+  assert.deepEqual(output.groups.articles.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(output.groups.talks.counts, { all: 6, en: 4, es: 2 });
+  assert.deepEqual(output.groups.books.counts, { all: 2, en: 1, es: 1 });
+  for (const group of Object.values(output.groups)) {
+    assert.deepEqual(Object.keys(group).sort(), [
+      "basis", "collectedAt", "counts", "definitionVersion", "scopeId", "sources"
+    ]);
+    assert.equal(group.definitionVersion, 1);
+    assert.equal(group.basis, "cumulative");
+    assert.equal(group.collectedAt, "2026-10-16T12:00:00.000Z");
+    assert.match(group.scopeId, /^[a-f0-9]{64}$/);
+    assert.deepEqual(group.counts, {
+      all: group.counts.en + group.counts.es,
+      en: group.counts.en,
+      es: group.counts.es
+    });
+  }
+  assert.deepEqual(output.groups.articles.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" }
+  ]);
+  assert.deepEqual(output.groups.talks.sources, [{ id: "website-inventory", label: "Website inventory" }]);
+  assert.deepEqual(output.groups.books.sources, [{ id: "website-inventory", label: "Website inventory" }]);
+  assert.deepEqual(Object.keys(output.groups.talks).sort(), [
+    "basis", "collectedAt", "counts", "definitionVersion", "scopeId", "sources"
+  ]);
+
+  const publicJson = bodyText(harness.putCalls[0].Body);
+  const logs = harness.logs.join("\n");
+  for (const privateValue of [
+    secretKey,
+    privateAuthorId,
+    "speaker-plus-host",
+    "same-display-title-second-occurrence",
+    "historical-unavailable-book-en",
+    "unsupported-book-language"
+  ]) {
+    assert.equal(publicJson.includes(privateValue), false, `public aggregate must omit ${privateValue}`);
+    assert.equal(logs.includes(privateValue), false, `logs must omit ${privateValue}`);
+  }
+  for (const unsupportedField of ["items", "articlesByUrl", "talkFacts", "bookFacts", "title", "body"]) {
+    assert.equal(publicJson.includes(`\"${unsupportedField}\"`), false);
+  }
+});
+
+test("input 3 publishes measured zero counts for empty eligible inventories", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput(),
+    fetchFn: builderApiFetch()
+  });
+
+  await harness.handler({}, {});
+
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+  for (const group of Object.values(output.groups)) {
+    assert.deepEqual(group.counts, { all: 0, en: 0, es: 0 });
+  }
+});
+
+test("input 3 scopes ignore ordering and unrelated family changes while remote article discovery recomputes", async () => {
+  let listedBuilderArticles = [builderArticle({ id: "remote-one", title: "Remote Work One" })];
+  const requests = [];
+  const fetchFn = builderApiFetch({
+    builderPages: new Map([["", () => jsonResponse({ articles: listedBuilderArticles, resultsSize: 1 })]]),
+    requestLog: requests
+  });
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("talk-one"), talkFact("talk-two", "talk", "delivered", "es")],
+      books: [bookFact("book-one"), bookFact("book-two", "published", "es")]
+    } }),
+    fetchFn
+  });
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(initial.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(initial.groups.talks.counts, { all: 2, en: 1, es: 1 });
+  assert.deepEqual(initial.groups.books.counts, { all: 2, en: 1, es: 1 });
+
+  harness.setInput(phaseThreeInput({
+    sources: [builderCenterSource(), sourceInput().source],
+    curated: {
+      talks: [talkFact("talk-two", "talk", "delivered", "es"), talkFact("talk-one")],
+      books: [bookFact("book-two", "published", "es"), bookFact("book-one")]
+    }
+  }));
+  await harness.handler({}, {});
+  const reordered = await readPut(harness.putCalls.at(-1));
+  for (const family of ["articles", "talks", "books"]) {
+    assert.equal(reordered.groups[family].scopeId, initial.groups[family].scopeId);
+  }
+
+  listedBuilderArticles = [
+    builderArticle({ id: "remote-one", title: "Remote Work One" }),
+    builderArticle({ id: "remote-two", title: "Remote Work Two", locale: "es" })
+  ];
+  await harness.handler({}, {});
+  const discovered = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(discovered.groups.articles.counts, { all: 2, en: 1, es: 1 });
+  assert.equal(discovered.groups.articles.scopeId, initial.groups.articles.scopeId);
+
+  await harness.handler({}, {});
+  const repeated = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(repeated.groups.articles.counts, { all: 2, en: 1, es: 1 });
+  assert.equal(repeated.groups.articles.scopeId, initial.groups.articles.scopeId);
+
+  harness.setInput(phaseThreeInput({
+    sources: [builderCenterSource(), sourceInput().source],
+    curated: {
+      talks: [talkFact("talk-one"), talkFact("talk-two", "talk", "delivered", "es")],
+      books: [bookFact("book-one"), bookFact("book-two", "published", "es"), bookFact("book-three")]
+    }
+  }));
+  await harness.handler({}, {});
+  const booksChanged = await readPut(harness.putCalls.at(-1));
+  assert.equal(booksChanged.groups.articles.scopeId, initial.groups.articles.scopeId);
+  assert.equal(booksChanged.groups.talks.scopeId, initial.groups.talks.scopeId);
+  assert.notEqual(booksChanged.groups.books.scopeId, initial.groups.books.scopeId);
+  assert.deepEqual(booksChanged.groups.books.counts, { all: 3, en: 2, es: 1 });
+  assert.equal(requests.filter(({ kind }) => kind === "builder-list").length, 5);
+  assert.equal(harness.putCalls.length, 5);
+});
+
+test("input 3 isolates malformed talks or books family values while refreshing valid siblings", async () => {
+  const cases = [
+    {
+      malformedFamily: "talks",
+      curated: {
+        talks: [talkFact("duplicate-talk-id"), talkFact("duplicate-talk-id")],
+        books: [bookFact("valid-book")]
+      }
+    },
+    {
+      malformedFamily: "books",
+      curated: {
+        talks: [talkFact("valid-talk")],
+        books: [bookFact("duplicate-book-id"), bookFact("duplicate-book-id")]
+      }
+    },
+    {
+      malformedFamily: "talks",
+      curated: {
+        talks: [{ id: "talk-missing-kind", status: "delivered", language: "en" }],
+        books: [bookFact("book-after-missing-talk-kind")]
+      }
+    },
+    {
+      malformedFamily: "talks",
+      curated: {
+        talks: [{ kind: "talk", status: "delivered", language: "en" }],
+        books: [bookFact("book-after-missing-talk-id")]
+      }
+    },
+    {
+      malformedFamily: "books",
+      curated: {
+        talks: [talkFact("talk-after-missing-book-status")],
+        books: [{ id: "book-missing-status", language: "en" }]
+      }
+    },
+    {
+      malformedFamily: "talks",
+      curated: { talks: {}, books: [bookFact("valid-book-after-malformed-talks")] }
+    },
+    {
+      malformedFamily: "books",
+      curated: { talks: [talkFact("valid-talk-after-malformed-books")], books: {} }
+    }
+  ];
+  for (const { malformedFamily, curated } of cases) {
+    const requests = [];
+    const harness = createHarness({
+      input: phaseThreeInput({ curated }),
+      fetchFn: builderApiFetch({ requestLog: requests })
+    });
+
+    await harness.handler({}, {});
+
+    assert.equal(requests.filter(({ kind }) => kind === "caylent-list").length, 1);
+    assert.equal(requests.filter(({ kind }) => kind === "builder-list").length, 1);
+    assert.equal(harness.putCalls.length, 1);
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), true);
+    if (malformedFamily === "talks") {
+      assert.equal(Object.hasOwn(output.groups, "talks"), false);
+      assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+    } else {
+      assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+      assert.equal(Object.hasOwn(output.groups, "books"), false);
+    }
+  }
+});
+
+test("an article failure retains only its exact prior family while curated groups refresh and later recover", async () => {
+  let caylentAttempts = 0;
+  let articleSourceFails = true;
+  const requests = [];
+  const clock = createClock();
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("current-talk")],
+      books: [bookFact("current-book")]
+    } }),
+    clock,
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => {
+        caylentAttempts += 1;
+        return articleSourceFails
+          ? jsonResponse({ error: "synthetic article source failure" }, 503)
+          : jsonResponse({ results: [article({ id: "recovered-article" })] });
+      }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+      requestLog: requests
+    })
+  });
+  const previousArticleGroup = priorGroup({
+    counts: { all: 8, en: 6, es: 2 },
+    collectedAt: "2026-10-10T09:00:00.000Z",
+    scopeId: "b".repeat(64)
+  });
+  harness.objects.set(outputKey, JSON.stringify({ schemaVersion: 1, groups: { articles: previousArticleGroup } }));
+
+  await harness.handler({}, {});
+
+  assert.equal(caylentAttempts, 2, "a failed article source request is attempted and retried once");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  const retained = await readPut(harness.putCalls[0]);
+  assert.deepEqual(retained.groups.articles, previousArticleGroup);
+  assert.deepEqual(retained.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(retained.groups.books.counts, { all: 1, en: 1, es: 0 });
+
+  articleSourceFails = false;
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[1]);
+  assert.deepEqual(recovered.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(recovered.groups.articles.collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.notEqual(recovered.groups.articles.scopeId, previousArticleGroup.scopeId);
+  assert.equal(recovered.groups.talks.scopeId, retained.groups.talks.scopeId);
+  assert.equal(recovered.groups.books.scopeId, retained.groups.books.scopeId);
+  assert.equal(harness.putCalls.length, 2);
+});
+
+test("without a prior article group, NoSuchKey omits that family while fresh curated groups publish", async () => {
+  let caylentAttempts = 0;
+  const requests = [];
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("fresh-talk")],
+      books: [bookFact("fresh-book")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => {
+        caylentAttempts += 1;
+        return jsonResponse({ error: "synthetic article source failure" }, 503);
+      }]]),
+      requestLog: requests
+    })
+  });
+
+  await harness.handler({}, {});
+
+  assert.equal(caylentAttempts, 2);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  assert.equal(requests.some(({ kind }) => kind === "caylent-list"), true);
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false, "absence is not reported as a measured zero");
+  assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+});
+
+test("an unsupported prior article group is omitted while fresh curated families publish", async () => {
+  let caylentAttempts = 0;
+  const requests = [];
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("fresh-talk-after-invalid-article-snapshot")],
+      books: [bookFact("fresh-book-after-invalid-article-snapshot")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => {
+        caylentAttempts += 1;
+        return jsonResponse({ error: "synthetic article source failure" }, 503);
+      }]]),
+      requestLog: requests
+    })
+  });
+  const unsupportedArticleGroup = {
+    ...priorGroup({
+      counts: { all: 99, en: 98, es: 1 },
+      scopeId: "c".repeat(64)
+    }),
+    definitionVersion: 99
+  };
+  harness.objects.set(outputKey, JSON.stringify({
+    schemaVersion: 1,
+    groups: { articles: unsupportedArticleGroup }
+  }));
+
+  await harness.handler({}, {});
+
+  assert.equal(caylentAttempts, 2, "the prior-group fallback follows a real article source failure");
+  assert.equal(requests.some(({ kind }) => kind === "caylent-list"), true);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false, "unsupported prior data is unavailable, not a zero or retained count");
+  assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(bodyText(harness.putCalls[0].Body).includes('"all":99'), false);
+});
+
+test("a prior group with a non-string timestamp is omitted while fresh curated families publish", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("fresh-talk-after-invalid-timestamp")],
+      books: [bookFact("fresh-book-after-invalid-timestamp")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    })
+  });
+  const invalidTimestampArticleGroup = {
+    ...priorGroup({ counts: { all: 77, en: 70, es: 7 } }),
+    collectedAt: { toString: null }
+  };
+  harness.objects.set(outputKey, JSON.stringify({
+    schemaVersion: 1,
+    groups: { articles: invalidTimestampArticleGroup }
+  }));
+
+  await harness.handler({}, {});
+
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false);
+  assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+});
+
+test("storage read errors and malformed fallback JSON fail without replacing the last bytes", async () => {
+  for (const fallbackFailure of ["storage-read", "malformed-json"]) {
+    let caylentAttempts = 0;
+    const requests = [];
+    const harness = createHarness({
+      input: phaseThreeInput({ curated: {
+        talks: [talkFact("fresh-talk")],
+        books: [bookFact("fresh-book")]
+      } }),
+      fetchFn: builderApiFetch({
+        caylentPages: new Map([[0, () => {
+          caylentAttempts += 1;
+          return jsonResponse({ error: "synthetic article source failure" }, 503);
+        }]]),
+        requestLog: requests
+      })
+    });
+    const previous = fallbackFailure === "malformed-json"
+      ? "{malformed previous bytes"
+      : '{"schemaVersion":1,"groups":{"articles":{"old":"bytes"}}}';
+    harness.objects.set(outputKey, previous);
+    if (fallbackFailure === "storage-read") {
+      const storageError = new Error("synthetic output storage failure");
+      storageError.name = "ServiceUnavailable";
+      harness.setGetFailure(outputKey, storageError);
+    }
+
+    await assert.rejects(() => harness.handler({}, {}));
+
+    assert.equal(caylentAttempts, 2, `${fallbackFailure} follows a real failed source attempt`);
+    assert.equal(requests.some(({ kind }) => kind === "caylent-list"), true);
+    assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+    assert.equal(harness.putCalls.length, 0);
+    assert.equal(harness.objects.get(outputKey), previous);
+  }
+});
+
+test("if every input 3 family fails there is no output write, and a failed Put preserves old bytes", async () => {
+  let failingAttempts = 0;
+  const requests = [];
+  const allFailed = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("duplicate-talk"), talkFact("duplicate-talk")],
+      books: [bookFact("duplicate-book"), bookFact("duplicate-book")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => {
+        failingAttempts += 1;
+        return jsonResponse({ error: "synthetic article source failure" }, 503);
+      }]]),
+      requestLog: requests
+    })
+  });
+  const previousAllFailed = "previous aggregate bytes remain intact when no family succeeds";
+  allFailed.objects.set(outputKey, previousAllFailed);
+
+  await assert.rejects(() => allFailed.handler({}, {}));
+
+  assert.equal(failingAttempts, 2, "no-write failure must follow a real article source failure");
+  assert.equal(requests.some(({ kind }) => kind === "caylent-list"), true);
+  assert.equal(allFailed.putCalls.length, 0);
+  assert.equal(allFailed.objects.get(outputKey), previousAllFailed);
+
+  const previous = "previous public bytes remain exact";
+  const writeRequests = [];
+  const writeFailure = new Error("synthetic S3 PutObject failure");
+  const failedWrite = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("valid-talk")],
+      books: [bookFact("valid-book")]
+    } }),
+    fetchFn: builderApiFetch({ requestLog: writeRequests }),
+    putFailure: writeFailure
+  });
+  failedWrite.objects.set(outputKey, previous);
+
+  await assert.rejects(() => failedWrite.handler({}, {}));
+
+  assert.equal(writeRequests.some(({ kind }) => kind === "caylent-list"), true);
+  assert.equal(writeRequests.some(({ kind }) => kind === "builder-list"), true);
+  assert.equal(failedWrite.putCalls.length, 1);
+  assert.equal(failedWrite.objects.get(outputKey), previous);
+});
+
+test("unsupported input 3 versions and malformed source or family shapes reject before provider calls", async () => {
+  for (const invalidInput of [
+    { ...phaseThreeInput(), schemaVersion: 4 },
+    { ...phaseThreeInput(), definitionVersion: 2 },
+    phaseThreeInput({ sources: [sourceInput().source] }),
+    phaseThreeInput({ sources: [sourceInput().source, builderCenterSource(), builderCenterSource()] }),
+    phaseThreeInput({ curated: { talks: [] } }),
+    phaseThreeInput({ curated: { talks: [], books: [], music: [] } })
+  ]) {
+    let fetchCount = 0;
+    const harness = createHarness({
+      input: invalidInput,
+      fetchFn: async () => {
+        fetchCount += 1;
+        return jsonResponse({ results: [] });
+      }
+    });
+
+    await assert.rejects(() => harness.handler({}, {}));
+
+    assert.equal(fetchCount, 0);
+    assert.equal(harness.putCalls.length, 0);
+  }
+});
+
+test("input 3 enforces curated kind and status enums while excluding explicit unknowns and unsupported languages", async () => {
+  const malformedCases = [
+    {
+      family: "talks",
+      curated: {
+        talks: [talkFact("unsupported-kind", "meetup")],
+        books: [bookFact("valid-book")]
+      }
+    },
+    {
+      family: "talks",
+      curated: {
+        talks: [talkFact("unsupported-status", "talk", "finished")],
+        books: [bookFact("valid-book-after-status")]
+      }
+    },
+    {
+      family: "books",
+      curated: {
+        talks: [talkFact("valid-talk")],
+        books: [bookFact("unsupported-status", "released")]
+      }
+    }
+  ];
+
+  for (const { family, curated } of malformedCases) {
+    const harness = createHarness({
+      input: phaseThreeInput({ curated }),
+      fetchFn: builderApiFetch()
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, family), false);
+    assert.equal(Object.hasOwn(output.groups, family === "talks" ? "books" : "talks"), true);
+  }
+
+  const excluded = createHarness({
+    input: phaseThreeInput({
+      curated: {
+        talks: [
+          talkFact("explicit-unknown-kind", "unknown", "delivered", "en"),
+          talkFact("explicit-unknown-status", "talk", "unknown", "en"),
+          talkFact("unsupported-language", "talk", "delivered", "fr")
+        ],
+        books: [
+          bookFact("explicit-unknown-book-status", "unknown", "en"),
+          bookFact("unsupported-book-language", "published", "fr")
+        ]
+      }
+    }),
+    fetchFn: builderApiFetch()
+  });
+  await excluded.handler({}, {});
+  const excludedOutput = await readPut(excluded.putCalls[0]);
+  assert.deepEqual(excludedOutput.groups.talks.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(excludedOutput.groups.books.counts, { all: 0, en: 0, es: 0 });
+});
+
+test("an unknown prior aggregate group key is a document failure during fallback", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput({
+      curated: {
+        talks: [talkFact("fresh-talk")],
+        books: [bookFact("fresh-book")]
+      }
+    }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    })
+  });
+  const previous = JSON.stringify({
+    schemaVersion: 1,
+    groups: {
+      articles: priorGroup(),
+      future: priorGroup()
+    }
+  });
+  harness.objects.set(outputKey, previous);
+
+  await assert.rejects(() => harness.handler({}, {}));
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  assert.equal(harness.putCalls.length, 0);
+  assert.equal(harness.objects.get(outputKey), previous);
+});
+
+test("schema 3 omits the operational article count when the article group is unavailable", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput({
+      curated: {
+        talks: [talkFact("fresh-talk")],
+        books: [bookFact("fresh-book")]
+      }
+    }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    })
+  });
+
+  const result = await harness.handler({}, {});
+  assert.equal(Object.hasOwn(result, "count"), false);
+  assert.equal(harness.logs.some((line) => line.includes('"publicationCount"')), false);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false);
+});
+
+test("an unexpected curated scope process error aborts without fallback, write, or raw error logging", async () => {
+  const privatePayload = "synthetic-private-create-hash-failure";
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("talk-before-process-failure")],
+      books: [bookFact("book-after-process-failure")]
+    } }),
+    fetchFn: builderApiFetch(),
+    createHashFaultAfter: 2,
+    createHashFault: new Error(privatePayload)
+  });
+  const previous = "previous aggregate bytes remain intact after a process failure";
+  harness.objects.set(outputKey, previous);
+
+  await assert.rejects(() => harness.handler({}, {}), (error) => {
+    assert.equal(error.code, "COLLECTION_FAILED");
+    return true;
+  });
+
+  assert.equal(harness.putCalls.length, 0);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0);
+  assert.equal(harness.objects.get(outputKey), previous);
+  const logs = harness.logs.join("\n");
+  assert.equal(logs.includes("COLLECTION_FAILED"), true);
+  assert.equal(logs.includes(privatePayload), false);
 });

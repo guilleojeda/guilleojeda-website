@@ -1,15 +1,16 @@
 const endpointPath = '/content-stats/v1/current.json';
+const knownKinds = ['articles', 'talks', 'books'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
-  groups: ['articles'],
-  articles: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
+  group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
   counts: ['all', 'en', 'es'],
   source: ['id', 'label']
 };
-const supportedSources = new Map([
+const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
   ['builder-center', 'AWS Builder Center']
 ]);
+const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -19,6 +20,10 @@ function hasOnlyKeys(value, keys) {
   return isRecord(value)
     && Object.keys(value).length === keys.length
     && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function hasAllowedKeys(value, keys) {
+  return isRecord(value) && Object.keys(value).every((key) => keys.includes(key));
 }
 
 function isSupportedTimestamp(value) {
@@ -39,53 +44,79 @@ function isNonnegativeCount(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-function hasSupportedSources(sources) {
-  if (!Array.isArray(sources) || (sources.length !== 1 && sources.length !== 2)) return false;
+function hasSources(group, kind) {
+  const { sources } = group;
+  if (!Array.isArray(sources) || sources.length === 0) return false;
 
   const ids = new Set();
   for (const source of sources) {
     if (!hasOnlyKeys(source, allowedKeys.source)
       || typeof source.id !== 'string'
-      || ids.has(source.id)
-      || supportedSources.get(source.id) !== source.label) return false;
+      || ids.has(source.id)) return false;
     ids.add(source.id);
+
+    if (kind === 'articles') {
+      if (supportedArticleSources.get(source.id) !== source.label) return false;
+    } else if (source.id !== supportedCuratedSource.id || source.label !== supportedCuratedSource.label) {
+      return false;
+    }
   }
 
-  return ids.has('caylent') && (sources.length === 1 || ids.has('builder-center'));
+  if (kind === 'articles') {
+    return ids.has('caylent') && (sources.length === 1 || (sources.length === 2 && ids.has('builder-center')));
+  }
+  return sources.length === 1 && ids.has(supportedCuratedSource.id);
 }
 
-function validateSnapshot(value) {
-  if (!hasOnlyKeys(value, allowedKeys.document) || value.schemaVersion !== 1) return null;
-  if (!hasOnlyKeys(value.groups, allowedKeys.groups)) return null;
+function validateGroup(value, kind) {
+  if (!hasOnlyKeys(value, allowedKeys.group)
+    || value.definitionVersion !== 1
+    || value.basis !== 'cumulative'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSupportedScope(value.scopeId)
+    || !hasSources(value, kind)) return null;
 
-  const articles = value.groups.articles;
-  if (!hasOnlyKeys(articles, allowedKeys.articles)
-    || articles.definitionVersion !== 1
-    || articles.basis !== 'cumulative'
-    || !isSupportedTimestamp(articles.collectedAt)
-    || !isSupportedScope(articles.scopeId)
-    || !hasSupportedSources(articles.sources)) return null;
-
-  const counts = articles.counts;
+  const { counts } = value;
   if (!hasOnlyKeys(counts, allowedKeys.counts)
     || !isNonnegativeCount(counts.all)
     || !isNonnegativeCount(counts.en)
     || !isNonnegativeCount(counts.es)
     || counts.all !== counts.en + counts.es) return null;
 
-  return articles;
+  return value;
+}
+
+function validateSnapshot(value) {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, allowedKeys.document)
+    || value.schemaVersion !== 1
+    || !isRecord(value.groups)
+    || !hasAllowedKeys(value.groups, knownKinds)) return null;
+
+  return Object.fromEntries(knownKinds.map((kind) => [
+    kind,
+    Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
+  ]));
 }
 
 function getElements(section) {
+  const cards = Object.fromEntries(knownKinds.map((kind) => {
+    const card = section.querySelector(`[data-stats-kind="${kind}"]`);
+    if (!card) return [kind, null];
+    return [kind, {
+      card,
+      status: card.querySelector('[data-stats-status]'),
+      results: card.querySelector('[data-stats-results]'),
+      count: card.querySelector('[data-stats-count]'),
+      countLabel: card.querySelector('[data-stats-count-label]'),
+      coverage: card.querySelector('[data-stats-coverage]'),
+      collectedDate: card.querySelector('[data-stats-collected-date]')
+    }];
+  }));
+
   return {
-    card: section.querySelector('[data-stats-kind="articles"]'),
-    selector: section.querySelector('[data-stats-language]'),
-    status: section.querySelector('[data-stats-status]'),
-    results: section.querySelector('[data-stats-results]'),
-    count: section.querySelector('[data-stats-count]'),
-    countLabel: section.querySelector('[data-stats-count-label]'),
-    coverage: section.querySelector('[data-stats-coverage]'),
-    collectedDate: section.querySelector('[data-stats-collected-date]')
+    cards,
+    selector: section.querySelector('[data-stats-language]')
   };
 }
 
@@ -97,28 +128,62 @@ function formatCollectedDate(timestamp, locale) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
 }
 
-function renderArticles(articles, locale, elements) {
-  const language = elements.selector.value;
-  const count = articles.counts[language];
+function localizeSource(source, locale) {
+  if (source.id === supportedCuratedSource.id && locale === 'es') return 'Inventario del sitio web';
+  return source.label;
+}
+
+function renderGroup(group, locale, language, elements) {
+  const count = group.counts[language];
   elements.count.textContent = new Intl.NumberFormat(locale).format(count);
-  elements.coverage.textContent = articles.sources.map((source) => source.label).join(', ');
-  elements.collectedDate.textContent = formatCollectedDate(articles.collectedAt, locale);
+  elements.coverage.textContent = group.sources.map((source) => localizeSource(source, locale)).join(', ');
+  elements.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
   elements.results.hidden = false;
+  elements.status.hidden = true;
+  elements.status.textContent = '';
+  elements.card.setAttribute('aria-busy', 'false');
+}
+
+function renderUnavailable(elements) {
+  elements.results.hidden = true;
+  elements.count.textContent = '';
+  elements.coverage.textContent = '';
+  elements.collectedDate.textContent = '';
+  elements.status.textContent = elements.card.dataset.statsUnavailable?.trim() || 'Statistics are temporarily unavailable.';
+  elements.status.hidden = false;
+  elements.card.setAttribute('aria-busy', 'false');
+}
+
+function renderAll(groups, locale, language, elements) {
+  for (const kind of knownKinds) {
+    const card = elements.cards[kind];
+    const group = groups?.[kind];
+    if (!card || !group) {
+      if (card) renderUnavailable(card);
+      continue;
+    }
+    renderGroup(group, locale, language, card);
+  }
 }
 
 async function loadContentStats(section) {
   const elements = getElements(section);
-  if (!elements.card || !elements.selector || !elements.status || !elements.results
-    || !elements.count || !elements.countLabel || !elements.coverage || !elements.collectedDate) return;
+  const cardsReady = knownKinds.every((kind) => {
+    const card = elements.cards[kind];
+    return card?.card && card.status && card.results && card.count && card.countLabel
+      && card.coverage && card.collectedDate;
+  });
+  if (!elements.selector || !cardsReady) return;
 
   const locale = getLocale(section);
-  const unavailableMessage = section.dataset.statsUnavailable?.trim();
-  if (!unavailableMessage) return;
-
   elements.selector.disabled = false;
-  elements.status.hidden = false;
-  elements.card.setAttribute('aria-busy', 'true');
+  for (const kind of knownKinds) {
+    const card = elements.cards[kind];
+    card.status.hidden = false;
+    card.card.setAttribute('aria-busy', 'true');
+  }
 
+  let groups = null;
   try {
     const source = section.dataset.statsSource;
     const requestUrl = new URL(source, window.location.href);
@@ -129,21 +194,14 @@ async function loadContentStats(section) {
 
     const response = await fetch(requestUrl.href, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Statistics request failed');
-
-    const articles = validateSnapshot(await response.json());
-    if (!articles) throw new Error('Unsupported statistics response');
-
-    elements.status.hidden = true;
-    elements.status.textContent = '';
-    elements.card.setAttribute('aria-busy', 'false');
-    renderArticles(articles, locale, elements);
-    elements.selector.addEventListener('change', () => renderArticles(articles, locale, elements));
+    groups = validateSnapshot(await response.json());
+    if (!groups) throw new Error('Unsupported statistics response');
   } catch {
-    elements.status.textContent = unavailableMessage;
-    elements.status.hidden = false;
-    elements.card.setAttribute('aria-busy', 'false');
-    elements.results.hidden = true;
+    // A document, network, or HTTP failure invalidates the whole snapshot.
   }
+
+  renderAll(groups, locale, elements.selector.value, elements);
+  elements.selector.addEventListener('change', () => renderAll(groups, locale, elements.selector.value, elements));
 }
 
 const section = document.getElementById('content-stats');

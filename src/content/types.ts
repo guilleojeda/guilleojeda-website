@@ -1,6 +1,34 @@
 export type Locale = 'en' | 'es';
 
+export type ContentLanguage = Locale | null;
+
+export type TalkOccurrenceKind =
+  | 'talk'
+  | 'workshop'
+  | 'training'
+  | 'panel'
+  | 'session'
+  | 'hosting'
+  | 'podcast'
+  | 'commentary'
+  | 'conversation'
+  | 'unknown';
+
+export type TalkOccurrenceStatus = 'delivered' | 'scheduled' | 'unknown';
+
 export type LocalizedText = Record<Locale, string>;
+
+export interface TalkOccurrence {
+  id: string;
+  kind: TalkOccurrenceKind;
+  status: TalkOccurrenceStatus;
+  language: ContentLanguage;
+}
+
+export interface BookPublication {
+  status: 'published' | 'in-progress' | 'unknown';
+  language: ContentLanguage;
+}
 
 export interface ProjectRecord {
   id: string;
@@ -14,6 +42,7 @@ export interface ProjectRecord {
 
 export interface TalkRecord {
   id: string;
+  occurrences: TalkOccurrence[];
   year: number;
   event: LocalizedText;
   format: LocalizedText;
@@ -26,6 +55,7 @@ export interface TalkRecord {
 
 export interface BookRecord {
   id: string;
+  publication: BookPublication;
   title: LocalizedText;
   text: LocalizedText;
   meta: LocalizedText;

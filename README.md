@@ -47,11 +47,13 @@ The portrait and other public assets live in the repository. Keep alternative te
 
 ### Content statistics
 
-The Articles card counts the covered Caylent and AWS Builder Center author inventories, with independent All · English · Español content filtering. The shared rule for every article source is normalized title + actual content language: matching titles in the same language count once; different titles and published translations count separately. Normalization uses Unicode NFC, lowercase and collapsed whitespace, preserving accents and punctuation. All eligible publication URLs remain available separately for future reach. Its number is cumulative; it does not claim complete career coverage or article readership. The source and last successful collection date accompany the count. Statistics require JavaScript; the rest of the site works without it.
+The Articles, Talks & sessions, and Books cards share an All · English · Español content filter. Articles count the covered Caylent and AWS Builder Center author inventories. The shared rule for every article source is normalized title + actual content language: matching titles in the same language count once; different titles and published translations count separately. Normalization uses Unicode NFC, lowercase and collapsed whitespace, preserving accents and punctuation. All eligible publication URLs remain available separately for future reach. Its number is cumulative; it does not claim complete career coverage or article readership. Each card shows its own source and last successful collection date. Statistics require JavaScript; the rest of the site works without it.
 
-`public/_content-stats/inputs.json` is the authoritative collector configuration. Astro copies it into the normal build artifact, and site CI uploads it. Its schema version 2 source list contains the public Caylent delivery key, author selectors and language/counting configuration; **never add private credentials or raw provider data**. CloudFront denies access to `/_content-stats/*` in production. A source policy correction uses ordinary site CI and takes effect on the next collection. Publishing another eligible article on either configured source needs no repository change. Caylent uses the confirmed English policy; Builder Center uses stored article locales. Origin/canonical links are not required for counting.
+Maintain speaking `occurrences` in `talks.json` with a stable per-record ID, `kind`, `status` and `language`. Count delivered talk/workshop/training/panel/session occurrences; repeated deliveries count separately, while host-only, commentary, podcast/conversation and scheduled/unknown appearances do not. A grouped record has separate occurrence facts for each slot. Maintain `publication: {status, language}` in `books.json`: published records count, including historical unavailable titles; in-progress/unknown records do not. Always assign talk/book language from the original content title, independently of UI descriptions. English brands inside a Spanish title remain Spanish. Both published books are English.
 
-The Lambda alone writes `content-stats/v1/current.json`. Site CI cannot overwrite it, and rejects build artifacts containing that prefix. A complete successful refresh replaces the object; a source, validation or storage failure keeps the prior object with its original coverage and date. A first-ever failed collection leaves statistics unavailable. JSON revalidates through CloudFront, so daily updates need no invalidation or website rebuild.
+`public/_content-stats/inputs.json` is the article-source configuration, with the public Caylent delivery key, author selectors and language/counting policy in schema2. `npm run build` runs Astro then `scripts/build-content-stats-inputs.mjs`, which combines that configuration with the existing maintained speaking/book facts into schema3 `dist/_content-stats/inputs.json`. Site CI uploads that exact generated artifact. No copied facts catalog or hand-maintained count is needed; duplicate IDs or missing factual metadata fail the build. **Never add private credentials or raw provider data**. CloudFront denies access to `/_content-stats/*` in production. A source policy correction uses ordinary site CI and takes effect on the next collection. Publishing another eligible article on either configured source needs no repository change. Caylent uses the confirmed English policy; Builder Center uses stored article locales. Origin/canonical links are not required for counting.
+
+The Lambda alone writes `content-stats/v1/current.json`. Site CI cannot overwrite it, and rejects build artifacts containing that prefix. A refresh derives each group independently. Fresh valid groups can publish alongside a valid prior failed group, retaining that group's exact original count, source, date and scope. A missing/invalid prior group is unavailable, not zero. No fresh successful groups, invalid root JSON/schema or storage failure means no replacement. The role can read only the exact protected input and prior aggregate and write only the aggregate. JSON revalidates through CloudFront, so daily updates need no invalidation or website rebuild.
 
 Run `npm run verify` with `SITE_URL` set before publishing a content change. See [the website behavior](docs/intent/website.md) for the content and operating decisions.
 
@@ -68,22 +70,29 @@ aws iam list-open-id-connect-providers
 
 If the account already has the provider for `https://token.actions.githubusercontent.com`, pass its ARN as `GitHubOidcProviderArn`. Do not create another provider or replace one owned by another application. If none exists, the stack can create it with `CreateOidcProviderIfMissing=true`.
 
-For a new provider:
+The rendered template exceeds CloudFormation's 51,200-byte direct-body limit. For updates to the existing stack, use its private site bucket for the template and keep the embedded function sources:
 
 ```sh
 guille_stack_template="$(mktemp)"
 node scripts/render-infra.mjs --output "$guille_stack_template"
-aws cloudformation validate-template --template-body "file://$guille_stack_template" --region us-east-1
+guille_template_bucket="$(aws cloudformation describe-stacks \
+  --stack-name guilleojeda-website --region us-east-1 \
+  --query 'Stacks[0].Outputs[?OutputKey==`BucketName`].OutputValue | [0]' \
+  --output text)"
 aws cloudformation deploy \
   --stack-name guilleojeda-website \
   --template-file "$guille_stack_template" \
+  --s3-bucket "$guille_template_bucket" \
+  --s3-prefix _content-stats/templates \
   --region us-east-1 \
   --capabilities CAPABILITY_IAM \
-  --parameter-overrides CreateOidcProviderIfMissing=true
+  --no-execute-changeset
 rm "$guille_stack_template"
 ```
 
-For reuse, replace the parameter override with `GitHubOidcProviderArn=YOUR_EXISTING_PROVIDER_ARN`. Keep the same provider choice on later stack updates. Setup creates private storage, CloudFront routing/cache configuration, and a restricted site-deployment role. It does not upload the site.
+The CLI uploads the template and CloudFormation validates it while creating the change set. Inspect the returned change-set ARN with `aws cloudformation describe-change-set`, confirm only the intended resources change, then use `aws cloudformation execute-change-set` and `aws cloudformation wait stack-update-complete`, all in `us-east-1`. Preserve existing OIDC parameters on updates. This path publishes infrastructure, not site content or collector inputs.
+
+For initial setup, the template upload needs an already available private bucket; the site bucket does not exist until the stack creates it. Select either `GitHubOidcProviderArn=YOUR_EXISTING_PROVIDER_ARN` or `CreateOidcProviderIfMissing=true` as appropriate. Do not create a second OIDC provider or reuse another application's resources without confirming ownership.
 
 Read the outputs after the stack finishes:
 
@@ -111,7 +120,7 @@ These values are identifiers, not credentials. For example, `gh variable set AWS
 
 EventBridge Scheduler invokes the collector daily at **09:15 America/Argentina/Cordoba**, with no flexible window. The Node 24 Lambda has a five-minute timeout and 30-day log retention. Provider requests have a ten-second deadline and one transient retry; Caylent pagination is capped at 100 pages of 10 records, and Builder Center at 20 cursor pages of 50 records. Short or empty Builder pages with a cursor still continue. Builder article bodies are not fetched for counts. Reaching the cap fails the refresh rather than publishing an incomplete count. Scheduler delivery and Lambda asynchronous execution each allow one retry within one hour.
 
-The collector uses shared regional Lambda concurrency. Each invocation recomputes a complete snapshot from current source data and replaces the aggregate object. If invocations overlap, the one that finishes last can publish an older complete snapshot.
+The collector uses shared regional Lambda concurrency. Each invocation recomputes current groups, retains supported failed groups when fresh siblings publish, and replaces the complete aggregate object. If invocations overlap, the one that finishes last can publish an older complete snapshot.
 
 The stack exposes `ContentStatsFunctionName`, `ContentStatsScheduleName` and `ContentStatsScheduleGroupName`. Inspect the current stack outputs and schedule before operating it. After infrastructure and normal site/configuration publication, invoke the actual deployed function for initial output or to verify a repair:
 
@@ -127,9 +136,9 @@ cat /tmp/guille-content-stats-result.json
 
 Check both the invocation metadata for `FunctionError` and the response body, then inspect the public JSON and both language pages. A manual invocation recomputes from current inputs/source data; it never increments the old total or uses a scheduled event's old timestamp. Logs identify successful counts/pages/dates or sanitized failure codes without recording provider bodies or delivery keys.
 
-When upgrading source configuration, deploy the backward-compatible collector through CloudFormation before site CI publishes schema version 2 inputs. The runtime accepts legacy schema version 1 Caylent configuration and applies the same title rule; the browser accepts saved Caylent-only or current two-source aggregates without relabeling their coverage or date. For rollback to a v1-only runtime, restore compatible inputs through normal CI first. Keep inputs, runtime and browser schemas compatible; never manually upload replacement figures.
+When upgrading inputs, deploy the backward-compatible collector through CloudFormation before site CI publishes schema3. The runtime accepts legacy schema1 Caylent and schema2 article-source configurations under the same title rule; these do not invent curated groups. The public schema remains1, with optional known article/talk/book groups. Saved article-only snapshots keep their coverage/date and leave new cards unavailable. For rollback to a runtime supporting only older inputs, restore compatible inputs through normal CI first. Keep inputs, runtime and browser schemas compatible; never manually upload replacement figures.
 
-For recovery, inspect the named function's CloudWatch log group, correct the source configuration through normal CI or correct runtime/infrastructure through CloudFormation, then invoke again. Do not repair numbers by manually uploading JSON. Retained values keep their old date until a complete refresh succeeds. An incompatible input/schema version fails explicitly; coordinate version changes with the collector and browser. No private analytics authorization is required for these public author inventories. Builder Center uses an observed first-party interface; changed response shapes fail collection and preserve last success until repaired.
+For recovery, inspect the named function's CloudWatch log group, correct the source configuration through normal CI or correct runtime/infrastructure through CloudFormation, then invoke again. Do not repair numbers by manually uploading JSON. Retained groups keep their own old date until that group's refresh succeeds. An incompatible input/schema version fails explicitly; coordinate version changes with the collector and browser. No private analytics authorization is required for these public author inventories. Builder Center uses an observed first-party interface; changed response shapes fail the article group and preserve its supported last success while other valid groups can refresh.
 
 ## Publish and recover
 

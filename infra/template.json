@@ -669,20 +669,36 @@
                 {
                   "Effect": "Allow",
                   "Action": "s3:GetObject",
-                  "Resource": {
-                    "Fn::Join": [
-                      "",
-                      [
-                        {
-                          "Fn::GetAtt": [
-                            "SiteBucket",
-                            "Arn"
-                          ]
-                        },
-                        "/_content-stats/inputs.json"
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::GetAtt": [
+                              "SiteBucket",
+                              "Arn"
+                            ]
+                          },
+                          "/_content-stats/inputs.json"
+                        ]
                       ]
-                    ]
-                  }
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::GetAtt": [
+                              "SiteBucket",
+                              "Arn"
+                            ]
+                          },
+                          "/content-stats/v1/current.json"
+                        ]
+                      ]
+                    }
+                  ]
                 },
                 {
                   "Effect": "Allow",

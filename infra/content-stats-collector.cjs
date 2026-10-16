@@ -13,6 +13,22 @@ const MAX_TRANSIENT_RETRIES = 1;
 const OUTPUT_CACHE_CONTROL = "public,max-age=0,must-revalidate";
 const SUPPORTED_LANGUAGES = new Set(["en", "es"]);
 const ARTICLE_IDENTITY_POLICY = "title-language-v1";
+const TALK_KINDS = new Set([
+  "talk",
+  "workshop",
+  "training",
+  "panel",
+  "session",
+  "hosting",
+  "podcast",
+  "commentary",
+  "conversation",
+  "unknown"
+]);
+const TALK_STATUSES = new Set(["delivered", "scheduled", "unknown"]);
+const BOOK_STATUSES = new Set(["published", "in-progress", "unknown"]);
+const SPEAKING_KINDS = new Set(["talk", "workshop", "training", "panel", "session"]);
+const CURATED_SOURCE = Object.freeze({ id: "website-inventory", label: "Website inventory" });
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center"
@@ -118,7 +134,9 @@ function validateBuilderSource(source) {
 
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (input.schemaVersion !== 1 && input.schemaVersion !== 2) throw fail("INPUT_VERSION_UNSUPPORTED");
+  if (input.schemaVersion !== 1 && input.schemaVersion !== 2 && input.schemaVersion !== 3) {
+    throw fail("INPUT_VERSION_UNSUPPORTED");
+  }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
 
   if (input.schemaVersion === 1) {
@@ -138,11 +156,89 @@ function validateInput(input) {
     throw fail("SOURCE_SET_INVALID");
   }
 
+  if (input.schemaVersion === 3) {
+    if (!exactKeys(input, ["schemaVersion", "definitionVersion", "sources", "curated"]) ||
+        !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"])) {
+      throw fail("INPUT_SCHEMA_INVALID");
+    }
+    return {
+      schemaVersion: 3,
+      sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
+      curated: input.curated
+    };
+  }
+
   // Always use a stable source order for public output and semantic scope.
   return {
     schemaVersion: 2,
     sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")]
   };
+}
+
+function curatedScopeFingerprint(family, facts) {
+  const selectors = facts.map((fact) => family === "talks"
+    ? { id: fact.id, kind: fact.kind, status: fact.status, language: fact.language }
+    : { id: fact.id, status: fact.status, language: fact.language })
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const scope = {
+    definitionVersion: 1,
+    family,
+    policy: family === "talks" ? "delivered-speaking-inventory-v1" : "published-books-inventory-v1",
+    supportedLanguages: ["en", "es"],
+    sources: [CURATED_SOURCE],
+    facts: selectors
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function validateCuratedFacts(family, value) {
+  if (!Array.isArray(value)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+  const facts = [];
+  const ids = new Set();
+  for (const fact of value) {
+    const expectedKeys = family === "talks"
+      ? ["id", "kind", "status", "language"]
+      : ["id", "status", "language"];
+    if (!exactKeys(fact, expectedKeys)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+    const id = requireString(fact.id, `CURATED_${family.toUpperCase()}_INVALID`);
+    if (ids.has(id)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+    ids.add(id);
+
+    const status = requireString(fact.status, `CURATED_${family.toUpperCase()}_INVALID`);
+    const kind = family === "talks"
+      ? requireString(fact.kind, `CURATED_${family.toUpperCase()}_INVALID`)
+      : undefined;
+    if (family === "talks" && (!TALK_KINDS.has(kind) || !TALK_STATUSES.has(status))) {
+      throw fail("CURATED_TALKS_INVALID");
+    }
+    if (family === "books" && !BOOK_STATUSES.has(status)) throw fail("CURATED_BOOKS_INVALID");
+    const language = fact.language === null
+      ? null
+      : requireString(fact.language, `CURATED_${family.toUpperCase()}_INVALID`);
+    facts.push(family === "talks"
+      ? { id, kind, status, language }
+      : { id, status, language });
+  }
+  return facts;
+}
+
+function deriveCuratedGroup(family, value, collectedAt) {
+  const facts = validateCuratedFacts(family, value);
+  const counts = { all: 0, en: 0, es: 0 };
+  for (const fact of facts) {
+    const eligible = family === "talks"
+      ? fact.status === "delivered" && SPEAKING_KINDS.has(fact.kind)
+      : fact.status === "published";
+    if (!eligible || !SUPPORTED_LANGUAGES.has(fact.language)) continue;
+    counts[fact.language] += 1;
+    counts.all += 1;
+  }
+  return makeGroup({
+    sources: [CURATED_SOURCE],
+    counts,
+    collectedAt,
+    scopeId: curatedScopeFingerprint(family, facts)
+  });
 }
 
 function scopeFingerprint(sources) {
@@ -433,22 +529,6 @@ async function collectPublications(sources, now) {
   return { counts, pagesBySource, publications };
 }
 
-function makeOutput(sources, counts, collectedAt) {
-  return {
-    schemaVersion: 1,
-    groups: {
-      articles: {
-        definitionVersion: 1,
-        basis: "cumulative",
-        collectedAt,
-        scopeId: scopeFingerprint(sources),
-        sources: sources.map(({ id }) => ({ id, label: SOURCE_LABELS[id] })),
-        counts
-      }
-    }
-  };
-}
-
 function exactKeys(value, expected) {
   if (!isObject(value)) return false;
   const actual = Object.keys(value).sort();
@@ -456,38 +536,201 @@ function exactKeys(value, expected) {
   return actual.length === sortedExpected.length && actual.every((key, index) => key === sortedExpected[index]);
 }
 
-function validateOutput(output) {
-  if (!exactKeys(output, ["schemaVersion", "groups"]) || output.schemaVersion !== 1) {
-    throw fail("OUTPUT_SCHEMA_INVALID");
+function makeGroup({ sources, counts, collectedAt, scopeId }) {
+  return {
+    definitionVersion: 1,
+    basis: "cumulative",
+    collectedAt,
+    scopeId,
+    sources: sources.map(({ id, label }) => ({ id, label })),
+    counts
+  };
+}
+
+function makeArticleGroup(sources, counts, collectedAt) {
+  return makeGroup({
+    sources: sources.map(({ id }) => ({ id, label: SOURCE_LABELS[id] })),
+    counts,
+    collectedAt,
+    scopeId: scopeFingerprint(sources)
+  });
+}
+
+function makeOutput(groups) {
+  return { schemaVersion: 1, groups };
+}
+
+function validSourceList(sources, family) {
+  if (!Array.isArray(sources)) return false;
+  if (family === "articles") {
+    const expected = sources.length === 1
+      ? [["caylent", "Caylent"]]
+      : [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]];
+    return (sources.length === 1 || sources.length === 2) && sources.every((source, index) =>
+      exactKeys(source, ["id", "label"]) && source.id === expected[index][0] && source.label === expected[index][1]);
   }
-  if (!exactKeys(output.groups, ["articles"])) throw fail("OUTPUT_SCHEMA_INVALID");
-  const group = output.groups.articles;
+  return sources.length === 1 && exactKeys(sources[0], ["id", "label"]) &&
+    sources[0].id === CURATED_SOURCE.id && sources[0].label === CURATED_SOURCE.label;
+}
+
+function isValidGroup(group, family) {
   if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "sources", "counts"])) {
-    throw fail("OUTPUT_SCHEMA_INVALID");
+    return false;
   }
-  if (group.definitionVersion !== 1 || group.basis !== "cumulative") throw fail("OUTPUT_SCHEMA_INVALID");
+  if (group.definitionVersion !== 1 || group.basis !== "cumulative") return false;
+  if (typeof group.collectedAt !== "string") return false;
   const collected = Date.parse(group.collectedAt);
-  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt) {
-    throw fail("OUTPUT_SCHEMA_INVALID");
-  }
-  if (typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId)) {
-    throw fail("OUTPUT_SCHEMA_INVALID");
-  }
-  if (!Array.isArray(group.sources) || group.sources.length < 1 || group.sources.length > 2) {
-    throw fail("OUTPUT_SCHEMA_INVALID");
-  }
-  const expectedSources = group.sources.length === 1
-    ? [["caylent", "Caylent"]]
-    : [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]];
-  if (group.sources.some((source, index) => !exactKeys(source, ["id", "label"]) ||
-      source.id !== expectedSources[index][0] || source.label !== expectedSources[index][1])) {
-    throw fail("OUTPUT_SCHEMA_INVALID");
-  }
-  if (!exactKeys(group.counts, ["all", "en", "es"])) throw fail("OUTPUT_SCHEMA_INVALID");
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt) return false;
+  if (typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId)) return false;
+  if (!validSourceList(group.sources, family)) return false;
+  if (!exactKeys(group.counts, ["all", "en", "es"])) return false;
   for (const count of Object.values(group.counts)) {
-    if (!Number.isSafeInteger(count) || count < 0) throw fail("OUTPUT_SCHEMA_INVALID");
+    if (!Number.isSafeInteger(count) || count < 0) return false;
   }
-  if (group.counts.all !== group.counts.en + group.counts.es) throw fail("OUTPUT_SCHEMA_INVALID");
+  return group.counts.all === group.counts.en + group.counts.es;
+}
+
+function validateOutput(output) {
+  if (!exactKeys(output, ["schemaVersion", "groups"]) || output.schemaVersion !== 1 ||
+      !isObject(output.groups)) {
+    throw fail("OUTPUT_SCHEMA_INVALID");
+  }
+  const families = Object.keys(output.groups);
+  if (families.length < 1 || families.some((family) => !["articles", "talks", "books"].includes(family))) {
+    throw fail("OUTPUT_SCHEMA_INVALID");
+  }
+  for (const family of families) {
+    if (!isValidGroup(output.groups[family], family)) throw fail("OUTPUT_SCHEMA_INVALID");
+  }
+}
+
+function isNoSuchKey(error) {
+  return error && (error.name === "NoSuchKey" || error.Code === "NoSuchKey");
+}
+
+async function readPreviousAggregate(bucket, key) {
+  let response;
+  try {
+    response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  } catch (error) {
+    if (isNoSuchKey(error)) return null;
+    throw fail("OUTPUT_READ_FAILED");
+  }
+
+  let raw;
+  try {
+    raw = await bodyToString(response && response.Body);
+  } catch {
+    throw fail("OUTPUT_READ_FAILED");
+  }
+  let previous;
+  try {
+    previous = JSON.parse(raw);
+  } catch {
+    throw fail("OUTPUT_JSON_INVALID");
+  }
+  if (!exactKeys(previous, ["schemaVersion", "groups"]) || previous.schemaVersion !== 1 ||
+      !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
+    throw fail("OUTPUT_SCHEMA_INVALID");
+  }
+  const supportedFamilies = new Set(["articles", "talks", "books"]);
+  if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
+    throw fail("OUTPUT_SCHEMA_INVALID");
+  }
+  const groups = {};
+  for (const family of supportedFamilies) {
+    if (Object.hasOwn(previous.groups, family) && isValidGroup(previous.groups[family], family)) {
+      groups[family] = previous.groups[family];
+    }
+  }
+  return groups;
+}
+
+async function putOutput(bucket, key, output) {
+  try {
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: JSON.stringify(output),
+      ContentType: "application/json",
+      CacheControl: OUTPUT_CACHE_CONTROL
+    }));
+  } catch {
+    throw fail("OUTPUT_WRITE_FAILED");
+  }
+}
+
+async function collectLegacy(configuration, env, collectedAt, now) {
+  const collection = await collectPublications(configuration.sources, now);
+  const groups = { articles: makeArticleGroup(configuration.sources, collection.counts, collectedAt) };
+  const output = makeOutput(groups);
+  validateOutput(output);
+  await putOutput(env.bucket, env.outputKey, output);
+  log("info", {
+    event: "content_stats_collection_succeeded",
+    sourceIds: configuration.sources.map(({ id }) => id),
+    pagesBySource: collection.pagesBySource,
+    publicationCount: collection.publications.length,
+    counts: collection.counts,
+    collectedAt
+  });
+  return { status: "published", collectedAt, count: collection.counts.all };
+}
+
+async function collectSchemaThree(configuration, env, collectedAt, now) {
+  const groups = {};
+  const failures = {};
+  let articleCollection;
+  try {
+    articleCollection = await collectPublications(configuration.sources, now);
+    groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
+  } catch (error) {
+    if (!(error instanceof CollectorError)) throw error;
+    failures.articles = error.code;
+  }
+
+  for (const family of ["talks", "books"]) {
+    try {
+      groups[family] = deriveCuratedGroup(family, configuration.curated[family], collectedAt);
+    } catch (error) {
+      if (!(error instanceof CollectorError)) throw error;
+      failures[family] = error.code;
+    }
+  }
+
+  const freshFamilies = Object.keys(groups);
+  if (freshFamilies.length === 0) throw fail("NO_SUCCESSFUL_GROUPS");
+
+  let previousGroups = null;
+  if (Object.keys(failures).length > 0) {
+    previousGroups = await readPreviousAggregate(env.bucket, env.outputKey);
+    if (previousGroups) {
+      for (const family of Object.keys(failures)) {
+        if (previousGroups[family]) groups[family] = previousGroups[family];
+      }
+    }
+  }
+
+  const output = makeOutput(groups);
+  validateOutput(output);
+  await putOutput(env.bucket, env.outputKey, output);
+  log("info", {
+    event: "content_stats_collection_succeeded",
+    sourceIds: configuration.sources.map(({ id }) => id),
+    pagesBySource: articleCollection?.pagesBySource ?? {},
+    ...(articleCollection ? { publicationCount: articleCollection.publications.length } : {}),
+    families: Object.fromEntries(Object.entries(groups).map(([family, group]) => [family, {
+      counts: group.counts,
+      collectedAt: group.collectedAt,
+      scopeId: group.scopeId,
+      retained: Object.hasOwn(failures, family)
+    }])),
+    familyFailures: failures,
+    collectedAt
+  });
+  const result = { status: "published", collectedAt };
+  if (groups.articles) result.count = groups.articles.counts.all;
+  return result;
 }
 
 async function handler() {
@@ -500,31 +743,9 @@ async function handler() {
 
     const collectedAt = new Date().toISOString();
     const now = Date.parse(collectedAt);
-    const collection = await collectPublications(configuration.sources, now);
-    const output = makeOutput(configuration.sources, collection.counts, collectedAt);
-    validateOutput(output);
-
-    try {
-      await s3.send(new PutObjectCommand({
-        Bucket: env.bucket,
-        Key: env.outputKey,
-        Body: JSON.stringify(output),
-        ContentType: "application/json",
-        CacheControl: OUTPUT_CACHE_CONTROL
-      }));
-    } catch {
-      throw fail("OUTPUT_WRITE_FAILED");
-    }
-
-    log("info", {
-      event: "content_stats_collection_succeeded",
-      sourceIds,
-      pagesBySource: collection.pagesBySource,
-      publicationCount: collection.publications.length,
-      counts: collection.counts,
-      collectedAt
-    });
-    return { status: "published", collectedAt, count: collection.counts.all };
+    return configuration.schemaVersion === 3
+      ? await collectSchemaThree(configuration, env, collectedAt, now)
+      : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {
     const code = error instanceof CollectorError ? error.code : "COLLECTION_FAILED";
     log("error", { event: "content_stats_collection_failed", sourceIds, code });
