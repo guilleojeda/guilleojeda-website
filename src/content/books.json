@@ -1,6 +1,7 @@
 [
   {
     "id": "nodejs-on-aws",
+    "publication": { "status": "published", "language": "en" },
     "title": {
       "en": "Node.js on AWS",
       "es": "Node.js on AWS"
@@ -21,6 +22,7 @@
   },
   {
     "id": "aws-made-simple",
+    "publication": { "status": "published", "language": "en" },
     "title": {
       "en": "AWS Made Simple and Fun",
       "es": "AWS Made Simple and Fun"
@@ -41,6 +43,7 @@
   },
   {
     "id": "highly-available-applications",
+    "publication": { "status": "in-progress", "language": "en" },
     "title": {
       "en": "Building Highly Available Applications on AWS",
       "es": "Building Highly Available Applications on AWS"

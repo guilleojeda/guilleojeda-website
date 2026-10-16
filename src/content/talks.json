@@ -1,6 +1,10 @@
 [
   {
     "id": "reinvent-2026-agent-evaluations",
+    "occurrences": [
+      { "id": "com317-r", "kind": "session", "status": "scheduled", "language": "en" },
+      { "id": "com317-r1", "kind": "session", "status": "scheduled", "language": "en" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS re:Invent",
@@ -22,6 +26,10 @@
   },
   {
     "id": "cordoba-agent-economics-2026",
+    "occurrences": [
+      { "id": "talk", "kind": "talk", "status": "scheduled", "language": "es" },
+      { "id": "certification-panel", "kind": "panel", "status": "scheduled", "language": "es" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS User Group Córdoba & AWS AI User Group Argentina",
@@ -47,6 +55,9 @@
   },
   {
     "id": "nerdearla-2026-aws-booth-agent",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2026,
     "event": {
       "en": "Nerdearla Argentina · AWS booth",
@@ -67,6 +78,9 @@
   },
   {
     "id": "aws-ai-meetup-2-host",
+    "occurrences": [
+      { "id": "main", "kind": "hosting", "status": "delivered", "language": "en" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS AI User Group Argentina",
@@ -92,6 +106,9 @@
   },
   {
     "id": "mexico-agent-authorization",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "es" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS Summit México",
@@ -117,6 +134,9 @@
   },
   {
     "id": "aws-sbg-utn-agent",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS Student Builder Group at UTN Córdoba",
@@ -142,6 +162,9 @@
   },
   {
     "id": "aws-ai-meetup-1-agent",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS AI User Group Argentina · Meetup #1",
@@ -167,6 +190,9 @@
   },
   {
     "id": "summit-nyc-keynote-recap-2026",
+    "occurrences": [
+      { "id": "main", "kind": "commentary", "status": "delivered", "language": "en" }
+    ],
     "year": 2026,
     "event": {
       "en": "Caylent",
@@ -192,6 +218,9 @@
   },
   {
     "id": "unit-economics-ai-agents",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+    ],
     "year": 2026,
     "event": {
       "en": "AWS Summit Los Angeles",
@@ -218,6 +247,9 @@
   },
   {
     "id": "tribu-production-genai",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2026,
     "event": {
       "en": "TRIBU Tech Leaders Afterwork · Córdoba",
@@ -243,6 +275,9 @@
   },
   {
     "id": "werner-reinvent-2025-keynote-recap",
+    "occurrences": [
+      { "id": "main", "kind": "commentary", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "Caylent",
@@ -268,6 +303,9 @@
   },
   {
     "id": "reinvent-know-before-you-go",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "Caylent",
@@ -293,6 +331,9 @@
   },
   {
     "id": "valkey-recommendations",
+    "occurrences": [
+      { "id": "main", "kind": "workshop", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "Nerdearla Argentina",
@@ -318,6 +359,9 @@
   },
   {
     "id": "valkey-cache",
+    "occurrences": [
+      { "id": "main", "kind": "workshop", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "Nerdearla Argentina",
@@ -343,6 +387,9 @@
   },
   {
     "id": "community-programs-panel",
+    "occurrences": [
+      { "id": "main", "kind": "panel", "status": "delivered", "language": "es" }
+    ],
     "year": 2025,
     "event": {
       "en": "AWS Community Day Argentina",
@@ -363,6 +410,9 @@
   },
   {
     "id": "tribu-llm-evaluations",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2025,
     "event": {
       "en": "TRIBU Tech",
@@ -388,6 +438,9 @@
   },
   {
     "id": "summit-nyc-keynote-recap",
+    "occurrences": [
+      { "id": "main", "kind": "commentary", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "Caylent",
@@ -413,6 +466,9 @@
   },
   {
     "id": "neural-nebulai-agentic-ai",
+    "occurrences": [
+      { "id": "main", "kind": "podcast", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "Neural NebulAI · Caylent",
@@ -438,6 +494,9 @@
   },
   {
     "id": "agentful-architectures",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "AWS GenAI Live",
@@ -463,6 +522,9 @@
   },
   {
     "id": "summit-la-llm-evaluations",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "AWS Summit Los Angeles",
@@ -483,6 +545,9 @@
   },
   {
     "id": "beerai-llm-evaluations",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "en" }
+    ],
     "year": 2025,
     "event": {
       "en": "BeerAI · Córdoba",
@@ -503,6 +568,9 @@
   },
   {
     "id": "summit-mexico-clown-architect",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2025,
     "event": {
       "en": "AWS Summit México",
@@ -528,6 +596,9 @@
   },
   {
     "id": "clown-architect",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2024,
     "event": {
       "en": "Nerdearla Argentina",
@@ -554,6 +625,9 @@
   },
   {
     "id": "dynamodb-data-modeling",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "es" }
+    ],
     "year": 2024,
     "event": {
       "en": "AWS Summit Bogotá",
@@ -580,6 +654,9 @@
   },
   {
     "id": "uruguay-dynamodb",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2024,
     "event": {
       "en": "AWS User Group Uruguay",
@@ -605,6 +682,9 @@
   },
   {
     "id": "testing-generative-ai",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+    ],
     "year": 2024,
     "event": {
       "en": "AWS Summit Los Angeles",
@@ -631,6 +711,9 @@
   },
   {
     "id": "charlas-tecnicas-freelance",
+    "occurrences": [
+      { "id": "main", "kind": "podcast", "status": "delivered", "language": "es" }
+    ],
     "year": 2024,
     "event": {
       "en": "Charlas Técnicas de AWS",
@@ -656,6 +739,9 @@
   },
   {
     "id": "maxcloud-getting-started",
+    "occurrences": [
+      { "id": "main", "kind": "conversation", "status": "delivered", "language": "es" }
+    ],
     "year": 2024,
     "event": {
       "en": "MaxCloud · Max Zeballos",
@@ -681,6 +767,9 @@
   },
   {
     "id": "cordoba-security-ci-cd",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2024,
     "event": {
       "en": "AWS User Group Córdoba",
@@ -706,6 +795,9 @@
   },
   {
     "id": "basta-bastion-host",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2023,
     "event": {
       "en": "AWS Community Day Argentina",
@@ -726,6 +818,9 @@
   },
   {
     "id": "cordoba-dynamodb",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2023,
     "event": {
       "en": "AWS User Group Córdoba",
@@ -751,6 +846,9 @@
   },
   {
     "id": "practitioner-serverless",
+    "occurrences": [
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+    ],
     "year": 2023,
     "event": {
       "en": "AWS User Group Buenos Aires",
@@ -776,6 +874,9 @@
   },
   {
     "id": "practitioner-billing",
+    "occurrences": [
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+    ],
     "year": 2023,
     "event": {
       "en": "AWS User Group Buenos Aires",
@@ -801,6 +902,9 @@
   },
   {
     "id": "practitioner-databases",
+    "occurrences": [
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+    ],
     "year": 2023,
     "event": {
       "en": "AWS User Group Buenos Aires",
@@ -826,6 +930,9 @@
   },
   {
     "id": "practitioner-kickoff",
+    "occurrences": [
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+    ],
     "year": 2023,
     "event": {
       "en": "AWS User Group Buenos Aires",
@@ -851,6 +958,9 @@
   },
   {
     "id": "cordoba-low-cost",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
     "year": 2022,
     "event": {
       "en": "AWS User Group Córdoba",
@@ -876,6 +986,9 @@
   },
   {
     "id": "carameltalks-getting-started",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "en" }
+    ],
     "year": 2021,
     "event": {
       "en": "CaramelTalks",

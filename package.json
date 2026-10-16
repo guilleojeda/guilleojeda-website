@@ -6,7 +6,7 @@
     "dev": "astro dev",
     "start": "astro dev",
     "check": "astro check",
-    "build": "astro build",
+    "build": "astro build && node scripts/build-content-stats-inputs.mjs",
     "preview": "astro preview",
     "test": "node --test tests/*.test.mjs",
     "check-output": "node scripts/check-output.mjs",

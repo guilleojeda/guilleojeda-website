@@ -159,7 +159,9 @@ function createHarness({
   fetchFn = async () => jsonResponse({ results: [] }),
   clock = createClock(),
   getFailures = new Map(),
-  putFailure
+  putFailure,
+  createHashFaultAfter = null,
+  createHashFault = new Error("synthetic createHash fault")
 } = {}) {
   assert.ok(
     existsSync(collectorPath),
@@ -207,12 +209,25 @@ function createHarness({
 
   const moduleObject = { exports: {} };
   const nativeRequire = createRequire(import.meta.url);
+  const nativeCrypto = nativeRequire("node:crypto");
+  let hashCalls = 0;
+  const crypto = createHashFaultAfter === null
+    ? nativeCrypto
+    : {
+      ...nativeCrypto,
+      createHash(...args) {
+        hashCalls += 1;
+        if (hashCalls === createHashFaultAfter) throw createHashFault;
+        return nativeCrypto.createHash(...args);
+      }
+    };
   const sdk = { S3Client, GetObjectCommand, PutObjectCommand };
   const sandbox = {
     module: moduleObject,
     exports: moduleObject.exports,
     require(request) {
       if (request === "@aws-sdk/client-s3") return sdk;
+      if (request === "node:crypto") return crypto;
       return nativeRequire(request);
     },
     process: {
@@ -1335,6 +1350,35 @@ test("an unsupported prior article group is omitted while fresh curated families
   assert.equal(bodyText(harness.putCalls[0].Body).includes('"all":99'), false);
 });
 
+test("a prior group with a non-string timestamp is omitted while fresh curated families publish", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("fresh-talk-after-invalid-timestamp")],
+      books: [bookFact("fresh-book-after-invalid-timestamp")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    })
+  });
+  const invalidTimestampArticleGroup = {
+    ...priorGroup({ counts: { all: 77, en: 70, es: 7 } }),
+    collectedAt: { toString: null }
+  };
+  harness.objects.set(outputKey, JSON.stringify({
+    schemaVersion: 1,
+    groups: { articles: invalidTimestampArticleGroup }
+  }));
+
+  await harness.handler({}, {});
+
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false);
+  assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+});
+
 test("storage read errors and malformed fallback JSON fail without replacing the last bytes", async () => {
   for (const fallbackFailure of ["storage-read", "malformed-json"]) {
     let caylentAttempts = 0;
@@ -1442,4 +1486,136 @@ test("unsupported input 3 versions and malformed source or family shapes reject 
     assert.equal(fetchCount, 0);
     assert.equal(harness.putCalls.length, 0);
   }
+});
+
+test("input 3 enforces curated kind and status enums while excluding explicit unknowns and unsupported languages", async () => {
+  const malformedCases = [
+    {
+      family: "talks",
+      curated: {
+        talks: [talkFact("unsupported-kind", "meetup")],
+        books: [bookFact("valid-book")]
+      }
+    },
+    {
+      family: "talks",
+      curated: {
+        talks: [talkFact("unsupported-status", "talk", "finished")],
+        books: [bookFact("valid-book-after-status")]
+      }
+    },
+    {
+      family: "books",
+      curated: {
+        talks: [talkFact("valid-talk")],
+        books: [bookFact("unsupported-status", "released")]
+      }
+    }
+  ];
+
+  for (const { family, curated } of malformedCases) {
+    const harness = createHarness({
+      input: phaseThreeInput({ curated }),
+      fetchFn: builderApiFetch()
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, family), false);
+    assert.equal(Object.hasOwn(output.groups, family === "talks" ? "books" : "talks"), true);
+  }
+
+  const excluded = createHarness({
+    input: phaseThreeInput({
+      curated: {
+        talks: [
+          talkFact("explicit-unknown-kind", "unknown", "delivered", "en"),
+          talkFact("explicit-unknown-status", "talk", "unknown", "en"),
+          talkFact("unsupported-language", "talk", "delivered", "fr")
+        ],
+        books: [
+          bookFact("explicit-unknown-book-status", "unknown", "en"),
+          bookFact("unsupported-book-language", "published", "fr")
+        ]
+      }
+    }),
+    fetchFn: builderApiFetch()
+  });
+  await excluded.handler({}, {});
+  const excludedOutput = await readPut(excluded.putCalls[0]);
+  assert.deepEqual(excludedOutput.groups.talks.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(excludedOutput.groups.books.counts, { all: 0, en: 0, es: 0 });
+});
+
+test("an unknown prior aggregate group key is a document failure during fallback", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput({
+      curated: {
+        talks: [talkFact("fresh-talk")],
+        books: [bookFact("fresh-book")]
+      }
+    }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    })
+  });
+  const previous = JSON.stringify({
+    schemaVersion: 1,
+    groups: {
+      articles: priorGroup(),
+      future: priorGroup()
+    }
+  });
+  harness.objects.set(outputKey, previous);
+
+  await assert.rejects(() => harness.handler({}, {}));
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1);
+  assert.equal(harness.putCalls.length, 0);
+  assert.equal(harness.objects.get(outputKey), previous);
+});
+
+test("schema 3 omits the operational article count when the article group is unavailable", async () => {
+  const harness = createHarness({
+    input: phaseThreeInput({
+      curated: {
+        talks: [talkFact("fresh-talk")],
+        books: [bookFact("fresh-book")]
+      }
+    }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    })
+  });
+
+  const result = await harness.handler({}, {});
+  assert.equal(Object.hasOwn(result, "count"), false);
+  assert.equal(harness.logs.some((line) => line.includes('"publicationCount"')), false);
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false);
+});
+
+test("an unexpected curated scope process error aborts without fallback, write, or raw error logging", async () => {
+  const privatePayload = "synthetic-private-create-hash-failure";
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("talk-before-process-failure")],
+      books: [bookFact("book-after-process-failure")]
+    } }),
+    fetchFn: builderApiFetch(),
+    createHashFaultAfter: 2,
+    createHashFault: new Error(privatePayload)
+  });
+  const previous = "previous aggregate bytes remain intact after a process failure";
+  harness.objects.set(outputKey, previous);
+
+  await assert.rejects(() => harness.handler({}, {}), (error) => {
+    assert.equal(error.code, "COLLECTION_FAILED");
+    return true;
+  });
+
+  assert.equal(harness.putCalls.length, 0);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0);
+  assert.equal(harness.objects.get(outputKey), previous);
+  const logs = harness.logs.join("\n");
+  assert.equal(logs.includes("COLLECTION_FAILED"), true);
+  assert.equal(logs.includes(privatePayload), false);
 });
