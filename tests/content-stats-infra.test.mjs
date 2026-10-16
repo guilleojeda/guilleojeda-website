@@ -71,7 +71,7 @@ test("the rendered template embeds the real collector and one bounded daily coll
   assert.equal(collector.Properties.Runtime, "nodejs24.x");
   assert.equal(collector.Properties.Handler, "index.handler");
   assert.equal(collector.Properties.Timeout, 300);
-  assert.equal(collector.Properties.ReservedConcurrentExecutions, 1);
+  assert.equal(Object.hasOwn(collector.Properties, "ReservedConcurrentExecutions"), false);
   assert.equal(collector.Properties.Code.ZipFile, collectorSource, "Lambda must embed the actual collector source");
   const environment = collector.Properties.Environment?.Variables ?? {};
   const [bucketId] = oneOfType("AWS::S3::Bucket");

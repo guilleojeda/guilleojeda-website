@@ -66,8 +66,6 @@ aws sts get-caller-identity
 aws iam list-open-id-connect-providers
 ```
 
-The collector reserves one concurrent execution. The regional Lambda concurrency quota must leave AWS's required 100 unreserved slots available; with no other reservations, it must be at least 101. Check `aws lambda get-account-settings --region us-east-1` before initial deployment. Accounts with reduced quotas may need an AWS quota/support request before the stack can create the collector.
-
 If the account already has the provider for `https://token.actions.githubusercontent.com`, pass its ARN as `GitHubOidcProviderArn`. Do not create another provider or replace one owned by another application. If none exists, the stack can create it with `CreateOidcProviderIfMissing=true`.
 
 For a new provider:
@@ -111,7 +109,9 @@ These values are identifiers, not credentials. For example, `gh variable set AWS
 
 ### Collector operation
 
-EventBridge Scheduler invokes the collector daily at **09:15 America/Argentina/Cordoba**, with no flexible window. The Node 24 Lambda has a five-minute timeout, one reserved concurrent execution and 30-day log retention. Provider requests have a ten-second deadline and one transient retry; pagination is capped at 100 pages of ten records. Reaching the cap fails the refresh rather than publishing an incomplete count. Scheduler delivery and Lambda asynchronous execution each allow one retry within one hour.
+EventBridge Scheduler invokes the collector daily at **09:15 America/Argentina/Cordoba**, with no flexible window. The Node 24 Lambda has a five-minute timeout and 30-day log retention. Provider requests have a ten-second deadline and one transient retry; pagination is capped at 100 pages of ten records. Reaching the cap fails the refresh rather than publishing an incomplete count. Scheduler delivery and Lambda asynchronous execution each allow one retry within one hour.
+
+The collector uses shared regional Lambda concurrency. Each invocation recomputes a complete snapshot from current source data and replaces the aggregate object. If invocations overlap, the one that finishes last can publish an older complete snapshot.
 
 The stack exposes `ContentStatsFunctionName`, `ContentStatsScheduleName` and `ContentStatsScheduleGroupName`. Inspect the current stack outputs and schedule before operating it. After infrastructure and normal site/configuration publication, invoke the actual deployed function for initial output or to verify a repair:
 

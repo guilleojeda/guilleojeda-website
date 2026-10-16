@@ -737,7 +737,6 @@
         "Handler": "index.handler",
         "Runtime": "nodejs24.x",
         "Timeout": 300,
-        "ReservedConcurrentExecutions": 1,
         "Role": {
           "Fn::GetAtt": [
             "ContentStatsCollectorExecutionRole",
