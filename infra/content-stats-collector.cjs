@@ -233,7 +233,7 @@ async function fetchCaylentPage(source, offset, page) {
 async function fetchBuilderPage(source, cursor, page) {
   const url = new URL(`${BUILDER_API_ENDPOINT}${encodeURIComponent(source.authorId)}`);
   url.searchParams.set("pageSize", String(BUILDER_PAGE_SIZE));
-  url.searchParams.set("cursor", cursor);
+  if (cursor !== "") url.searchParams.set("cursor", cursor);
   const envelope = await fetchJson(url.toString(), source.id, page);
   if (!isObject(envelope) || !Array.isArray(envelope.articles)) throw fail("BUILDER_ENVELOPE_INVALID");
   if (Object.hasOwn(envelope, "cursor") && typeof envelope.cursor !== "string") {
