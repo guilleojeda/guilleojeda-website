@@ -6,6 +6,10 @@ const allowedKeys = {
   counts: ['all', 'en', 'es'],
   source: ['id', 'label']
 };
+const supportedSources = new Map([
+  ['caylent', 'Caylent'],
+  ['builder-center', 'AWS Builder Center']
+]);
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -35,6 +39,21 @@ function isNonnegativeCount(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+function hasSupportedSources(sources) {
+  if (!Array.isArray(sources) || (sources.length !== 1 && sources.length !== 2)) return false;
+
+  const ids = new Set();
+  for (const source of sources) {
+    if (!hasOnlyKeys(source, allowedKeys.source)
+      || typeof source.id !== 'string'
+      || ids.has(source.id)
+      || supportedSources.get(source.id) !== source.label) return false;
+    ids.add(source.id);
+  }
+
+  return ids.has('caylent') && (sources.length === 1 || ids.has('builder-center'));
+}
+
 function validateSnapshot(value) {
   if (!hasOnlyKeys(value, allowedKeys.document) || value.schemaVersion !== 1) return null;
   if (!hasOnlyKeys(value.groups, allowedKeys.groups)) return null;
@@ -44,11 +63,8 @@ function validateSnapshot(value) {
     || articles.definitionVersion !== 1
     || articles.basis !== 'cumulative'
     || !isSupportedTimestamp(articles.collectedAt)
-    || !isSupportedScope(articles.scopeId)) return null;
-
-  if (!Array.isArray(articles.sources) || articles.sources.length !== 1) return null;
-  const [source] = articles.sources;
-  if (!hasOnlyKeys(source, allowedKeys.source) || source.id !== 'caylent' || source.label !== 'Caylent') return null;
+    || !isSupportedScope(articles.scopeId)
+    || !hasSupportedSources(articles.sources)) return null;
 
   const counts = articles.counts;
   if (!hasOnlyKeys(counts, allowedKeys.counts)

@@ -344,7 +344,7 @@ test("enumerates complete pages through empty termination and publishes one elig
   assert.equal(typeof group.scopeId, "string");
   assert.ok(group.scopeId.length > 0);
   assert.deepEqual(group.sources, [{ id: "caylent", label: "Caylent" }]);
-  assert.deepEqual(group.counts, { all: 13, en: 13, es: 0 });
+  assert.deepEqual(group.counts, { all: 14, en: 14, es: 0 }, "different titles count separately even when source URLs overlap");
   assert.deepEqual(
     Object.keys(group).sort(),
     ["basis", "collectedAt", "counts", "definitionVersion", "scopeId", "sources"].sort()
