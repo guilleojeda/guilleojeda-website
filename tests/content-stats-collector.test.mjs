@@ -242,7 +242,13 @@ function builderApiFetch({
     if (url.hostname === "api.builder.aws.com" && url.pathname.startsWith("/cs/v2/articles/user/")) {
       const cursor = url.searchParams.get("cursor") ?? "";
       const pageSize = url.searchParams.get("pageSize");
-      requestLog.push({ kind: "builder-list", cursor, pageSize, authorPath: url.pathname });
+      requestLog.push({
+        kind: "builder-list",
+        cursor,
+        cursorParameterPresent: url.searchParams.has("cursor"),
+        pageSize,
+        authorPath: url.pathname
+      });
       const page = builderPages.get(cursor);
       if (typeof page === "function") return page();
       return responseFromFixture(page, { articles: [], resultsSize: 0 });
@@ -280,6 +286,7 @@ function expectedBuilderList(cursor = "", authorId = builderAuthorId) {
   return {
     kind: "builder-list",
     cursor,
+    cursorParameterPresent: cursor !== "",
     pageSize: "50",
     authorPath: `/cs/v2/articles/user/${authorId}`
   };
@@ -656,6 +663,11 @@ test("v2 counts normalized title-language editions without fetching article deta
     [cursorOne, "50"],
     [cursorTwo, "50"]
   ], "cursor continuation must be followed through short and empty pages; resultsSize is not the total");
+  assert.deepEqual(
+    listRequests.map(({ cursorParameterPresent }) => cursorParameterPresent),
+    [false, true, true],
+    "omit the initial cursor but include every opaque continuation cursor"
+  );
   assert.ok(listRequests.every(({ authorPath }) => authorPath === `/cs/v2/articles/user/${builderAuthorId}`));
   assert.equal(requests.some(({ kind }) => kind === "builder-detail"), false, "the list title is sufficient; details and article bodies are not fetched");
 
