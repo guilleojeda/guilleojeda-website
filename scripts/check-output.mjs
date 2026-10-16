@@ -67,10 +67,16 @@ function checkContentStatsShell(page, html) {
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
 
   const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
-  assert.deepEqual(cardKinds, ['articles'], `${locale} phase-one statistics should contain only the Articles card`);
+  assert.deepEqual(cardKinds, ['articles'], `${locale} statistics should contain only the Articles card`);
   mustContain(statsHtml, 'data-stats-kind="articles"', `${locale} Articles card`);
   mustContainText(statsHtml, locale === 'en' ? 'Articles' : 'Artículos', `${locale} Articles card title`);
-  mustContainText(statsHtml, 'Caylent', `${locale} source coverage label`);
+  mustContainText(statsHtml, 'Caylent', `${locale} Caylent source disclosure`);
+  mustContainText(statsHtml, 'AWS Builder Center', `${locale} AWS Builder Center source disclosure`);
+  for (const phrase of locale === 'en'
+    ? ['Translations count separately', 'Matching titles in the same language count once', 'partial coverage']
+    : ['Las traducciones se cuentan por separado', 'Los títulos iguales en el mismo idioma se cuentan una sola vez', 'cobertura parcial']) {
+    mustContainText(statsHtml, phrase, `${locale} counting disclosure: ${phrase}`);
+  }
   assert.ok(!/\bdata-stats-period\b/i.test(statsHtml), `${locale} statistics must not expose a reach-period selector`);
 
   const selector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-language\b)[^>]*>([\s\S]*?)<\/select>/i);
@@ -173,13 +179,20 @@ mustContain(notFound, 'href="/"', '404 English recovery link');
 mustContain(notFound, 'href="/es/"', '404 Spanish recovery link');
 
 const inputs = JSON.parse(read('_content-stats/inputs.json'));
-assert.equal(inputs.schemaVersion, 1, 'protected build input schema version');
+assert.deepEqual(Object.keys(inputs).sort(), ['definitionVersion', 'schemaVersion', 'sources'], 'protected build input must use the source-list schema without credential fields');
+assert.equal(inputs.schemaVersion, 2, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
-assert.equal(inputs.source?.id, 'caylent', 'protected build input must describe the Caylent source');
-assert.ok(typeof inputs.source.authorId === 'string' && inputs.source.authorId.length > 0, 'Caylent author ID must be configured');
-assert.ok(typeof inputs.source.apiKey === 'string' && inputs.source.apiKey.length > 0, 'Caylent public delivery key must be configured');
-assert.equal(inputs.source.originality, 'original', 'Caylent source must use its confirmed originality policy');
-assert.ok(['en', 'es'].includes(inputs.source.language), 'Caylent needs an explicit supported content-language policy; this check does not choose English or Spanish');
+assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
+assert.deepEqual(inputs.sources.map((source) => source?.id).sort(), ['builder-center', 'caylent'], 'protected build input must contain exactly the approved article sources');
+const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
+assert.deepEqual(Object.keys(caylentSource).sort(), ['apiKey', 'authorId', 'id', 'language', 'originality'], 'Caylent input must contain only its public delivery key and counting configuration');
+assert.equal(caylentSource.authorId, 'b5b5065ade8c42a6919ca40d1239b37c', 'protected input must keep the configured Caylent author');
+assert.ok(typeof caylentSource.apiKey === 'string' && caylentSource.apiKey.length > 0, 'Caylent public delivery key must be configured');
+assert.equal(caylentSource.language, 'en', 'Caylent content-language policy');
+assert.equal(caylentSource.originality, 'original', 'Caylent source must use its confirmed originality policy');
+const builderCenterSource = inputs.sources.find((source) => source.id === 'builder-center');
+assert.deepEqual(Object.keys(builderCenterSource).sort(), ['authorId', 'id'], 'Builder Center input must not contain credentials');
+assert.equal(builderCenterSource.authorId, '251f1678-ab8f-4f22-afb9-1ee13511c7ee', 'protected input must keep the configured Builder Center author');
 assert.ok(!existsSync(join(dist, 'content-stats/v1/current.json')), 'the build must not contain a placeholder or collector-owned public aggregate');
 
 console.log('Static output checks passed for /, /es/, and /404.html.');

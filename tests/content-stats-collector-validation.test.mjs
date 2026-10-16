@@ -14,6 +14,7 @@ function record(overrides = {}) {
     published: "published",
     ...overrides,
     data: {
+      title: "Synthetic article title",
       url: "/blog/synthetic-article",
       publishedDate: Date.now() - 60_000,
       authors: [{ author: { id: "owner", value: { name: "Synthetic Author" } } }],

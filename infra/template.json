@@ -730,7 +730,7 @@
       "Type": "AWS::Lambda::Function",
       "DependsOn": "ContentStatsCollectorLogGroup",
       "Properties": {
-        "Description": "Refresh the public Caylent article aggregate once a day.",
+        "Description": "Refresh the public article aggregate once a day.",
         "FunctionName": {
           "Fn::Sub": "${AWS::StackName}-ContentStatsCollector"
         },
@@ -823,7 +823,7 @@
           "Fn::Sub": "${AWS::StackName}-content-stats-daily"
         },
         "GroupName": "default",
-        "Description": "Daily refresh of cumulative Caylent article statistics.",
+        "Description": "Daily refresh of cumulative article statistics.",
         "ScheduleExpression": "cron(15 9 * * ? *)",
         "ScheduleExpressionTimezone": "America/Argentina/Cordoba",
         "FlexibleTimeWindow": {

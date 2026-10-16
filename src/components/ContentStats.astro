@@ -10,7 +10,7 @@ const copy = locale === 'en'
   ? {
       kicker: 'Content statistics',
       title: 'Content & reach',
-      intro: 'A cumulative count of published original articles in the covered Caylent inventory.',
+      intro: 'Published articles across the sources listed below, with partial coverage of the wider archive.',
       filterLabel: 'Content language',
       all: 'All',
       english: 'English',
@@ -19,18 +19,18 @@ const copy = locale === 'en'
       cumulative: 'Cumulative total',
       publishedArticles: 'published articles',
       coverage: 'Coverage',
-      lastCollected: 'Last collected',
-      reachUnavailable: 'Reach data is unavailable for this source.',
+      lastCollected: 'Last updated',
+      reachUnavailable: 'Reach statistics are not available yet.',
       loading: 'Loading article statistics…',
       unavailable: 'Article statistics are temporarily unavailable.',
       sourcesSummary: 'Sources and counting',
-      sourcesExplanation: 'Counts include published original articles in the covered Caylent author inventory. All includes the English and Spanish counts. The collection date is the last successful update. This does not represent a complete count across every publication.',
+      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in this count. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. This is partial coverage; other publication archives are not included. All includes both language counts; the date is the last successful update.',
       noScript: 'Enable JavaScript to view these article statistics.'
     }
   : {
       kicker: 'Estadísticas de contenido',
       title: 'Contenido y alcance',
-      intro: 'Conteo acumulado de artículos originales publicados en el inventario cubierto de Caylent.',
+      intro: 'Artículos publicados en las fuentes indicadas abajo, con cobertura parcial del archivo más amplio.',
       filterLabel: 'Idioma del contenido',
       all: 'Todos',
       english: 'English',
@@ -40,11 +40,11 @@ const copy = locale === 'en'
       publishedArticles: 'artículos publicados',
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
-      reachUnavailable: 'Los datos de alcance no están disponibles para esta fuente.',
+      reachUnavailable: 'Las estadísticas de alcance todavía no están disponibles.',
       loading: 'Cargando estadísticas de artículos…',
       unavailable: 'No se pueden cargar las estadísticas de artículos por el momento.',
       sourcesSummary: 'Fuentes y conteo',
-      sourcesExplanation: 'El conteo incluye artículos originales publicados en el inventario de autor cubierto por Caylent. El total incluye los conteos en inglés y español. La fecha indica la última actualización correcta. No representa un conteo completo de todas las publicaciones.',
+      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de este conteo. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. La cobertura parcial deja fuera otros archivos de publicaciones. El total incluye ambos idiomas; la fecha indica la última actualización correcta.',
       noScript: 'Activa JavaScript para ver estas estadísticas de artículos.'
     };
 ---
