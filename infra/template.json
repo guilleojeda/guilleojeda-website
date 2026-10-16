@@ -489,6 +489,35 @@
                   }
                 }
               }
+            },
+            {
+              "Sid": "DenyCloudFrontReadProtectedInputs",
+              "Effect": "Deny",
+              "Principal": {
+                "Service": "cloudfront.amazonaws.com"
+              },
+              "Action": "s3:GetObject",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "SiteBucket",
+                        "Arn"
+                      ]
+                    },
+                    "/_content-stats/*"
+                  ]
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "AWS:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${SiteDistribution}"
+                  }
+                }
+              }
             }
           ]
         }
@@ -572,6 +601,25 @@
                   }
                 },
                 {
+                  "Sid": "DenyCollectorOutputWrites",
+                  "Effect": "Deny",
+                  "Action": "s3:PutObject",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "SiteBucket",
+                            "Arn"
+                          ]
+                        },
+                        "/content-stats/*"
+                      ]
+                    ]
+                  }
+                },
+                {
                   "Sid": "InvalidateSiteDistribution",
                   "Effect": "Allow",
                   "Action": [
@@ -586,6 +634,221 @@
             }
           }
         ]
+      }
+    },
+    "ContentStatsCollectorLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/${AWS::StackName}-ContentStatsCollector"
+        },
+        "RetentionInDays": 30
+      }
+    },
+    "ContentStatsCollectorExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ReadContentStatsInputAndWriteAggregate",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:GetObject",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "SiteBucket",
+                            "Arn"
+                          ]
+                        },
+                        "/_content-stats/inputs.json"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "SiteBucket",
+                            "Arn"
+                          ]
+                        },
+                        "/content-stats/v1/current.json"
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "WriteContentStatsLogs",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-ContentStatsCollector:*"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ContentStatsCollector": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "ContentStatsCollectorLogGroup",
+      "Properties": {
+        "Description": "Refresh the public Caylent article aggregate once a day.",
+        "FunctionName": {
+          "Fn::Sub": "${AWS::StackName}-ContentStatsCollector"
+        },
+        "Handler": "index.handler",
+        "Runtime": "nodejs24.x",
+        "Timeout": 300,
+        "ReservedConcurrentExecutions": 1,
+        "Role": {
+          "Fn::GetAtt": [
+            "ContentStatsCollectorExecutionRole",
+            "Arn"
+          ]
+        },
+        "Code": {
+          "ZipFile": "__CONTENT_STATS_COLLECTOR_CODE__"
+        },
+        "Environment": {
+          "Variables": {
+            "STATS_BUCKET": {
+              "Ref": "SiteBucket"
+            },
+            "STATS_INPUT_KEY": "_content-stats/inputs.json",
+            "STATS_OUTPUT_KEY": "content-stats/v1/current.json"
+          }
+        }
+      }
+    },
+    "ContentStatsCollectorAsyncConfig": {
+      "Type": "AWS::Lambda::EventInvokeConfig",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "ContentStatsCollector"
+        },
+        "Qualifier": "$LATEST",
+        "MaximumEventAgeInSeconds": 3600,
+        "MaximumRetryAttempts": 1
+      }
+    },
+    "ContentStatsSchedulerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "scheduler.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  },
+                  "aws:SourceArn": {
+                    "Fn::Sub": "arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule-group/default"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "InvokeContentStatsCollector",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "lambda:InvokeFunction",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "ContentStatsCollector",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ContentStatsDailySchedule": {
+      "Type": "AWS::Scheduler::Schedule",
+      "DependsOn": "ContentStatsCollectorLogGroup",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-content-stats-daily"
+        },
+        "GroupName": "default",
+        "Description": "Daily refresh of cumulative Caylent article statistics.",
+        "ScheduleExpression": "cron(15 9 * * ? *)",
+        "ScheduleExpressionTimezone": "America/Argentina/Cordoba",
+        "FlexibleTimeWindow": {
+          "Mode": "OFF"
+        },
+        "State": "ENABLED",
+        "Target": {
+          "Arn": {
+            "Fn::GetAtt": [
+              "ContentStatsCollector",
+              "Arn"
+            ]
+          },
+          "RoleArn": {
+            "Fn::GetAtt": [
+              "ContentStatsSchedulerRole",
+              "Arn"
+            ]
+          },
+          "RetryPolicy": {
+            "MaximumRetryAttempts": 1,
+            "MaximumEventAgeInSeconds": 3600
+          }
+        }
       }
     }
   },
@@ -645,6 +908,31 @@
       "Value": {
         "Ref": "SiteDeploymentRole"
       }
+    },
+    "ContentStatsFunctionName": {
+      "Description": "Name of the daily content statistics collector Lambda.",
+      "Value": {
+        "Ref": "ContentStatsCollector"
+      }
+    },
+    "ContentStatsFunctionArn": {
+      "Description": "ARN of the daily content statistics collector Lambda.",
+      "Value": {
+        "Fn::GetAtt": [
+          "ContentStatsCollector",
+          "Arn"
+        ]
+      }
+    },
+    "ContentStatsScheduleName": {
+      "Description": "Name of the daily content statistics EventBridge Scheduler schedule.",
+      "Value": {
+        "Ref": "ContentStatsDailySchedule"
+      }
+    },
+    "ContentStatsScheduleGroupName": {
+      "Description": "Schedule group used for the daily content statistics refresh.",
+      "Value": "default"
     },
     "GitHubOidcProviderArn": {
       "Description": "OIDC provider used by the deployment role.",

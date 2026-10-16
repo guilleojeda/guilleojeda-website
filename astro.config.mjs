@@ -27,5 +27,12 @@ export default defineConfig({
   trailingSlash: 'always',
   build: {
     format: 'directory'
+  },
+  vite: {
+    build: {
+      assetsInlineLimit: (filePath) => {
+        return filePath.includes('ContentStats.astro_astro_type_script_') ? false : undefined;
+      }
+    }
   }
 });

@@ -1,6 +1,7 @@
 ---
 import { content, text } from '../content';
 import type { Locale } from '../content/types';
+import ContentStats from './ContentStats.astro';
 
 interface Props {
   locale: Locale;
@@ -101,6 +102,8 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
     </details>
   </div>
 </section>
+
+<ContentStats locale={locale} />
 
 <section class="section" id="talks" aria-labelledby="talks-title">
   <div class="section-shell">

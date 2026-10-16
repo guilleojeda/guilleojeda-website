@@ -253,6 +253,10 @@ export async function runDeployment({
   if (files.length === 0) {
     throw new Error(`No files found in build output directory ${config.distDir}`);
   }
+  const collectorOwnedOutputs = files.filter(({ key }) => key.startsWith("content-stats/"));
+  if (collectorOwnedOutputs.length > 0) {
+    throw new Error(`Build output contains collector-owned content-stats/ objects: ${collectorOwnedOutputs.map(({ key }) => key).join(", ")}`);
+  }
   // Validate the exact pages used by the post-invalidation smoke check before
   // any AWS command. A malformed artifact must never publish first.
   expectedSmokeBodies(config.distDir);

@@ -45,11 +45,19 @@ For a role change, update the paired copy in `profile.json`: `hero.intro` (openi
 
 The portrait and other public assets live in the repository. Keep alternative text accurate when replacing an image. Do not add uncertain release dates, availability claims, or live audience counts without confirming them.
 
+### Content statistics
+
+The Articles card counts the covered Caylent author inventory, with independent All · English · Español content filtering. Its number is cumulative; it does not claim complete career coverage or article readership. The source and last successful collection date accompany the count. Statistics require JavaScript; the rest of the site works without it.
+
+`public/_content-stats/inputs.json` is the authoritative collector configuration. Astro copies it into the normal build artifact, and site CI uploads it. It contains the public Caylent delivery key, author selector and confirmed originality/language policy; **never add private credentials or raw provider data**. CloudFront denies access to `/_content-stats/*` in production. A source policy correction uses ordinary site CI and takes effect on the next collection. Publishing another eligible article at Caylent needs no repository change.
+
+The Lambda alone writes `content-stats/v1/current.json`. Site CI cannot overwrite it, and rejects build artifacts containing that prefix. A complete successful refresh replaces the object; a source, validation or storage failure keeps the prior object with its original coverage and date. A first-ever failed collection leaves statistics unavailable. JSON revalidates through CloudFront, so daily updates need no invalidation or website rebuild.
+
 Run `npm run verify` with `SITE_URL` set before publishing a content change. See [the website behavior](docs/intent/website.md) for the content and operating decisions.
 
 ## AWS setup
 
-Infrastructure is defined in `infra/template.json`. `infra/cloudfront-routing.js` is the authoritative routing source; the renderer embeds it into a deployable template so there is no second copy to maintain.
+Infrastructure is defined in `infra/template.json`. `infra/cloudfront-routing.js` and `infra/content-stats-collector.cjs` are the authoritative function sources; the renderer embeds them into a deployable template so there is no second copy to maintain. Collector code and resource changes use this operator path; ordinary site/configuration edits use GitHub Actions.
 
 Use a temporary AWS operator session for the intended account and `us-east-1`. Inspect the existing GitHub OIDC provider before setup:
 
@@ -98,6 +106,26 @@ Configure these GitHub Actions **repository variables**:
 | `SITE_URL` | `https://guilleojeda.com` |
 
 These values are identifiers, not credentials. For example, `gh variable set AWS_REGION --body us-east-1`. GitHub assumes the deployment role through OIDC; do not add AWS access-key secrets to the repository.
+
+### Collector operation
+
+EventBridge Scheduler invokes the collector daily at **09:15 America/Argentina/Cordoba**, with no flexible window. The Node 24 Lambda has a five-minute timeout, one reserved concurrent execution and 30-day log retention. Provider requests have a ten-second deadline and one transient retry; pagination is capped at 100 pages of ten records. Reaching the cap fails the refresh rather than publishing an incomplete count. Scheduler delivery and Lambda asynchronous execution each allow one retry within one hour.
+
+The stack exposes `ContentStatsFunctionName`, `ContentStatsScheduleName` and `ContentStatsScheduleGroupName`. Inspect the current stack outputs and schedule before operating it. After infrastructure and normal site/configuration publication, invoke the actual deployed function for initial output or to verify a repair:
+
+```sh
+guille_stats_function="$(aws cloudformation describe-stacks \
+  --stack-name guilleojeda-website --region us-east-1 \
+  --query 'Stacks[0].Outputs[?OutputKey==`ContentStatsFunctionName`].OutputValue | [0]' \
+  --output text)"
+aws lambda invoke --function-name "$guille_stats_function" \
+  --region us-east-1 /tmp/guille-content-stats-result.json
+cat /tmp/guille-content-stats-result.json
+```
+
+Check both the invocation metadata for `FunctionError` and the response body, then inspect the public JSON and both language pages. A manual invocation recomputes from current inputs/source data; it never increments the old total or uses a scheduled event's old timestamp. Logs identify successful counts/pages/dates or sanitized failure codes without recording provider bodies or delivery keys.
+
+For recovery, inspect the named function's CloudWatch log group, correct the source configuration through normal CI or correct runtime/infrastructure through CloudFormation, then invoke again. Do not repair numbers by manually uploading JSON. Retained values keep their old date until a complete refresh succeeds. An incompatible input/schema version fails explicitly; coordinate version changes with the collector and browser. No private analytics authorization is required for this Caylent inventory collector.
 
 ## Publish and recover
 

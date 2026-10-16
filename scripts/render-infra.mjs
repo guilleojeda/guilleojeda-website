@@ -6,24 +6,36 @@ const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = resolve(scriptsDirectory, "..");
 const defaultTemplatePath = resolve(repositoryDirectory, "infra/template.json");
 const defaultFunctionPath = resolve(repositoryDirectory, "infra/cloudfront-routing.js");
+const defaultCollectorPath = resolve(repositoryDirectory, "infra/content-stats-collector.cjs");
+const collectorCodeMarker = "__CONTENT_STATS_COLLECTOR_CODE__";
 
 /**
- * Render the deployable CloudFormation template from the readable source
- * template and the authoritative CloudFront Function source.
+ * Render the deployable CloudFormation template from its readable source and
+ * the authoritative CloudFront and collector sources.
  */
 export function renderInfra({
   templatePath = defaultTemplatePath,
-  functionPath = defaultFunctionPath
+  functionPath = defaultFunctionPath,
+  collectorPath = defaultCollectorPath
 } = {}) {
   const template = JSON.parse(readFileSync(templatePath, "utf8"));
   const functionCode = readFileSync(functionPath, "utf8").trimEnd() + "\n";
+  const collectorCode = readFileSync(collectorPath, "utf8").trimEnd() + "\n";
   const functionResource = template.Resources?.SiteRouteFunction;
 
   if (!functionResource || functionResource.Properties?.FunctionCode !== "__CLOUDFRONT_FUNCTION_CODE__") {
     throw new Error("infra/template.json must contain the CloudFront Function code marker");
   }
 
+  const collectorResources = Object.values(template.Resources ?? {}).filter((resource) =>
+    resource.Type === "AWS::Lambda::Function" && resource.Properties?.Code?.ZipFile === collectorCodeMarker
+  );
+  if (collectorResources.length !== 1) {
+    throw new Error(`infra/template.json must contain one Lambda code marker ${collectorCodeMarker}`);
+  }
+
   functionResource.Properties.FunctionCode = functionCode;
+  collectorResources[0].Properties.Code.ZipFile = collectorCode;
   const rendered = `${JSON.stringify(template, null, 2)}\n`;
 
   // Parse the final document as a last guard against malformed embedded code.
