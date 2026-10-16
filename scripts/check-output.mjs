@@ -67,9 +67,19 @@ function checkContentStatsShell(page, html) {
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
 
   const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
-  assert.deepEqual(cardKinds, ['articles'], `${locale} statistics should contain only the Articles card`);
+  assert.deepEqual(cardKinds, ['articles', 'talks', 'books'], `${locale} statistics must group articles, delivered sessions and published books by content type`);
   mustContain(statsHtml, 'data-stats-kind="articles"', `${locale} Articles card`);
   mustContainText(statsHtml, locale === 'en' ? 'Articles' : 'Artículos', `${locale} Articles card title`);
+  mustContainText(statsHtml, locale === 'en' ? 'Talks & sessions' : 'Charlas y sesiones', `${locale} speaking card title`);
+  mustContainText(statsHtml, locale === 'en' ? 'Books' : 'Libros', `${locale} books card title`);
+  for (const kind of ['articles', 'talks', 'books']) {
+    const card = statsHtml.match(new RegExp(`<article\\b(?=[^>]*\\bdata-stats-kind=["']${kind}["'])[^>]*>[\\s\\S]*?<\\/article>`, 'i'))?.[0];
+    assert.ok(card, `${locale} ${kind} must have a distinct accessible card`);
+    for (const field of ['status', 'results', 'count', 'count-label', 'coverage', 'collected-date']) {
+      assert.ok(new RegExp(`\\bdata-stats-${field}(?:\\s|=|>)`).test(card), `${locale} ${kind} needs its own ${field}`);
+    }
+    mustContain(card, 'aria-live="polite"', `${locale} ${kind} accessible updates`);
+  }
   mustContainText(statsHtml, 'Caylent', `${locale} Caylent source disclosure`);
   mustContainText(statsHtml, 'AWS Builder Center', `${locale} AWS Builder Center source disclosure`);
   for (const phrase of locale === 'en'
@@ -77,6 +87,10 @@ function checkContentStatsShell(page, html) {
     : ['Las traducciones se cuentan por separado', 'Los títulos iguales en el mismo idioma se cuentan una sola vez', 'cobertura parcial']) {
     mustContainText(statsHtml, phrase, `${locale} counting disclosure: ${phrase}`);
   }
+  mustContainText(statsHtml, locale === 'en'
+    ? 'Talk and book languages follow their original titles'
+    : 'El idioma de las charlas y los libros se determina por sus títulos originales',
+  `${locale} title-language classification disclosure`);
   assert.ok(!/\bdata-stats-period\b/i.test(statsHtml), `${locale} statistics must not expose a reach-period selector`);
 
   const selector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-language\b)[^>]*>([\s\S]*?)<\/select>/i);
@@ -179,8 +193,8 @@ mustContain(notFound, 'href="/"', '404 English recovery link');
 mustContain(notFound, 'href="/es/"', '404 Spanish recovery link');
 
 const inputs = JSON.parse(read('_content-stats/inputs.json'));
-assert.deepEqual(Object.keys(inputs).sort(), ['definitionVersion', 'schemaVersion', 'sources'], 'protected build input must use the source-list schema without credential fields');
-assert.equal(inputs.schemaVersion, 2, 'protected build input schema version');
+assert.deepEqual(Object.keys(inputs).sort(), ['curated', 'definitionVersion', 'schemaVersion', 'sources'], 'protected build input must combine source configuration and maintained facts without credentials');
+assert.equal(inputs.schemaVersion, 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 assert.deepEqual(inputs.sources.map((source) => source?.id).sort(), ['builder-center', 'caylent'], 'protected build input must contain exactly the approved article sources');
@@ -193,6 +207,28 @@ assert.equal(caylentSource.originality, 'original', 'Caylent source must use its
 const builderCenterSource = inputs.sources.find((source) => source.id === 'builder-center');
 assert.deepEqual(Object.keys(builderCenterSource).sort(), ['authorId', 'id'], 'Builder Center input must not contain credentials');
 assert.equal(builderCenterSource.authorId, '251f1678-ab8f-4f22-afb9-1ee13511c7ee', 'protected input must keep the configured Builder Center author');
+assert.deepEqual(Object.keys(inputs.curated).sort(), ['books', 'talks'], 'only the two maintained metric families belong in curated input');
+const expectedTalkFacts = talks.flatMap((talk) => {
+  assert.ok(Array.isArray(talk.occurrences), `${talk.id} needs explicit occurrence metadata`);
+  return talk.occurrences.map((occurrence) => ({
+    id: `${talk.id}/${occurrence.id}`,
+    kind: occurrence.kind,
+    status: occurrence.status,
+    language: occurrence.language
+  }));
+});
+const expectedBookFacts = books.map((book) => {
+  assert.ok(book.publication, `${book.id} needs explicit publication metadata`);
+  return { id: book.id, status: book.publication.status, language: book.publication.language };
+});
+assert.deepEqual(inputs.curated.talks, expectedTalkFacts, 'built speaking facts must come from the complete maintained inventory once, not highlights plus archive or a copied catalog');
+assert.deepEqual(inputs.curated.books, expectedBookFacts, 'built book facts must come from the maintained book records');
+for (const fact of inputs.curated.talks) {
+  assert.deepEqual(Object.keys(fact).sort(), ['id', 'kind', 'language', 'status'], 'speaking inputs project facts without prose, titles, URLs or reach data');
+}
+for (const fact of inputs.curated.books) {
+  assert.deepEqual(Object.keys(fact).sort(), ['id', 'language', 'status'], 'book inputs project publication facts only');
+}
 assert.ok(!existsSync(join(dist, 'content-stats/v1/current.json')), 'the build must not contain a placeholder or collector-owned public aggregate');
 
 console.log('Static output checks passed for /, /es/, and /404.html.');

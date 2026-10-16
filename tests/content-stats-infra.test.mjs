@@ -109,7 +109,7 @@ test("collector and scheduler roles grant only their required object and invoke 
   const [bucketId] = oneOfType("AWS::S3::Bucket");
   assert.ok(referencesResource(collector.Properties.Role, collectorRoleId), "Lambda must use the inspected execution role");
   assert.equal(s3Statements.length, 2, "collector should have no other S3 permissions");
-  assert.equal(reads.length, 1, "collector should have one input read grant");
+  assert.equal(reads.length, 1, "collector should have one exact-object read grant for inputs and fallback");
   assert.equal(writes.length, 1, "collector should have one aggregate write grant");
   assert.equal(reads[0].Effect, "Allow");
   assert.equal(writes[0].Effect, "Allow");
@@ -119,6 +119,13 @@ test("collector and scheduler roles grant only their required object and invoke 
   assert.ok(JSON.stringify(writes[0].Resource).includes("/content-stats/v1/current.json"));
   assert.ok(!JSON.stringify(reads[0].Resource).includes("*"), "input access must name the exact protected object");
   assert.ok(!JSON.stringify(writes[0].Resource).includes("*"), "output access must name the exact aggregate object");
+  const readResources = Array.isArray(reads[0].Resource) ? reads[0].Resource : [reads[0].Resource];
+  assert.equal(readResources.length, 2, "retention needs only the protected input and last-success aggregate");
+  assert.ok(readResources.every((resource) => referencesResource(resource, bucketId)));
+  assert.equal(readResources.filter((resource) => JSON.stringify(resource).includes("/_content-stats/inputs.json")).length, 1);
+  assert.equal(readResources.filter((resource) => JSON.stringify(resource).includes("/content-stats/v1/current.json")).length, 1);
+  assert.ok(s3Statements.every((statement) => actionList(statement).every((action) =>
+    action === "s3:GetObject" || action === "s3:PutObject")), "collector must not gain unrelated S3 actions");
   assert.equal(collectorStatements.some((statement) => actionList(statement).includes("s3:ListBucket")), false);
 
   const logActions = new Set(["logs:CreateLogStream", "logs:PutLogEvents"]);
