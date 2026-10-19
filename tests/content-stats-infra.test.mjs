@@ -214,6 +214,47 @@ test("the collector reads only the operator-selected Beehiiv secret and no crede
   assert.deepEqual(reads[0].Resource, { Ref: "BeehiivApiKeySecretArn" }, "IAM and runtime must reference the same exact secret");
   assert.ok(referencesResource(collector.Properties.Role, collectorRoleId));
   assert.ok(resources[collectorId]);
-  assert.equal(statements.some((statement) => actionList(statement).some((action) => action.startsWith("ssm:"))), false, "the owner selected Secrets Manager for Beehiiv");
+  const ssmReads = statements.filter((statement) => actionList(statement).some((action) => action.startsWith("ssm:")));
+  assert.equal(ssmReads.length, 1, "Google OAuth should add one exact SSM parameter read without changing Beehiiv's secret boundary");
+  assert.deepEqual(actionList(ssmReads[0]), ["ssm:GetParameter"]);
+  assert.deepEqual(ssmReads[0].Resource, { Ref: "GoogleOAuthParameterArn" });
   assert.equal(entriesOfType("AWS::SecretsManager::Secret").length, 0, "credential contents and the separately created secret remain operator-owned");
+});
+
+test("Google OAuth uses one exact SSM parameter reference without broad credential access", () => {
+  const [collectorId, collector] = oneOfType("AWS::Lambda::Function");
+  const [[collectorRoleId, role]] = roleTrustedBy("lambda.amazonaws.com");
+  const parameter = rendered.Parameters.GoogleOAuthParameterArn;
+  assert.ok(parameter, "the operator must provide the Google OAuth parameter ARN");
+  assert.equal(parameter.Type, "String");
+  assert.equal(typeof parameter.AllowedPattern, "string", "the reference must require a complete SSM parameter ARN");
+  const matches = new RegExp(`^(?:${parameter.AllowedPattern})$`);
+  assert.ok(matches.test("arn:aws:ssm:us-east-1:123456789012:parameter/guilleojeda-website/content-stats/google-oauth"));
+  for (const invalidArn of [
+    "arn:aws:ssm:us-east-1:123456789012:parameter/*",
+    "arn:aws:ssm:us-east-1:123456789012:parameter/",
+    "arn:aws:ssm:us-east-1:123456789012:*",
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:google-oauth",
+    "*"
+  ]) {
+    assert.equal(matches.test(invalidArn), false, `invalid Google OAuth parameter ARN accepted: ${invalidArn}`);
+  }
+
+  const environment = collector.Properties.Environment?.Variables ?? {};
+  assert.deepEqual(environment.GOOGLE_OAUTH_PARAMETER_ARN, { Ref: "GoogleOAuthParameterArn" });
+  const statements = policyStatementsForRole(role);
+  const ssmReads = statements.filter((statement) => actionList(statement).some((action) => action.startsWith("ssm:")));
+  assert.equal(ssmReads.length, 1, "collector should have one SSM read grant");
+  assert.deepEqual(actionList(ssmReads[0]), ["ssm:GetParameter"]);
+  assert.deepEqual(ssmReads[0].Resource, { Ref: "GoogleOAuthParameterArn" });
+  assert.equal(JSON.stringify(ssmReads[0].Resource).includes("*"), false, "SSM access must name one exact parameter");
+  assert.equal(statements.some((statement) => actionList(statement).some((action) => action === "ssm:GetParameters" || action === "ssm:DescribeParameters" || action === "ssm:PutParameter")), false);
+  assert.equal(statements.some((statement) => actionList(statement).some((action) => action.startsWith("kms:"))), false, "AWS-managed SSM encryption needs no broad KMS grant");
+  assert.ok(referencesResource(collector.Properties.Role, collectorRoleId));
+  assert.ok(resources[collectorId]);
+  assert.equal(entriesOfType("AWS::SSM::Parameter").length, 0, "the operator-owned OAuth parameter remains outside the stack");
+  assert.equal(entriesOfType("AWS::SecretsManager::Secret").length, 0, "credential values remain outside the stack");
+  assert.equal(Object.keys(environment).some((key) => /CLIENT|SECRET|TOKEN/i.test(key)
+    && key !== "GOOGLE_OAUTH_PARAMETER_ARN" && key !== "BEEHIIV_API_KEY_SECRET_ARN"), false,
+  "credential values must not enter collector environment variables");
 });

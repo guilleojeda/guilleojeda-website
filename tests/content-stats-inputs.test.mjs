@@ -289,3 +289,106 @@ test('newsletter selection rejects missing selectors, unsupported languages and 
     assert.throws(() => build(source), /newsletter|publication|language|credential|input/i, `invalid newsletter selection ${JSON.stringify(value)}`);
   }
 });
+
+function analyticsSelection() {
+  return {
+    id: 'simple-aws',
+    propertyId: '123456789',
+    language: 'en',
+    hostname: 'newsletter.simpleaws.dev',
+    articlePathPattern: '/p/[^/]+/?',
+    timeZone: 'Europe/Madrid',
+    recordedSince: '2024-02-29'
+  };
+}
+
+test('a configured analytics source generates input5 while preserving input4 data and protecting selectors', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  const newsletter = { id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en' };
+  const analytics = analyticsSelection();
+  const legacy = build(fixture());
+  source.articleConfig.newsletter = newsletter;
+  source.articleConfig.analytics = analytics;
+  freeze(source);
+  const result = build(source);
+
+  assert.deepEqual(result, {
+    schemaVersion: 5,
+    definitionVersion: 1,
+    sources: source.articleConfig.sources,
+    curated: legacy.curated,
+    newsletter,
+    analytics
+  });
+  assert.deepEqual(result.curated, legacy.curated, 'analytics must not rewrite maintained talk/book facts');
+  assert.notEqual(result.newsletter, newsletter, 'the generated artifact cannot mutate maintained newsletter configuration');
+  assert.notEqual(result.analytics, analytics, 'the generated artifact cannot mutate maintained analytics configuration');
+  assert.deepEqual(Object.keys(result.analytics).sort(), [
+    'articlePathPattern', 'hostname', 'id', 'language', 'propertyId', 'recordedSince', 'timeZone'
+  ]);
+  assert.equal(Object.hasOwn(result.analytics, 'clientSecret'), false);
+  assert.equal(Object.hasOwn(result.analytics, 'refreshToken'), false);
+  assert.equal(Object.hasOwn(result.analytics, 'accessToken'), false);
+  result.analytics.timeZone = 'Etc/UTC';
+  assert.equal(source.articleConfig.analytics.timeZone, 'Europe/Madrid', 'result mutations must not change maintained configuration');
+
+  const withoutRecordedSince = fixture();
+  withoutRecordedSince.articleConfig.newsletter = newsletter;
+  const analyticsWithoutTotal = analyticsSelection();
+  delete analyticsWithoutTotal.recordedSince;
+  withoutRecordedSince.articleConfig.analytics = analyticsWithoutTotal;
+  const withoutTotal = build(withoutRecordedSince);
+  assert.equal(withoutTotal.schemaVersion, 5);
+  assert.deepEqual(withoutTotal.analytics, analyticsWithoutTotal);
+  assert.equal(Object.hasOwn(withoutTotal.analytics, 'recordedSince'), false, 'recordedSince is optional until source history is evidenced');
+});
+
+test('analytics configuration is absent from input3/input4 and rejects unsupported or credential-bearing selectors', async () => {
+  const build = await inputBuilder();
+  const withoutAnalytics = build(fixture());
+  assert.equal(withoutAnalytics.schemaVersion, 3);
+  assert.equal(Object.hasOwn(withoutAnalytics, 'analytics'), false);
+
+  const newsletterSource = fixture();
+  newsletterSource.articleConfig.newsletter = {
+    id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en'
+  };
+  const withNewsletter = build(newsletterSource);
+  assert.equal(withNewsletter.schemaVersion, 4);
+  assert.equal(Object.hasOwn(withNewsletter, 'analytics'), false);
+
+  const valid = analyticsSelection();
+  const invalid = [
+    null,
+    [],
+    {},
+    { ...valid, id: 'another-publication' },
+    { ...valid, propertyId: '' },
+    { ...valid, propertyId: '123.456' },
+    { ...valid, propertyId: 'property-123' },
+    { ...valid, language: 'es' },
+    { ...valid, language: null },
+    { ...valid, hostname: 'www.newsletter.simpleaws.dev' },
+    { ...valid, articlePathPattern: '/p/.+' },
+    { ...valid, articlePathPattern: '' },
+    { ...valid, timeZone: 'not-an-iana-zone' },
+    { ...valid, recordedSince: '2024-02-30' },
+    { ...valid, recordedSince: '2024-2-29' },
+    { ...valid, recordedSince: null },
+    { ...valid, clientSecret: 'synthetic-client-secret' },
+    { ...valid, refreshToken: 'synthetic-refresh-token' },
+    { ...valid, accessToken: 'synthetic-access-token' },
+    { ...valid, secretArn: 'arn:aws:ssm:us-east-1:123456789012:parameter/google' },
+    { ...valid, typo: true }
+  ];
+  for (const value of invalid) {
+    const source = fixture();
+    source.articleConfig.newsletter = {
+      id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en'
+    };
+    source.articleConfig.analytics = value;
+    assert.throws(() => build(source), /analytics|property|language|host|path|timezone|date|credential|secret|input/i,
+      `invalid analytics selection ${JSON.stringify(value)}`);
+  }
+});

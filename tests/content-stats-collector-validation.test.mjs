@@ -42,6 +42,9 @@ function invokeWith(records) {
   class GetSecretValueCommand {
     constructor(input) { this.input = input; }
   }
+  class GetParameterCommand {
+    constructor(input) { this.input = input; }
+  }
   class S3Client {
     async send(command) {
       if (command instanceof GetObjectCommand) {
@@ -59,6 +62,11 @@ function invokeWith(records) {
       throw new Error("Unexpected Secrets Manager command for legacy input");
     }
   }
+  class SSMClient {
+    async send() {
+      throw new Error("Unexpected SSM command for legacy input");
+    }
+  }
 
   const moduleObject = { exports: {} };
   const sandbox = {
@@ -67,6 +75,7 @@ function invokeWith(records) {
     require(name) {
       if (name === "@aws-sdk/client-s3") return { S3Client, GetObjectCommand, PutObjectCommand };
       if (name === "@aws-sdk/client-secrets-manager") return { SecretsManagerClient, GetSecretValueCommand };
+      if (name === "@aws-sdk/client-ssm") return { SSMClient, GetParameterCommand };
       return requireFromHere(name);
     },
     process: { env: {
