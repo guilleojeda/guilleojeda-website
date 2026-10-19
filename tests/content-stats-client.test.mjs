@@ -12,6 +12,16 @@ const caylent = { id: 'caylent', label: 'Caylent' };
 const builderCenter = { id: 'builder-center', label: 'AWS Builder Center' };
 const websiteInventory = { id: 'website-inventory', label: 'Website inventory' };
 const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
+const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
+
+const articleViewPeriodFacts = {
+  '7d': { views: 7, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31', qualifications: ['sampled'] },
+  '30d': { views: 30, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31', qualifications: ['thresholding'] },
+  '90d': { views: 90, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31', qualifications: ['other-row'] },
+  '12m': { views: 1200, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'thresholding', 'other-row'] },
+  ytd: { views: 800, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: [] },
+  total: { views: 3000, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2026-04-15', endDate: '2026-08-31', qualifications: ['sampled', 'other-row'] }
+};
 
 function aggregateGroup({
   counts,
@@ -82,6 +92,32 @@ function newsletterGroup({
 function snapshotWithNewsletter(options = {}) {
   const data = threeGroupSnapshot();
   data.groups.newsletter = newsletterGroup(options);
+  return data;
+}
+
+function articleViewsRecord(period, overrides = {}) {
+  const facts = articleViewPeriodFacts[period];
+  return {
+    basis: period === 'total' ? 'recorded-total' : 'period',
+    collectedAt: facts.collectedAt,
+    scopeId: (period === 'total' ? 'c' : 'b').repeat(64),
+    publication: { ...simpleAws, language: 'en' },
+    timeZone: 'America/Argentina/Cordoba',
+    startDate: facts.startDate,
+    endDate: facts.endDate,
+    views: facts.views,
+    qualifications: [...facts.qualifications],
+    ...overrides
+  };
+}
+
+function articleViewsRecords() {
+  return Object.fromEntries(articleViewPeriods.map((period) => [period, articleViewsRecord(period)]));
+}
+
+function snapshotWithArticleViews({ records = articleViewsRecords(), definitionVersion = 1 } = {}) {
+  const data = snapshotWithNewsletter();
+  data.groups.articleViews = { definitionVersion, records };
   return data;
 }
 
@@ -198,6 +234,19 @@ const initialUnits = {
   es: { articles: 'artículos publicados', talks: 'sesiones', books: 'libros publicados', newsletter: 'suscriptores activos' }
 };
 
+const viewsCopy = {
+  en: {
+    loading: 'Loading article views…',
+    unavailable: 'Views are unavailable for this period.',
+    unit: 'views'
+  },
+  es: {
+    loading: 'Cargando vistas de artículos…',
+    unavailable: 'Las vistas no están disponibles para este período.',
+    unit: 'vistas'
+  }
+};
+
 function makeCard(kind, locale) {
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
@@ -220,6 +269,25 @@ function makeCard(kind, locale) {
   return { card, status, results, countRegion, count, countLabel, coverage, collectedDate };
 }
 
+function makeArticleViews(card, locale) {
+  const region = card.appendChild(new SemanticElement({
+    dataset: { statsViews: '', statsViewsUnavailable: viewsCopy[locale].unavailable }
+  }));
+  const status = region.appendChild(new SemanticElement({
+    dataset: { statsViewsStatus: '' },
+    textContent: viewsCopy[locale].loading,
+    hidden: true
+  }));
+  const results = region.appendChild(new SemanticElement({ dataset: { statsViewsResults: '' }, hidden: true }));
+  const value = results.appendChild(new SemanticElement({ dataset: { statsViewsValue: '' } }));
+  const unit = results.appendChild(new SemanticElement({ textContent: viewsCopy[locale].unit }));
+  const coverage = results.appendChild(new SemanticElement({ dataset: { statsViewsCoverage: '' } }));
+  const interval = results.appendChild(new SemanticElement({ dataset: { statsViewsInterval: '' } }));
+  const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsViewsCollectedDate: '' } }));
+  const qualifications = results.appendChild(new SemanticElement({ dataset: { statsViewsQualifications: '' } }));
+  return { region, status, results, value, unit, coverage, interval, collectedDate, qualifications };
+}
+
 function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true } = {}) {
   const section = new SemanticElement({
     dataset: {
@@ -234,11 +302,24 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     value: 'all',
     disabled: true
   }));
+  const periodSelector = section.appendChild(new SemanticElement({
+    dataset: { statsPeriod: '' },
+    value: '12m',
+    disabled: true
+  }));
+  const periodOptions = Object.fromEntries(articleViewPeriods.map((period) => {
+    const option = periodSelector.appendChild(new SemanticElement({
+      attributes: { value: period },
+      disabled: period === 'total'
+    }));
+    return [period, option];
+  }));
   const cards = Object.fromEntries(['articles', 'talks', 'books', 'newsletter'].map((kind) => {
     const card = makeCard(kind, locale);
     section.appendChild(card.card);
     return [kind, card];
   }));
+  cards.articles.views = makeArticleViews(cards.articles.card, locale);
   const fetchCalls = [];
 
   const context = {
@@ -263,13 +344,16 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     coverage: cards.articles.coverage,
     results: cards.articles.results,
     selector,
+    periodSelector,
+    periodOptions,
     section,
     location: context.window.location,
     status: cards.articles.status,
     async settle() { await new Promise((resolve) => setImmediate(resolve)); },
     get fetchCount() { return fetchCalls.length; },
     get fetchCalls() { return fetchCalls; },
-    get fetchedUrl() { return fetchCalls[0]?.url; }
+    get fetchedUrl() { return fetchCalls[0]?.url; },
+    get data() { return data; }
   };
 }
 
@@ -330,8 +414,59 @@ function assertNewsletterUnavailable(page, locale) {
   assertUnavailable(page, locale, 'newsletter');
 }
 
+function assertViewsUnavailable(page, locale) {
+  const views = page.cards.articles.views;
+  assert.equal(views.results.hidden, true, 'unavailable views must not reveal an old value');
+  assert.equal(views.value.textContent, '', 'unavailable views must clear their value');
+  assert.equal(views.coverage.textContent, '', 'unavailable views must clear old source coverage');
+  assert.equal(views.interval.textContent, '', 'unavailable views must clear an old interval');
+  assert.equal(views.collectedDate.textContent, '', 'unavailable views must clear an old collection date');
+  assert.equal(views.qualifications.textContent, '', 'unavailable views must clear old qualifications');
+  assert.equal(views.status.hidden, false, 'unavailable views need a visible status');
+  if (locale === 'es') assert.match(views.status.textContent, /no\s+est.n\s+disponibles?|no\s+está[n]?\s+disponible|no\s+se\s+pueden/i);
+  else assert.match(views.status.textContent, /unavailable|not available/i);
+}
+
+function assertLocalizedViewsUnit(page, locale) {
+  const label = page.cards.articles.views.unit.textContent;
+  if (locale === 'es') assert.match(label, /vistas/i, 'views have a Spanish unit');
+  else assert.match(label, /views/i, 'views have an English unit');
+}
+
+function assertViewsVisible(page, locale, period) {
+  const record = page.data.groups.articleViews.records[period];
+  const views = page.cards.articles.views;
+  assert.equal(views.results.hidden, false, `${period} views should render independently`);
+  assert.equal(views.status.hidden, true);
+  assert.equal(views.value.textContent, new Intl.NumberFormat(locale).format(record.views));
+  assertLocalizedViewsUnit(page, locale);
+  assert.equal(views.coverage.textContent, record.publication.label, 'coverage comes from the selected record');
+  assert.ok(views.interval.textContent.includes(record.timeZone), 'the selected interval includes its source timezone');
+  const formatDateOnly = (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
+  assert.ok(views.interval.textContent.includes(formatDateOnly(record.startDate)), 'the selected interval uses its retained localized start date');
+  assert.ok(views.interval.textContent.includes(formatDateOnly(record.endDate)), 'the selected interval uses its retained localized end date');
+  assert.notEqual(views.interval.textContent.trim(), '', 'the actual interval must be visible');
+  assert.equal(views.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'the selected record keeps its own collection date');
+  if (period === 'total') {
+    const since = locale === 'es' ? /vistas\s+desde/i : /views\s+since/i;
+    assert.match(`${views.unit.textContent} ${views.interval.textContent} ${views.collectedDate.textContent}`, since, 'recorded total must be labeled as views since its configured start');
+  }
+
+  const qualificationText = views.qualifications.textContent;
+  if (locale === 'es') {
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /muest|muestra/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /umbral/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /otras filas?|filas? restantes|l[ií]mite de filas/i);
+  } else {
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /sampl|sampled/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
+  }
+}
+
 function assertAllUnavailable(page, locale) {
   for (const kind of ['articles', 'talks', 'books', 'newsletter']) assertUnavailable(page, locale, kind);
+  assertViewsUnavailable(page, locale);
 }
 
 for (const locale of ['en', 'es']) {
@@ -344,8 +479,260 @@ for (const locale of ['en', 'es']) {
       assert.match(status.textContent, locale === 'es' ? /cargando/i : /loading/i);
       assert.equal(card.getAttribute('aria-busy'), 'true');
     }
+    assert.equal(page.cards.articles.views.status.hidden, false, 'the independent views region has its own loading status');
+    assert.match(page.cards.articles.views.status.textContent, locale === 'es' ? /cargando/i : /loading/i);
+    assert.equal(page.periodSelector.value, '12m', 'the period control defaults to twelve months');
+    assert.equal(page.periodSelector.disabled, true, 'period selection stays disabled while loading');
     await page.settle();
   });
+
+  test(`${locale} article views support each period locally and keep counts independent`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleViews() });
+    await page.settle();
+
+    assert.equal(page.periodSelector.disabled, false, 'the views period control enables after a valid snapshot');
+    assert.equal(page.periodSelector.value, '12m', 'twelve months is the initial reporting period');
+    assert.equal(page.periodOptions.total.disabled, false, 'an available recorded total enables its option');
+    assertViewsVisible(page, locale, '12m');
+    const unchangedCounts = {
+      articles: page.cards.articles.count.textContent,
+      talks: page.cards.talks.count.textContent,
+      books: page.cards.books.count.textContent,
+      newsletter: page.cards.newsletter.count.textContent
+    };
+
+    for (const period of articleViewPeriods) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertViewsVisible(page, locale, period);
+      for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
+        assert.equal(page.cards[kind].count.textContent, unchangedCounts[kind], `${kind} count is independent of the selected views period`);
+      }
+      assert.equal(page.fetchCount, 1, 'period changes reuse the same aggregate request');
+      assert.equal(page.section.dataset.statsLocale, locale, 'period changes do not change the interface locale');
+    }
+
+    page.periodSelector.value = '12m';
+    page.periodSelector.dispatch('change');
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '7', 'English filtering still applies to cumulative article counts');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.results.hidden, false, 'unsupported views language does not hide article counts');
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.periodOptions.total.disabled, true, 'recorded total is unavailable for unsupported content language');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'the English newsletter follows its own supported-language rule');
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.periodOptions.total.disabled, false, 'All restores the supported recorded-total option');
+    assert.equal(page.cards.articles.count.textContent, unchangedCounts.articles, 'All restores article counts and views');
+    assert.equal(page.fetchCount, 1, 'language and period controls share one fetch');
+    assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+    assert.equal(page.location.href, 'https://guilleojeda.com/', 'local controls must not navigate');
+  });
+
+  test(`${locale} missing total disables only Recorded total and keeps supported periods available`, async () => {
+    const records = articleViewsRecords();
+    delete records.total;
+    const page = createPage({ locale, data: snapshotWithArticleViews({ records }) });
+    await page.settle();
+
+    assert.equal(page.periodOptions.total.disabled, true, 'Recorded total is unavailable when no configured total exists');
+    assert.equal(page.periodSelector.value, '12m');
+    page.periodSelector.value = '90d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '90d');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} measured zero article views stay visible while unsupported Spanish stays unavailable`, async () => {
+    const records = articleViewsRecords();
+    records['12m'].views = 0;
+    const page = createPage({ locale, data: snapshotWithArticleViews({ records }) });
+    await page.settle();
+
+    assert.equal(page.cards.articles.views.results.hidden, false, 'a supported measured zero is data, not an unavailable state');
+    assert.equal(page.cards.articles.views.value.textContent, '0');
+    assert.equal(page.cards.articles.views.status.hidden, true);
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.views.value.textContent, '0', 'English can select the measured English views record');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '4', 'unsupported views language does not suppress Spanish article counts');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.views.results.hidden, false);
+    assert.equal(page.cards.articles.views.value.textContent, '0', 'All restores the measured zero');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} invalid recorded-total basis disables only Recorded total`, async () => {
+    const data = snapshotWithArticleViews();
+    data.groups.articleViews.records.total.basis = 'period';
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.periodOptions.total.disabled, true, 'an invalid total record cannot enable the option');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} missing one views period clears stale metadata without affecting other periods or cards`, async () => {
+    const records = articleViewsRecords();
+    delete records['30d'];
+    const page = createPage({ locale, data: snapshotWithArticleViews({ records }) });
+    await page.settle();
+
+    assertViewsVisible(page, locale, '12m');
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '7d',);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} schema-v1 four-family legacy snapshots keep all original cards and show views unavailable`, async () => {
+    const page = createPage({ locale, data: snapshotWithNewsletter() });
+    await page.settle();
+
+    for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
+      assert.equal(page.cards[kind].results.hidden, false, `${kind} remains available in the legacy snapshot`);
+    }
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.periodOptions.total.disabled, true, 'legacy data has no recorded total');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} invalid article count data does not prevent valid article views`, async () => {
+    const data = snapshotWithArticleViews();
+    data.groups.articles.counts.all = 4;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertUnavailable(page, locale, 'articles');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertUnavailable(page, locale, 'articles');
+    assertViewsUnavailable(page, locale);
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} invalid article views family leaves all four original cards available`, async () => {
+    const data = snapshotWithArticleViews({ definitionVersion: 2 });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertViewsUnavailable(page, locale);
+    for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
+      assert.equal(page.cards[kind].results.hidden, false, `${kind} stays available when only the views family is invalid`);
+    }
+    assert.equal(page.cards.articles.count.textContent, '11');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  for (const [description, updateFamily] of [
+    ['unknown family key', (family) => ({ ...family, provider: 'Google Analytics' })],
+    ['unknown period key', (family) => ({ ...family, records: { ...family.records, lifetime: family.records.total } })],
+    ['malformed period map', (family) => ({ ...family, records: [] })]
+  ]) {
+    test(`${locale} article views ${description} makes the views family unavailable only`, async () => {
+      const data = snapshotWithArticleViews();
+      data.groups.articleViews = updateFamily(data.groups.articleViews);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertViewsUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+
+  for (const [description, value] of [
+    ['boolean', true],
+    ['null', null],
+    ['string', '1200'],
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+    ['missing', undefined]
+  ]) {
+    test(`${locale} article views ${description} count is isolated to its period`, async () => {
+      const data = snapshotWithArticleViews();
+      if (value === undefined) delete data.groups.articleViews.records['12m'].views;
+      else data.groups.articleViews.records['12m'].views = value;
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertViewsUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+      page.periodSelector.value = '7d';
+      page.periodSelector.dispatch('change');
+      assertViewsVisible(page, locale, '7d');
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+
+  for (const [description, updateRecord] of [
+    ['wrong basis', (record) => ({ ...record, basis: 'recorded-total' })],
+    ['noncanonical collection timestamp', (record) => ({ ...record, collectedAt: '2026-09-04T00:00:00Z' })],
+    ['invalid scope hash', (record) => ({ ...record, scopeId: 'not-a-sha256' })],
+    ['invalid timezone', (record) => ({ ...record, timeZone: 'Not/AZone' })],
+    ['invalid start date', (record) => ({ ...record, startDate: '2026-02-30' })],
+    ['reversed interval', (record) => ({ ...record, startDate: '2026-09-01', endDate: '2026-08-31' })],
+    ['unsupported publication language', (record) => ({ ...record, publication: { ...record.publication, language: 'fr' } })],
+    ['missing publication language', (record) => ({ ...record, publication: { id: 'simple-aws', label: 'Simple AWS' } })],
+    ['wrong publication identity', (record) => ({ ...record, publication: { ...record.publication, id: 'other-publication' } })],
+    ['wrong publication label', (record) => ({ ...record, publication: { ...record.publication, label: 'Other publication' } })],
+    ['duplicate qualification', (record) => ({ ...record, qualifications: ['sampled', 'sampled'] })],
+    ['unsupported qualification', (record) => ({ ...record, qualifications: ['provider-warning'] })],
+    ['provider property identifier', (record) => ({ ...record, propertyId: '373694636' })]
+  ]) {
+    test(`${locale} article views ${description} makes only its period unavailable`, async () => {
+      const data = snapshotWithArticleViews();
+      data.groups.articleViews.records['12m'] = updateRecord(data.groups.articleViews.records['12m']);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertViewsUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+      page.periodSelector.value = '30d';
+      page.periodSelector.dispatch('change');
+      assertViewsVisible(page, locale, '30d');
+      assert.equal(page.fetchCount, 1);
+    });
+  }
 
   test(`${locale} UI renders a saved Caylent-only aggregate with its original coverage and collection date`, async () => {
     const page = createPage({ locale, data: snapshot() });
@@ -666,10 +1053,13 @@ for (const [description, data] of invalidSnapshots) {
 
 const unknownRootGroupSnapshot = snapshotWithNewsletter();
 unknownRootGroupSnapshot.groups.newsletters = unknownRootGroupSnapshot.groups.books;
+const unknownRootGroupWithViewsSnapshot = snapshotWithArticleViews();
+unknownRootGroupWithViewsSnapshot.groups.newsletters = unknownRootGroupWithViewsSnapshot.groups.books;
 
 const invalidDocuments = [
   ['unsupported root schema', { ...threeGroupSnapshot(), schemaVersion: 2 }],
   ['unknown group key beside valid newsletter', unknownRootGroupSnapshot],
+  ['unknown group key beside valid article views', unknownRootGroupWithViewsSnapshot],
   ['malformed fetch response', null]
 ];
 
@@ -695,3 +1085,20 @@ for (const [description, options] of [
     assert.equal(page.fetchCount, 1);
   });
 }
+
+test('views reject numeric-offset timezones while preserving fixed IANA zones and healthy periods', async () => {
+  const records = articleViewsRecords();
+  records['12m'].timeZone = '+01:00';
+  records['30d'].timeZone = 'Etc/GMT+1';
+  const page = createPage({ locale: 'en', data: snapshotWithArticleViews({ records }) });
+  await page.settle();
+
+  assertViewsUnavailable(page, 'en');
+  assert.equal(page.cards.articles.count.textContent, '11');
+  page.periodSelector.value = '30d';
+  page.periodSelector.dispatch('change');
+  assert.equal(page.cards.articles.views.results.hidden, false);
+  assert.equal(page.cards.articles.views.value.textContent, '30');
+  assert.match(page.cards.articles.views.interval.textContent, /Etc\/GMT\+1/);
+  assert.equal(page.fetchCount, 1);
+});

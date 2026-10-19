@@ -7,6 +7,11 @@
       "AllowedPattern": "^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$",
       "Description": "Full ARN of the operator-owned Beehiiv secret, whose JSON SecretString contains apiKey."
     },
+    "GoogleOAuthParameterArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws[a-z-]*:ssm:[a-z0-9-]+:[0-9]{12}:parameter/[A-Za-z0-9_./-]+$",
+      "Description": "Full ARN of the operator-owned Google OAuth SecureString parameter in this account and region."
+    },
     "GitHubOidcProviderArn": {
       "Type": "String",
       "Default": "",
@@ -729,6 +734,13 @@
                   "Resource": {
                     "Ref": "BeehiivApiKeySecretArn"
                   }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "ssm:GetParameter",
+                  "Resource": {
+                    "Ref": "GoogleOAuthParameterArn"
+                  }
                 }
               ]
             }
@@ -783,6 +795,9 @@
             "STATS_OUTPUT_KEY": "content-stats/v1/current.json",
             "BEEHIIV_API_KEY_SECRET_ARN": {
               "Ref": "BeehiivApiKeySecretArn"
+            },
+            "GOOGLE_OAUTH_PARAMETER_ARN": {
+              "Ref": "GoogleOAuthParameterArn"
             }
           }
         }

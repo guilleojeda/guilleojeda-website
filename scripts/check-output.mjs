@@ -56,6 +56,37 @@ function mustNotContain(html, fragment, message = fragment) {
   assert.ok(!html.toLowerCase().includes(fragment.toLowerCase()), `unexpected ${message}`);
 }
 
+function extractElement(html, tagName, attributeName, attributeValue) {
+  const tagPattern = tagName ?? '[a-z][a-z0-9:-]*';
+  const valueMatcher = attributeValue === undefined
+    ? ''
+    : `(?=[^>]*\\b${attributeName}=["']${attributeValue}["'])`;
+  const opening = new RegExp(`<(${tagPattern})\\b(?=[^>]*\\b${attributeName}(?:\\s|=|>))${valueMatcher}[^>]*>`, 'i');
+  const match = opening.exec(html);
+  if (!match) return null;
+
+  const start = match.index;
+  const matchedTag = match[1];
+  const tokenPattern = new RegExp(`<\\/?${matchedTag}\\b[^>]*>`, 'gi');
+  tokenPattern.lastIndex = start;
+  let depth = 0;
+  for (const token of html.matchAll(tokenPattern)) {
+    const isClosing = /^<\//.test(token[0]);
+    const isSelfClosing = /\/>$/.test(token[0]);
+    if (isClosing) depth -= 1;
+    else if (!isSelfClosing) depth += 1;
+    if (depth === 0) {
+      const end = token.index + token[0].length;
+      return { html: html.slice(start, end), start, end };
+    }
+  }
+  return null;
+}
+
+function normalizedText(value) {
+  return value.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+
 function checkContentStatsShell(page, html) {
   const locale = page.lang;
   const sectionIdPosition = html.indexOf('id="content-stats"');
@@ -72,7 +103,8 @@ function checkContentStatsShell(page, html) {
   mustContainText(statsHtml, locale === 'en' ? 'Articles' : 'Artículos', `${locale} Articles card title`);
   mustContainText(statsHtml, locale === 'en' ? 'Talks & sessions' : 'Charlas y sesiones', `${locale} speaking card title`);
   mustContainText(statsHtml, locale === 'en' ? 'Books' : 'Libros', `${locale} books card title`);
-  const newsletterCard = statsHtml.match(/<article\b(?=[^>]*\bdata-stats-kind=["']newsletter["'])[^>]*>[\s\S]*?<\/article>/i)?.[0];
+  const newsletterCardElement = extractElement(statsHtml, 'article', 'data-stats-kind', 'newsletter');
+  const newsletterCard = newsletterCardElement?.html;
   assert.ok(newsletterCard, `${locale} newsletter must have a distinct accessible card`);
   const newsletterHeading = newsletterCard.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
   const newsletterCardText = newsletterCard.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -82,7 +114,7 @@ function checkContentStatsShell(page, html) {
   else assert.match(newsletterCardText, /actual(?:es|mente)?|vigentes?/i, 'Spanish newsletter card labels its total as current');
   mustNotContain(newsletterCard, locale === 'en' ? 'cumulative' : 'total acumulado', `${locale} newsletter card must not label current subscribers as a cumulative total`);
   for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
-    const card = statsHtml.match(new RegExp(`<article\\b(?=[^>]*\\bdata-stats-kind=["']${kind}["'])[^>]*>[\\s\\S]*?<\\/article>`, 'i'))?.[0];
+    const card = extractElement(statsHtml, 'article', 'data-stats-kind', kind)?.html;
     assert.ok(card, `${locale} ${kind} must have a distinct accessible card`);
     for (const field of ['status', 'results', 'count', 'count-label', 'coverage', 'collected-date']) {
       assert.ok(new RegExp(`\\bdata-stats-${field}(?:\\s|=|>)`).test(card), `${locale} ${kind} needs its own ${field}`);
@@ -115,10 +147,89 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosure, /Simple AWS/i, 'Spanish source disclosure names the newsletter publication');
     assert.match(disclosure, /ingl[eé]s/i, 'Spanish source disclosure identifies the supported content language');
   }
-  assert.ok(!/\bdata-stats-period\b/i.test(statsHtml), `${locale} statistics must not expose a reach-period selector`);
+  const disclosureText = normalizedText(disclosure);
+  if (locale === 'en') {
+    assert.match(disclosureText, /simple aws[\s\S]*views?|views?[\s\S]*simple aws/i, 'English disclosure connects views to Simple AWS');
+    assert.match(disclosureText, /page views?|repeated views?|views? can repeat/i, 'English disclosure explains that views can repeat');
+    assert.match(disclosureText, /partial[\s\S]{0,100}(coverage|scope)|coverage[\s\S]{0,100}partial/i, 'English disclosure identifies partial views coverage');
+    assert.match(disclosureText, /views?[\s\S]{0,100}(coverage|scope)[\s\S]{0,100}(count|article)|count[\s\S]{0,100}views?/i, 'English disclosure distinguishes count and views coverage');
+    assert.match(disclosureText, /delay|lag|not immediately current/i, 'English disclosure explains reporting delay');
+    assert.match(disclosureText, /revis|updated later|can change/i, 'English disclosure explains later revisions');
+  } else {
+    assert.match(disclosureText, /simple aws[\s\S]*vistas?|vistas?[\s\S]*simple aws/i, 'Spanish disclosure connects views to Simple AWS');
+    assert.match(disclosureText, /vistas? de paginas?|visitas? repetidas?|se pueden repetir/i, 'Spanish disclosure explains that views can repeat');
+    assert.match(disclosureText, /cobertura parcial|parcial[\s\S]{0,100}cobertura/i, 'Spanish disclosure identifies partial views coverage');
+    assert.match(disclosureText, /vistas?[\s\S]{0,100}(cobertura|alcance)[\s\S]{0,100}(conteo|articulos?)|conteo[\s\S]{0,100}vistas?/i, 'Spanish disclosure distinguishes count and views coverage');
+    assert.match(disclosureText, /demora|retras|tardar|no refleja.{0,30}inmediato/i, 'Spanish disclosure explains reporting delay');
+    assert.match(disclosureText, /revis|puede[n]? cambiar|cambiar despues/i, 'Spanish disclosure explains later revisions');
+  }
+
+  const articlesCard = extractElement(statsHtml, 'article', 'data-stats-kind', 'articles');
+  assert.ok(articlesCard, `${locale} needs an Articles card for independent views`);
+  const countResults = extractElement(articlesCard.html, null, 'data-stats-results');
+  const viewsRegion = extractElement(articlesCard.html, null, 'data-stats-views');
+  assert.ok(countResults, `${locale} Articles needs its cumulative count results`);
+  assert.ok(viewsRegion, `${locale} Articles needs an independent views region`);
+  assert.ok(viewsRegion.start > countResults.start && viewsRegion.start >= countResults.end, `${locale} views region must sit outside and after count results`);
+  for (const field of ['status', 'results', 'value', 'coverage', 'interval', 'collected-date', 'qualifications']) {
+    const attribute = `data-stats-views-${field}`;
+    assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(viewsRegion.html), `${locale} views region needs ${field}`);
+  }
+  const viewsStatus = extractElement(viewsRegion.html, null, 'data-stats-views-status');
+  assert.ok(viewsStatus, `${locale} views region needs a status message`);
+  mustContain(viewsStatus.html, 'aria-live="polite"', `${locale} views status announces changes politely`);
+  if (locale === 'en') assert.match(normalizedText(viewsStatus.html), /loading.*views?/i, 'English views status has a localized loading message');
+  else assert.match(normalizedText(viewsStatus.html), /cargando.*vistas?/i, 'Spanish views status has a localized loading message');
+  mustContain(viewsRegion.html, 'data-stats-views-unavailable=', `${locale} views region needs localized unavailable copy`);
+  const unavailableAttribute = viewsRegion.html.match(/\bdata-stats-views-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
+  const unavailableText = normalizedText(unavailableAttribute);
+  if (locale === 'en') assert.match(unavailableText, /unavailable|not available/i, 'English views unavailable copy is meaningful');
+  else assert.match(unavailableText, /no disponibles?|no disponible|no se pueden/i, 'Spanish views unavailable copy is meaningful');
+
+  const periodSelector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-period\b)[^>]*>([\s\S]*?)<\/select>/i);
+  assert.ok(periodSelector, `${locale} needs a native article-views period selector`);
+  const periodSelectorTag = periodSelector[0].match(/^<select\b([^>]*)>/i)?.[1] ?? '';
+  const periodOptions = [...periodSelector[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((option) => ({
+    attributes: option[1],
+    label: normalizedText(option[2]),
+    value: option[1].match(/\bvalue=["']([^"']+)["']/i)?.[1]
+  }));
+  assert.deepEqual(periodOptions.map((option) => option.value), ['7d', '30d', '90d', '12m', 'ytd', 'total'], `${locale} views period values`);
+  const periodLabels = periodOptions.map((option) => option.label);
+  if (locale === 'en') {
+    assert.match(periodLabels[0], /7\s+days?/);
+    assert.match(periodLabels[1], /30\s+days?/);
+    assert.match(periodLabels[2], /90\s+days?/);
+    assert.match(periodLabels[3], /12\s+months?/);
+    assert.match(periodLabels[4], /year\s+to\s+date/);
+    assert.match(periodLabels[5], /recorded\s+total/);
+  } else {
+    assert.match(periodLabels[0], /7\s+dias?/);
+    assert.match(periodLabels[1], /30\s+dias?/);
+    assert.match(periodLabels[2], /90\s+dias?/);
+    assert.match(periodLabels[3], /12\s+mes(?:es)?/);
+    assert.match(periodLabels[4], /ano\s+(?:hasta\s+la\s+fecha|a\s+la\s+fecha)/);
+    assert.match(periodLabels[5], /total\s+registrado/);
+  }
+  const selectedPeriods = periodOptions.flatMap((option, index) => /(?:^|\s)selected(?:\s|=|$)/i.test(option.attributes) ? [index] : []);
+  assert.deepEqual(selectedPeriods, [3], `${locale} views default to twelve months`);
+  const totalOption = periodOptions[5];
+  assert.match(totalOption.attributes, /(?:^|\s)disabled(?:\s|=|$)/i, `${locale} recorded total starts disabled without a source aggregate at build time`);
+  const periodId = periodSelectorTag.match(/\bid=["']([^"']+)["']/i)?.[1];
+  assert.ok(periodId, `${locale} views period control needs an ID for its native label`);
+  const periodLabel = statsHtml.match(new RegExp(`<label\\b(?=[^>]*\\bfor=["']${periodId}["'])[^>]*>([\\s\\S]*?)<\\/label>`, 'i'))?.[1] ?? '';
+  assert.ok(periodLabel, `${locale} views period control needs a native label`);
+  if (locale === 'en') assert.match(normalizedText(periodLabel), /views|period/i, 'English period label describes views or their period');
+  else assert.match(normalizedText(periodLabel), /vistas|periodo/i, 'Spanish period label describes views or their period');
 
   const selector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-language\b)[^>]*>([\s\S]*?)<\/select>/i);
   assert.ok(selector, `${locale} must use a native content-language selector`);
+  const languageSelectorId = selector[0].match(/^<select\b[^>]*\bid=["']([^"']+)["']/i)?.[1];
+  assert.ok(languageSelectorId, `${locale} content-language control needs an ID for its native label`);
+  const languageLabel = statsHtml.match(new RegExp(`<label\\b(?=[^>]*\\bfor=["']${languageSelectorId}["'])[^>]*>([\\s\\S]*?)<\\/label>`, 'i'))?.[1] ?? '';
+  assert.ok(languageLabel, `${locale} content-language control needs a native label`);
+  if (locale === 'en') assert.match(normalizedText(languageLabel), /content language/i, 'English language filter label is clear');
+  else assert.match(normalizedText(languageLabel), /idioma del contenido/i, 'Spanish language filter label is clear');
   const options = [...selector[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((match) => ({
     attributes: match[1],
     label: match[2].replace(/<[^>]*>/g, '').trim(),
@@ -130,6 +241,10 @@ function checkContentStatsShell(page, html) {
     assert.ok(/\ball\b/.test(optionLabels[0]) && optionLabels[1].includes('english') && optionLabels[2].includes('espanol'), 'English language filter labels');
   } else {
     assert.ok(/\ball\b|\btodos?\b/.test(optionLabels[0]) && /ingles|english/.test(optionLabels[1]) && optionLabels[2].includes('espanol'), 'Spanish language filter labels');
+  }
+
+  for (const forbidden of ['373694636', '5153208352', 'oauth2.googleapis.com', 'analyticsdata.googleapis.com', 'clientSecret', 'refreshToken', 'accessToken', 'propertyId', 'streamId']) {
+    mustNotContain(statsHtml, forbidden, `${locale} public statistics must not expose provider identifiers, URLs or credentials`);
   }
   const isSelected = (option) => /(?:^|\s)selected(?:\s|=|$)/i.test(option.attributes);
   const selectedOptions = options.flatMap((option, index) => isSelected(option) ? [index] : []);
@@ -219,11 +334,17 @@ mustContain(notFound, 'href="/es/"', '404 Spanish recovery link');
 const inputs = JSON.parse(read('_content-stats/inputs.json'));
 const sourceConfig = JSON.parse(readFileSync(join(root, 'public/_content-stats/inputs.json'), 'utf8'));
 const hasNewsletterSelection = Object.hasOwn(inputs, 'newsletter');
-assert.deepEqual(Object.keys(inputs).sort(), hasNewsletterSelection
-  ? ['curated', 'definitionVersion', 'newsletter', 'schemaVersion', 'sources']
-  : ['curated', 'definitionVersion', 'schemaVersion', 'sources'],
+const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
+assert.deepEqual(Object.keys(inputs).sort(), [
+  'curated',
+  'definitionVersion',
+  ...(hasNewsletterSelection ? ['newsletter'] : []),
+  ...(hasAnalyticsSelection ? ['analytics'] : []),
+  'schemaVersion',
+  'sources'
+].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
-assert.equal(inputs.schemaVersion, hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 if (hasNewsletterSelection) {
@@ -235,6 +356,24 @@ if (hasNewsletterSelection) {
   assert.deepEqual(inputs.newsletter, sourceConfig.newsletter, 'newsletter build input must project the exact maintained publication selection');
 } else {
   assert.ok(!Object.hasOwn(sourceConfig, 'newsletter'), 'schema-v3 output must match a source configuration without a newsletter selection');
+}
+if (hasAnalyticsSelection) {
+  assert.ok(hasNewsletterSelection, 'views inputs must retain the Newsletter publication selection');
+  assert.ok(sourceConfig.analytics, 'views build input must come from a maintained analytics selection');
+  const analyticsKeys = Object.keys(sourceConfig.analytics).sort();
+  assert.deepEqual(analyticsKeys, ['articlePathPattern', 'hostname', 'id', 'language', 'propertyId', 'timeZone'].concat(
+    Object.hasOwn(sourceConfig.analytics, 'recordedSince') ? ['recordedSince'] : []
+  ).sort(), 'maintained analytics selection must contain only approved source and interval configuration');
+  assert.equal(sourceConfig.analytics.id, 'simple-aws', 'maintained analytics selection must name Simple AWS');
+  assert.equal(sourceConfig.analytics.propertyId, '373694636', 'maintained analytics selection must use the approved property');
+  assert.equal(sourceConfig.analytics.language, 'en', 'Simple AWS initial content-language policy');
+  assert.equal(sourceConfig.analytics.hostname, 'newsletter.simpleaws.dev', 'views selection must scope the approved publication host');
+  assert.equal(sourceConfig.analytics.articlePathPattern, '/p/[^/]+/?', 'views selection must scope full article paths');
+  assert.ok(typeof sourceConfig.analytics.timeZone === 'string' && sourceConfig.analytics.timeZone.trim(), 'views selection must include the verified source timezone');
+  if (Object.hasOwn(sourceConfig.analytics, 'recordedSince')) assert.match(sourceConfig.analytics.recordedSince, /^\d{4}-\d{2}-\d{2}$/, 'recorded total needs a configured start date');
+  assert.deepEqual(inputs.analytics, sourceConfig.analytics, 'views build input must project the exact maintained analytics selection');
+} else {
+  assert.ok(!Object.hasOwn(sourceConfig, 'analytics'), 'schema-v3/v4 output must match a source configuration without analytics');
 }
 assert.deepEqual(inputs.sources.map((source) => source?.id).sort(), ['builder-center', 'caylent'], 'protected build input must contain exactly the approved article sources');
 const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
