@@ -2631,7 +2631,7 @@ test("Google-local collection dates handle timezone midnight, calendar years, an
       expected: [
         ["2024-02-22", "2024-02-28"],
         ["2024-01-30", "2024-02-28"],
-        ["2023-11-30", "2024-02-28"],
+        ["2023-12-01", "2024-02-28"],
         ["2023-02-28", "2024-02-28"],
         ["2024-01-01", "2024-02-28"]
       ],
@@ -2854,7 +2854,7 @@ test("sampling, thresholding, and other-row metadata qualify values; date trunca
       requestLog,
       reportResponder: ({ request }) => {
         const startDate = reportRange(request).startDate;
-        const metadata = startDate === "2026-10-07"
+        const metadata = ["2026-10-07", "2026-10-08"].includes(startDate)
           ? {
             samplingMetadatas: [{ samplesReadCount: "10", samplingSpaceSize: "20" }],
             subjectToThresholding: true,
@@ -3057,4 +3057,94 @@ test("report transient failures retry once, authentication failures do not, and 
   assert.equal(networkRecords["7d"].views, 14);
   assert.equal(networkRecords["30d"].views, 13);
   assertNoGoogleCanaries(networkHarness, googleResponseCanary);
+});
+
+test("input 5 accepts the SSM parameter name and ARN and an omitted dimensions array", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFiveInput(),
+    parameterResponse: {
+      Parameter: {
+        Name: "/synthetic/google-oauth",
+        ARN: googleOAuthParameterArn,
+        Type: "SecureString",
+        Value: JSON.stringify({
+          clientId: googleClientId,
+          clientSecret: googleClientSecret,
+          refreshToken: googleRefreshToken
+        })
+      }
+    },
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: () => {
+        const response = ga4Report({ views: 23 });
+        delete response.dimensionHeaders;
+        return jsonResponse(response);
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
+  const reports = googleRequests(requestLog, "google-report");
+  assert.equal(reports.length, 5);
+  assert.deepEqual(Object.keys((await readPut(harness.putCalls[0])).groups.articleViews.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  for (const record of Object.values((await readPut(harness.putCalls[0])).groups.articleViews.records)) {
+    assert.equal(record.views, 23);
+  }
+});
+
+test("input 5 accepts Etc/GMT zones and rejects numeric timezone offsets before provider work", async () => {
+  const validRequestLog = [];
+  const validZoneHarness = createHarness({
+    input: phaseFiveInput({ analytics: { ...phaseFiveAnalytics(), timeZone: "Etc/GMT+1" } }),
+    fetchFn: phaseFiveApiFetch({ requestLog: validRequestLog, timeZone: "Etc/GMT+1" })
+  });
+  await validZoneHarness.handler({}, {});
+  const validRecords = (await readPut(validZoneHarness.putCalls[0])).groups.articleViews.records;
+  assert.equal(Object.keys(validRecords).length, 5);
+  assert.equal(validRecords["7d"].timeZone, "Etc/GMT+1");
+
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFiveInput({ analytics: { ...phaseFiveAnalytics(), timeZone: "+01:00" } }),
+    fetchFn: phaseFiveApiFetch({ requestLog })
+  });
+
+  await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "ANALYTICS_CONFIGURATION_INVALID");
+  assert.deepEqual(harness.parameterCalls, []);
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 0);
+  assert.equal(googleRequests(requestLog, "google-report").length, 0);
+  assert.equal(harness.putCalls.length, 0);
+});
+
+test("a failed January YTD report does not retain the prior calendar year's YTD record", async () => {
+  const clock = createClock("2026-01-04T12:00:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFiveInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => reportRange(request).startDate === "2026-01-01"
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(ga4Report({ views: 31 }))
+    }),
+    clock
+  });
+  const previous = priorFullOutput();
+  previous.groups.articleViews.records.ytd = priorArticleViewRecord({
+    startDate: "2025-01-01",
+    endDate: "2025-12-29",
+    scopeId: "9".repeat(64),
+    views: 400
+  });
+  harness.objects.set(outputKey, JSON.stringify(previous));
+
+  await harness.handler({}, {});
+  const records = (await readPut(harness.putCalls[0])).groups.articleViews.records;
+  assert.equal(Object.hasOwn(records, "ytd"), false);
+  assert.deepEqual(records["7d"] && [records["7d"].startDate, records["7d"].endDate], ["2025-12-26", "2026-01-01"]);
+  assert.equal(googleRequests(requestLog, "google-report").length, 5);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
 });

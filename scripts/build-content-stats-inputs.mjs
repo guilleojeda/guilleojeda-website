@@ -109,18 +109,72 @@ function projectNewsletter(newsletter) {
   return { id: newsletter.id, publicationId: newsletter.publicationId, language: newsletter.language };
 }
 
+function isRealDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
+function isTimeZone(value) {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  try {
+    const resolvedTimeZone = new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone;
+    return !/^[+-]/.test(resolvedTimeZone);
+  } catch {
+    return false;
+  }
+}
+
+function projectAnalytics(analytics) {
+  assertObject(analytics, 'analytics');
+  const keys = Object.keys(analytics).sort();
+  const requiredKeys = ['articlePathPattern', 'hostname', 'id', 'language', 'propertyId', 'timeZone'];
+  const expectedKeys = Object.hasOwn(analytics, 'recordedSince')
+    ? [...requiredKeys, 'recordedSince'].sort()
+    : requiredKeys;
+  if (keys.join(',') !== expectedKeys.join(',')) invalid('analytics must contain only the supported selectors and optional recordedSince');
+  if (analytics.id !== 'simple-aws') invalid('unsupported analytics publication id');
+  if (typeof analytics.propertyId !== 'string' || !/^\d+$/.test(analytics.propertyId)) {
+    invalid('analytics propertyId must be a decimal string');
+  }
+  if (analytics.language !== 'en') invalid('analytics language must be en');
+  if (analytics.hostname !== 'newsletter.simpleaws.dev') invalid('unsupported analytics hostname');
+  if (analytics.articlePathPattern !== '/p/[^/]+/?') invalid('unsupported analytics article path pattern');
+  if (!isTimeZone(analytics.timeZone)) invalid('analytics timeZone must be a valid IANA time zone');
+  if (Object.hasOwn(analytics, 'recordedSince') && !isRealDate(analytics.recordedSince)) {
+    invalid('analytics recordedSince must be a real YYYY-MM-DD date');
+  }
+
+  const result = {
+    id: analytics.id,
+    propertyId: analytics.propertyId,
+    language: analytics.language,
+    hostname: analytics.hostname,
+    articlePathPattern: analytics.articlePathPattern,
+    timeZone: analytics.timeZone
+  };
+  if (Object.hasOwn(analytics, 'recordedSince')) result.recordedSince = analytics.recordedSince;
+  return result;
+}
+
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
+  const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
+  if (hasAnalytics && !hasNewsletter) invalid('analytics requires the existing newsletter selection');
   return {
-    schemaVersion: hasNewsletter ? 4 : 3,
+    schemaVersion: hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
       talks: projectTalks(talks),
       books: projectBooks(books)
     },
-    ...(hasNewsletter ? { newsletter: projectNewsletter(articleConfig.newsletter) } : {})
+    ...(hasNewsletter ? { newsletter: projectNewsletter(articleConfig.newsletter) } : {}),
+    ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {})
   };
 }
 

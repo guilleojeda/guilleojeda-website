@@ -1,12 +1,15 @@
 const endpointPath = '/content-stats/v1/current.json';
 const knownKinds = ['articles', 'talks', 'books', 'newsletter'];
+const knownViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
   counts: ['all', 'en', 'es'],
   source: ['id', 'label'],
   newsletterGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'subscribers'],
-  publication: ['id', 'label', 'language']
+  publication: ['id', 'label', 'language'],
+  articleViewsGroup: ['definitionVersion', 'records'],
+  articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications']
 };
 const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
@@ -49,6 +52,22 @@ function isNonnegativeCount(value) {
 
 function isSha256(value) {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function isRealDateOnly(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function isSupportedTimeZone(value) {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  try {
+    const resolved = new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone;
+    return !/^[+-]/.test(resolved);
+  } catch {
+    return false;
+  }
 }
 
 function hasSources(group, kind) {
@@ -108,17 +127,54 @@ function validateGroup(value, kind) {
   return value;
 }
 
+function validateArticleViewsRecord(value, period) {
+  const expectedBasis = period === 'total' ? 'recorded-total' : 'period';
+  if (!hasOnlyKeys(value, allowedKeys.articleViewsRecord)
+    || value.basis !== expectedBasis
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSha256(value.scopeId)
+    || !hasOnlyKeys(value.publication, allowedKeys.publication)
+    || value.publication.id !== supportedNewsletter.id
+    || value.publication.label !== supportedNewsletter.label
+    || value.publication.language !== 'en'
+    || !isSupportedTimeZone(value.timeZone)
+    || !isRealDateOnly(value.startDate)
+    || !isRealDateOnly(value.endDate)
+    || value.startDate > value.endDate
+    || !isNonnegativeCount(value.views)
+    || !Array.isArray(value.qualifications)
+    || value.qualifications.some((qualification) => !['sampled', 'thresholding', 'other-row'].includes(qualification))
+    || new Set(value.qualifications).size !== value.qualifications.length) return null;
+
+  return value;
+}
+
+function validateArticleViews(value) {
+  if (!hasOnlyKeys(value, allowedKeys.articleViewsGroup)
+    || value.definitionVersion !== 1
+    || !isRecord(value.records)
+    || !hasAllowedKeys(value.records, knownViewPeriods)) return null;
+
+  return Object.fromEntries(knownViewPeriods.map((period) => [
+    period,
+    Object.hasOwn(value.records, period) ? validateArticleViewsRecord(value.records[period], period) : null
+  ]));
+}
+
 function validateSnapshot(value) {
   if (!isRecord(value)
     || !hasOnlyKeys(value, allowedKeys.document)
     || value.schemaVersion !== 1
     || !isRecord(value.groups)
-    || !hasAllowedKeys(value.groups, knownKinds)) return null;
+    || !hasAllowedKeys(value.groups, [...knownKinds, 'articleViews'])) return null;
 
-  return Object.fromEntries(knownKinds.map((kind) => [
-    kind,
-    Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
-  ]));
+  return {
+    groups: Object.fromEntries(knownKinds.map((kind) => [
+      kind,
+      Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
+    ])),
+    articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null
+  };
 }
 
 function getElements(section) {
@@ -136,9 +192,24 @@ function getElements(section) {
     }];
   }));
 
+  const viewsRegion = section.querySelector('[data-stats-views]');
+  const views = viewsRegion ? {
+    region: viewsRegion,
+    status: viewsRegion.querySelector('[data-stats-views-status]'),
+    results: viewsRegion.querySelector('[data-stats-views-results]'),
+    value: viewsRegion.querySelector('[data-stats-views-value]'),
+    coverage: viewsRegion.querySelector('[data-stats-views-coverage]'),
+    interval: viewsRegion.querySelector('[data-stats-views-interval]'),
+    collectedDate: viewsRegion.querySelector('[data-stats-views-collected-date]'),
+    qualifications: viewsRegion.querySelector('[data-stats-views-qualifications]')
+  } : null;
+
   return {
     cards,
-    selector: section.querySelector('[data-stats-language]')
+    selector: section.querySelector('[data-stats-language]'),
+    periodSelector: section.querySelector('[data-stats-period]'),
+    totalOption: section.querySelector('[data-stats-period]')?.querySelector('[value="total"]') ?? null,
+    views
   };
 }
 
@@ -148,6 +219,10 @@ function getLocale(section) {
 
 function formatCollectedDate(timestamp, locale) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+}
+
+function formatDateOnly(date, locale) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
 function localizeSource(source, locale) {
@@ -211,6 +286,88 @@ function renderAll(groups, locale, language, elements) {
   }
 }
 
+const qualificationCopy = {
+  en: {
+    sampled: 'Sampled report',
+    thresholding: 'Thresholding applied',
+    'other-row': 'Other rows omitted'
+  },
+  es: {
+    sampled: 'Informe con muestreo',
+    thresholding: 'Aplicación de umbral',
+    'other-row': 'Otras filas omitidas'
+  }
+};
+
+function viewsElementsReady(elements) {
+  const views = elements.views;
+  return Boolean(elements.periodSelector && elements.totalOption && views?.region && views.status && views.results
+    && views.value && views.coverage && views.interval && views.collectedDate && views.qualifications);
+}
+
+function clearViewsResult(views) {
+  views.value.textContent = '';
+  views.coverage.textContent = '';
+  views.interval.textContent = '';
+  views.collectedDate.textContent = '';
+  views.qualifications.textContent = '';
+  views.qualifications.hidden = true;
+}
+
+function renderViewsUnavailable(elements, locale) {
+  const { views } = elements;
+  views.results.hidden = true;
+  clearViewsResult(views);
+  views.status.textContent = views.region.dataset.statsViewsUnavailable?.trim()
+    || (locale === 'es' ? 'No se pueden mostrar las vistas para este período.' : 'Views are unavailable for this period.');
+  views.status.hidden = false;
+}
+
+function renderViewsLoading(views) {
+  views.results.hidden = true;
+  clearViewsResult(views);
+  views.status.hidden = false;
+}
+
+function renderViews(snapshot, locale, language, elements) {
+  if (!viewsElementsReady(elements)) return;
+
+  const { periodSelector, totalOption, views } = elements;
+  const records = snapshot?.articleViews;
+  const totalSupported = language !== 'es' && Boolean(records?.total);
+  totalOption.disabled = !totalSupported;
+  if (!totalSupported && periodSelector.value === 'total') periodSelector.value = '12m';
+
+  if (language === 'es') {
+    renderViewsUnavailable(elements, locale);
+    return;
+  }
+
+  const period = knownViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
+  const record = records?.[period];
+  if (!record) {
+    renderViewsUnavailable(elements, locale);
+    return;
+  }
+
+  const startDate = formatDateOnly(record.startDate, locale);
+  const endDate = formatDateOnly(record.endDate, locale);
+  const interval = period === 'total'
+    ? (locale === 'es' ? `Vistas desde ${startDate} · ${endDate} · ${record.timeZone}` : `Views since ${startDate} · ${endDate} · ${record.timeZone}`)
+    : `${startDate} – ${endDate} · ${record.timeZone}`;
+  const qualifications = record.qualifications.map((qualification) => qualificationCopy[locale][qualification]);
+
+  views.value.textContent = new Intl.NumberFormat(locale).format(record.views);
+  views.coverage.textContent = record.publication.label;
+  views.interval.textContent = interval;
+  views.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
+  views.qualifications.textContent = qualifications.join(' · ');
+  views.qualifications.hidden = qualifications.length === 0;
+  views.results.hidden = false;
+  views.status.hidden = true;
+  views.status.textContent = '';
+}
+
 async function loadContentStats(section) {
   const elements = getElements(section);
   const cardsReady = knownKinds.every((kind) => {
@@ -227,8 +384,9 @@ async function loadContentStats(section) {
     card.status.hidden = false;
     card.card.setAttribute('aria-busy', 'true');
   }
+  if (viewsElementsReady(elements)) renderViewsLoading(elements.views);
 
-  let groups = null;
+  let snapshot = null;
   try {
     const source = section.dataset.statsSource;
     const requestUrl = new URL(source, window.location.href);
@@ -239,14 +397,23 @@ async function loadContentStats(section) {
 
     const response = await fetch(requestUrl.href, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Statistics request failed');
-    groups = validateSnapshot(await response.json());
-    if (!groups) throw new Error('Unsupported statistics response');
+    snapshot = validateSnapshot(await response.json());
+    if (!snapshot) throw new Error('Unsupported statistics response');
   } catch {
     // A document, network, or HTTP failure invalidates the whole snapshot.
   }
 
-  renderAll(groups, locale, elements.selector.value, elements);
-  elements.selector.addEventListener('change', () => renderAll(groups, locale, elements.selector.value, elements));
+  renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
+  if (snapshot && viewsElementsReady(elements)) elements.periodSelector.disabled = false;
+  else if (elements.totalOption) elements.totalOption.disabled = true;
+  renderViews(snapshot, locale, elements.selector.value, elements);
+  elements.selector.addEventListener('change', () => {
+    renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
+    renderViews(snapshot, locale, elements.selector.value, elements);
+  });
+  if (viewsElementsReady(elements)) {
+    elements.periodSelector.addEventListener('change', () => renderViews(snapshot, locale, elements.selector.value, elements));
+  }
 }
 
 const section = document.getElementById('content-stats');

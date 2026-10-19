@@ -1085,3 +1085,20 @@ for (const [description, options] of [
     assert.equal(page.fetchCount, 1);
   });
 }
+
+test('views reject numeric-offset timezones while preserving fixed IANA zones and healthy periods', async () => {
+  const records = articleViewsRecords();
+  records['12m'].timeZone = '+01:00';
+  records['30d'].timeZone = 'Etc/GMT+1';
+  const page = createPage({ locale: 'en', data: snapshotWithArticleViews({ records }) });
+  await page.settle();
+
+  assertViewsUnavailable(page, 'en');
+  assert.equal(page.cards.articles.count.textContent, '11');
+  page.periodSelector.value = '30d';
+  page.periodSelector.dispatch('change');
+  assert.equal(page.cards.articles.views.results.hidden, false);
+  assert.equal(page.cards.articles.views.value.textContent, '30');
+  assert.match(page.cards.articles.views.interval.textContent, /Etc\/GMT\+1/);
+  assert.equal(page.fetchCount, 1);
+});

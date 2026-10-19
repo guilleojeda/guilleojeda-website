@@ -392,3 +392,17 @@ test('analytics configuration is absent from input3/input4 and rejects unsupport
       `invalid analytics selection ${JSON.stringify(value)}`);
   }
 });
+
+test('analytics timezone validation preserves fixed IANA zones but rejects numeric offsets', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  source.articleConfig.newsletter = {
+    id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en'
+  };
+  source.articleConfig.analytics = { ...analyticsSelection(), timeZone: 'Etc/GMT+1' };
+  assert.equal(build(source).analytics.timeZone, 'Etc/GMT+1');
+  for (const timeZone of ['+01:00', '-03', '+0100']) {
+    source.articleConfig.analytics.timeZone = timeZone;
+    assert.throws(() => build(source), /IANA time zone/i);
+  }
+});

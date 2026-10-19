@@ -10,16 +10,30 @@ const copy = locale === 'en'
   ? {
       kicker: 'Content statistics',
       title: 'Content & reach',
-      intro: 'Published articles, delivered talks and sessions, published books, and current newsletter subscribers, with partial coverage of the wider body of work.',
+      intro: 'Published articles, delivered talks and sessions, published books, and current newsletter subscribers, with partial coverage of the wider body of work. Views follow the selected period; article counts stay cumulative and subscribers stay current.',
       filterLabel: 'Content language',
+      periodLabel: 'Views period',
       all: 'All',
       english: 'English',
       spanish: 'Español',
+      periods: {
+        '7d': 'Last 7 days',
+        '30d': 'Last 30 days',
+        '90d': 'Last 90 days',
+        '12m': 'Last 12 months',
+        ytd: 'Year to date',
+        total: 'Recorded total'
+      },
       cumulative: 'Cumulative total',
       current: 'Current',
       coverage: 'Coverage',
       lastCollected: 'Last updated',
-      reachUnavailable: 'Reach statistics are not available yet.',
+      viewsLoading: 'Loading article views…',
+      viewsUnavailable: 'Views are unavailable for this period.',
+      viewsUnit: 'views',
+      viewsCoverage: 'Coverage',
+      viewsInterval: 'Reporting interval',
+      viewsCollected: 'Collected',
       noScript: 'Enable JavaScript to view these content statistics.',
       cards: {
         articles: {
@@ -48,21 +62,35 @@ const copy = locale === 'en'
         }
       },
       sourcesSummary: 'Sources and counting',
-      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in this count. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. This is partial coverage; other publication archives are not included. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
+      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in each count. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. Article views cover Simple AWS page views on its newsletter publication, a partial scope that differs from article-count coverage; repeated views can come from the same person. Views are reported with a delay and may be revised later. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
     }
   : {
       kicker: 'Estadísticas de contenido',
       title: 'Contenido y alcance',
-      intro: 'Artículos publicados, charlas y sesiones realizadas, libros publicados y suscriptores actuales del boletín, con cobertura parcial del conjunto más amplio de trabajo.',
+      intro: 'Artículos publicados, charlas y sesiones realizadas, libros publicados y suscriptores actuales del boletín, con cobertura parcial del conjunto más amplio de trabajo. Las vistas siguen el período seleccionado; el conteo de artículos es acumulado y los suscriptores son actuales.',
       filterLabel: 'Idioma del contenido',
+      periodLabel: 'Período de vistas',
       all: 'Todos',
       english: 'English',
       spanish: 'Español',
+      periods: {
+        '7d': 'Últimos 7 días',
+        '30d': 'Últimos 30 días',
+        '90d': 'Últimos 90 días',
+        '12m': 'Últimos 12 meses',
+        ytd: 'Año hasta la fecha',
+        total: 'Total registrado'
+      },
       cumulative: 'Total acumulado',
       current: 'Suscriptores actuales',
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
-      reachUnavailable: 'Las estadísticas de alcance todavía no están disponibles.',
+      viewsLoading: 'Cargando vistas de artículos…',
+      viewsUnavailable: 'No se pueden mostrar las vistas para este período.',
+      viewsUnit: 'vistas',
+      viewsCoverage: 'Cobertura',
+      viewsInterval: 'Intervalo informado',
+      viewsCollected: 'Recopilado',
       noScript: 'Activa JavaScript para ver estas estadísticas de contenido.',
       cards: {
         articles: {
@@ -91,7 +119,7 @@ const copy = locale === 'en'
         }
       },
       sourcesSummary: 'Fuentes y conteo',
-      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de este conteo. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. La cobertura parcial deja fuera otros archivos de publicaciones. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
+      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de cada conteo. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. Las vistas de artículos cubren las vistas de páginas de la publicación Simple AWS: es una cobertura parcial y distinta de la del conteo de artículos; una misma persona puede generar vistas repetidas. Las vistas tienen demora y pueden revisarse más adelante. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
     };
 
 const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
@@ -114,12 +142,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
     </div>
 
     <div class="content-stats-controls">
-      <label for="content-stats-language">{copy.filterLabel}</label>
-      <select id="content-stats-language" data-stats-language disabled>
-        <option value="all" selected>{copy.all}</option>
-        <option value="en">{copy.english}</option>
-        <option value="es">{copy.spanish}</option>
-      </select>
+      <div class="content-stats-control">
+        <label for="content-stats-language">{copy.filterLabel}</label>
+        <select id="content-stats-language" data-stats-language disabled>
+          <option value="all" selected>{copy.all}</option>
+          <option value="en">{copy.english}</option>
+          <option value="es">{copy.spanish}</option>
+        </select>
+      </div>
+      <div class="content-stats-control">
+        <label for="content-stats-period">{copy.periodLabel}</label>
+        <select id="content-stats-period" data-stats-period disabled>
+          {(['7d', '30d', '90d', '12m', 'ytd', 'total'] as const).map((period) => (
+            <option value={period} selected={period === '12m'} disabled={period === 'total'}>{copy.periods[period]}</option>
+          ))}
+        </select>
+      </div>
     </div>
 
     <div class="content-stats-cards">
@@ -153,8 +191,37 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                 </div>
               </dl>
 
-              {kind === 'articles' && <p class="content-stats-reach">{copy.reachUnavailable}</p>}
             </div>
+
+            {kind === 'articles' && (
+              <div class="content-stats-views" data-stats-views data-stats-views-unavailable={copy.viewsUnavailable}>
+                <p class="content-stats-views-status" data-stats-views-status role="status" aria-live="polite" hidden>{copy.viewsLoading}</p>
+
+                <div class="content-stats-views-results" data-stats-views-results hidden>
+                  <p class="content-stats-views-count" role="status" aria-live="polite" aria-atomic="true">
+                    <span data-stats-views-value></span>
+                    <span data-stats-views-unit>{copy.viewsUnit}</span>
+                  </p>
+
+                  <dl class="content-stats-meta content-stats-views-meta">
+                    <div>
+                      <dt>{copy.viewsCoverage}</dt>
+                      <dd data-stats-views-coverage></dd>
+                    </div>
+                    <div>
+                      <dt>{copy.viewsInterval}</dt>
+                      <dd data-stats-views-interval></dd>
+                    </div>
+                    <div>
+                      <dt>{copy.viewsCollected}</dt>
+                      <dd data-stats-views-collected-date></dd>
+                    </div>
+                  </dl>
+
+                  <p class="content-stats-views-qualifications" data-stats-views-qualifications hidden></p>
+                </div>
+              </div>
+            )}
           </article>
         );
       })}

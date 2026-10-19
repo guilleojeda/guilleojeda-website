@@ -1,9 +1,11 @@
 const { createHash } = require("node:crypto");
 const { GetObjectCommand, PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
+const { GetParameterCommand, SSMClient } = require("@aws-sdk/client-ssm");
 
 const s3 = new S3Client({});
 const secretsManager = new SecretsManagerClient({});
+const ssm = new SSMClient({});
 const CONTENT_API_ENDPOINT = "https://cdn.builder.io/api/v3/content/blog-post";
 const BUILDER_API_ENDPOINT = "https://api.builder.aws.com/cs/v2/articles/user/";
 const PAGE_SIZE = 10;
@@ -33,6 +35,13 @@ const SPEAKING_KINDS = new Set(["talk", "workshop", "training", "panel", "sessio
 const CURATED_SOURCE = Object.freeze({ id: "website-inventory", label: "Website inventory" });
 const NEWSLETTER_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
 const BEEHIIV_API_ENDPOINT = "https://api.beehiiv.com/v2/publications/";
+const GOOGLE_OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token";
+const GOOGLE_ANALYTICS_ENDPOINT = "https://analyticsdata.googleapis.com/v1beta/properties/";
+const GOOGLE_VIEWS_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd", "total"]);
+const GOOGLE_VIEW_QUALIFICATIONS = new Set(["sampled", "thresholding", "other-row"]);
+const GOOGLE_ANALYTICS_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
+const GOOGLE_ANALYTICS_HOSTNAME = "newsletter.simpleaws.dev";
+const GOOGLE_ANALYTICS_PATH_PATTERN = "/p/[^/]+/?";
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center"
@@ -68,7 +77,8 @@ function validateEnvironment(env) {
     bucket: requireString(env.STATS_BUCKET, "CONFIGURATION_INVALID"),
     inputKey: requireString(env.STATS_INPUT_KEY, "CONFIGURATION_INVALID"),
     outputKey: requireString(env.STATS_OUTPUT_KEY, "CONFIGURATION_INVALID"),
-    BEEHIIV_API_KEY_SECRET_ARN: env.BEEHIIV_API_KEY_SECRET_ARN
+    BEEHIIV_API_KEY_SECRET_ARN: env.BEEHIIV_API_KEY_SECRET_ARN,
+    GOOGLE_OAUTH_PARAMETER_ARN: env.GOOGLE_OAUTH_PARAMETER_ARN
   };
   if (configuration.inputKey === configuration.outputKey) throw fail("CONFIGURATION_INVALID");
   return configuration;
@@ -137,9 +147,51 @@ function validateBuilderSource(source) {
   };
 }
 
+function isValidIanaTimeZone(value) {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  try {
+    const resolvedTimeZone = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+    return !/^[+-]/.test(resolvedTimeZone);
+  } catch {
+    return false;
+  }
+}
+
+function isRealIsoDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function validateAnalyticsSelection(value) {
+  const requiredKeys = ["id", "propertyId", "language", "hostname", "articlePathPattern", "timeZone"];
+  const allowedKeys = value && Object.hasOwn(value, "recordedSince")
+    ? [...requiredKeys, "recordedSince"]
+    : requiredKeys;
+  if (!exactKeys(value, allowedKeys) || value.id !== GOOGLE_ANALYTICS_PUBLICATION.id ||
+      typeof value.propertyId !== "string" || !/^\d+$/.test(value.propertyId) ||
+      value.language !== "en" || value.hostname !== GOOGLE_ANALYTICS_HOSTNAME ||
+      value.articlePathPattern !== GOOGLE_ANALYTICS_PATH_PATTERN ||
+      !isValidIanaTimeZone(value.timeZone)) {
+    throw fail("ANALYTICS_CONFIGURATION_INVALID");
+  }
+  if (Object.hasOwn(value, "recordedSince") && !isRealIsoDate(value.recordedSince)) {
+    throw fail("ANALYTICS_CONFIGURATION_INVALID");
+  }
+  return {
+    id: GOOGLE_ANALYTICS_PUBLICATION.id,
+    propertyId: value.propertyId,
+    language: "en",
+    hostname: GOOGLE_ANALYTICS_HOSTNAME,
+    articlePathPattern: GOOGLE_ANALYTICS_PATH_PATTERN,
+    timeZone: value.timeZone,
+    ...(Object.hasOwn(value, "recordedSince") ? { recordedSince: value.recordedSince } : {})
+  };
+}
+
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (![1, 2, 3, 4].includes(input.schemaVersion)) {
+  if (![1, 2, 3, 4, 5].includes(input.schemaVersion)) {
     throw fail("INPUT_VERSION_UNSUPPORTED");
   }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
@@ -174,6 +226,20 @@ function validateInput(input) {
       sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
       curated: input.curated,
       ...(input.schemaVersion === 4 ? { newsletter: input.newsletter } : {})
+    };
+  }
+
+  if (input.schemaVersion === 5) {
+    if (!exactKeys(input, ["schemaVersion", "definitionVersion", "sources", "curated", "newsletter", "analytics"]) ||
+        !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"])) {
+      throw fail("INPUT_SCHEMA_INVALID");
+    }
+    return {
+      schemaVersion: 5,
+      sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
+      curated: input.curated,
+      newsletter: input.newsletter,
+      analytics: validateAnalyticsSelection(input.analytics)
     };
   }
 
@@ -368,10 +434,11 @@ async function fetchJson(url, sourceId, page, options = {}) {
     let response;
     try {
       const requestOptions = {
-        method: "GET",
+        method: options.method ?? "GET",
         headers: options.headers ?? { accept: "application/json" },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       };
+      if (Object.hasOwn(options, "body")) requestOptions.body = options.body;
       if (options.redirect !== undefined) requestOptions.redirect = options.redirect;
       response = await fetch(url, requestOptions);
     } catch {
@@ -402,6 +469,285 @@ async function fetchJson(url, sourceId, page, options = {}) {
   }
 
   throw fail("SOURCE_NETWORK_FAILED");
+}
+
+function formatIsoDate(year, month, day) {
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.toISOString().slice(0, 10);
+}
+
+function addCalendarDays(value, days) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function addCalendarMonths(value, months) {
+  const [year, month, day] = value.split("-").map(Number);
+  const monthIndex = year * 12 + month - 1 + months;
+  const targetYear = Math.floor(monthIndex / 12);
+  const targetMonth = monthIndex - targetYear * 12 + 1;
+  const firstOfTargetMonth = new Date(0);
+  firstOfTargetMonth.setUTCHours(0, 0, 0, 0);
+  firstOfTargetMonth.setUTCFullYear(targetYear, targetMonth, 0);
+  const targetDay = Math.min(day, firstOfTargetMonth.getUTCDate());
+  return formatIsoDate(targetYear, targetMonth, targetDay);
+}
+
+function localDateAt(timeZone, timestamp) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${String(values.year).padStart(4, "0")}-${values.month}-${values.day}`;
+}
+
+function supportedGoogleViewRanges(analytics, now) {
+  const collectionDate = localDateAt(analytics.timeZone, now);
+  const endDate = addCalendarDays(collectionDate, -3);
+  const twelveMonthAnchor = addCalendarDays(endDate, 1);
+  const rangeByPeriod = {
+    "7d": { startDate: addCalendarDays(endDate, -6), endDate },
+    "30d": { startDate: addCalendarDays(endDate, -29), endDate },
+    "90d": { startDate: addCalendarDays(endDate, -89), endDate },
+    "12m": { startDate: addCalendarMonths(twelveMonthAnchor, -12), endDate }
+  };
+  const yearStart = `${collectionDate.slice(0, 4)}-01-01`;
+  if (yearStart <= endDate) rangeByPeriod.ytd = { startDate: yearStart, endDate };
+  if (analytics.recordedSince !== undefined && analytics.recordedSince <= endDate) {
+    rangeByPeriod.total = { startDate: analytics.recordedSince, endDate };
+  }
+
+  return GOOGLE_VIEWS_PERIODS
+    .filter((period) => Object.hasOwn(rangeByPeriod, period))
+    .filter((period) => period === "total" || analytics.recordedSince === undefined ||
+      rangeByPeriod[period].startDate >= analytics.recordedSince)
+    .map((period) => ({ period, ...rangeByPeriod[period] }));
+}
+
+async function readGoogleOAuthCredentials(env) {
+  const parameterArn = requireString(env.GOOGLE_OAUTH_PARAMETER_ARN, "ANALYTICS_CREDENTIAL_INVALID");
+  let response;
+  try {
+    response = await ssm.send(new GetParameterCommand({ Name: parameterArn, WithDecryption: true }));
+  } catch {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+
+  const parameter = response && response.Parameter;
+  if (!isObject(parameter) || typeof parameter.Name !== "string" || parameter.Name.trim() === "" ||
+      (parameter.ARN !== undefined && parameter.ARN !== parameterArn) || parameter.Type !== "SecureString" ||
+      typeof parameter.Value !== "string" || parameter.Value.trim() === "" ||
+      Buffer.byteLength(parameter.Value, "utf8") > 4096) {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+
+  let credentials;
+  try {
+    credentials = JSON.parse(parameter.Value);
+  } catch {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+  if (!exactKeys(credentials, ["clientId", "clientSecret", "refreshToken"])) {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+  try {
+    return {
+      clientId: requireString(credentials.clientId, "ANALYTICS_CREDENTIAL_INVALID"),
+      clientSecret: requireString(credentials.clientSecret, "ANALYTICS_CREDENTIAL_INVALID"),
+      refreshToken: requireString(credentials.refreshToken, "ANALYTICS_CREDENTIAL_INVALID")
+    };
+  } catch {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+}
+
+async function refreshGoogleAccessToken(credentials) {
+  const form = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+    refresh_token: credentials.refreshToken
+  });
+  let response;
+  try {
+    response = await fetchJson(GOOGLE_OAUTH_ENDPOINT, "simple-aws", 1, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: form.toString(),
+      redirect: "error"
+    });
+  } catch {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+  if (!isObject(response) || typeof response.access_token !== "string" || response.access_token.trim() === "" ||
+      typeof response.token_type !== "string" || response.token_type.toLowerCase() !== "bearer" ||
+      !Number.isSafeInteger(response.expires_in) || response.expires_in <= 0) {
+    throw fail("ANALYTICS_CREDENTIAL_INVALID");
+  }
+  return response.access_token.trim();
+}
+
+function articleViewsScopeFingerprint(analytics, period) {
+  const scope = {
+    definitionVersion: 1,
+    family: "articleViews",
+    metric: "screenPageViews",
+    publication: {
+      id: analytics.id,
+      propertyId: analytics.propertyId,
+      language: analytics.language,
+      hostname: analytics.hostname,
+      articlePathPattern: analytics.articlePathPattern
+    },
+    timeZone: analytics.timeZone,
+    ...(period === "total" ? { recordedSince: analytics.recordedSince } : {})
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function validateGoogleReport(response, analytics) {
+  if (!isObject(response) || !Array.isArray(response.metricHeaders) || response.metricHeaders.length !== 1 ||
+      !exactKeys(response.metricHeaders[0], ["name", "type"]) ||
+      response.metricHeaders[0].name !== "screenPageViews" || response.metricHeaders[0].type !== "TYPE_INTEGER" ||
+      (response.dimensionHeaders !== undefined &&
+        (!Array.isArray(response.dimensionHeaders) || response.dimensionHeaders.length !== 0)) ||
+      response.rowCount !== 1 || !Array.isArray(response.rows) || response.rows.length !== 1 ||
+      !exactKeys(response.rows[0], ["metricValues"]) || !Array.isArray(response.rows[0].metricValues) ||
+      response.rows[0].metricValues.length !== 1 || !exactKeys(response.rows[0].metricValues[0], ["value"]) ||
+      typeof response.rows[0].metricValues[0].value !== "string" ||
+      !/^(?:0|[1-9]\d*)$/.test(response.rows[0].metricValues[0].value)) {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+
+  const views = Number(response.rows[0].metricValues[0].value);
+  if (!Number.isSafeInteger(views) || views < 0) throw fail("ANALYTICS_REPORT_INVALID");
+
+  const metadata = response.metadata;
+  if (!isObject(metadata) || metadata.timeZone !== analytics.timeZone) {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "subjectToThresholding") && typeof metadata.subjectToThresholding !== "boolean") {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "dataLossFromOtherRow") && typeof metadata.dataLossFromOtherRow !== "boolean") {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "samplingMetadatas") &&
+      (!Array.isArray(metadata.samplingMetadatas) || metadata.samplingMetadatas.some((item) => !isObject(item)))) {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "dataTruncationReasons") &&
+      (!Array.isArray(metadata.dataTruncationReasons) || metadata.dataTruncationReasons.some((reason) => typeof reason !== "string"))) {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "dataTruncationDateRanges") &&
+      (!Array.isArray(metadata.dataTruncationDateRanges) || metadata.dataTruncationDateRanges.some((range) =>
+        !exactKeys(range, ["startDate", "endDate"]) || !isRealIsoDate(range.startDate) || !isRealIsoDate(range.endDate) ||
+        range.startDate > range.endDate))) {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "dataTruncationDate") && !isRealIsoDate(metadata.dataTruncationDate)) {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if (Object.hasOwn(metadata, "emptyReason") && typeof metadata.emptyReason !== "string") {
+    throw fail("ANALYTICS_REPORT_INVALID");
+  }
+  if ((metadata.dataTruncationReasons?.length ?? 0) > 0 ||
+      (metadata.dataTruncationDateRanges?.length ?? 0) > 0 ||
+      Object.hasOwn(metadata, "dataTruncationDate") ||
+      (metadata.emptyReason !== undefined && metadata.emptyReason !== "")) {
+    throw fail("ANALYTICS_REPORT_UNAVAILABLE");
+  }
+
+  const qualifications = [];
+  if ((metadata.samplingMetadatas?.length ?? 0) > 0) qualifications.push("sampled");
+  if (metadata.subjectToThresholding === true) qualifications.push("thresholding");
+  if (metadata.dataLossFromOtherRow === true) qualifications.push("other-row");
+  return { views, qualifications };
+}
+
+async function requestGoogleReport(analytics, accessToken, range, collectedAt) {
+  const url = `${GOOGLE_ANALYTICS_ENDPOINT}${analytics.propertyId}:runReport`;
+  const body = {
+    dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+    metrics: [{ name: "screenPageViews" }],
+    dimensionFilter: {
+      andGroup: {
+        expressions: [
+          { filter: { fieldName: "hostName", stringFilter: { matchType: "EXACT", value: analytics.hostname, caseSensitive: true } } },
+          { filter: { fieldName: "pagePath", stringFilter: { matchType: "FULL_REGEXP", value: analytics.articlePathPattern, caseSensitive: true } } }
+        ]
+      }
+    }
+  };
+  const response = await fetchJson(url, "simple-aws", range.period, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(body),
+    redirect: "error"
+  });
+  const result = validateGoogleReport(response, analytics);
+  return {
+    basis: range.period === "total" ? "recorded-total" : "period",
+    collectedAt,
+    scopeId: articleViewsScopeFingerprint(analytics, range.period),
+    publication: { ...GOOGLE_ANALYTICS_PUBLICATION, language: analytics.language },
+    timeZone: analytics.timeZone,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    views: result.views,
+    qualifications: result.qualifications
+  };
+}
+
+async function collectArticleViews(analytics, env, collectedAt, now) {
+  const ranges = supportedGoogleViewRanges(analytics, now);
+  const eligiblePeriods = ranges.map(({ period }) => period);
+  if (ranges.length === 0) return { group: null, failedPeriods: [], eligiblePeriods };
+
+  let accessToken;
+  try {
+    const credentials = await readGoogleOAuthCredentials(env);
+    accessToken = await refreshGoogleAccessToken(credentials);
+  } catch (error) {
+    if (!(error instanceof CollectorError)) throw error;
+    return { group: null, failedPeriods: eligiblePeriods, eligiblePeriods, failureCode: error.code };
+  }
+
+  const records = {};
+  const failedPeriods = [];
+  let failureCode;
+  for (const range of ranges) {
+    try {
+      records[range.period] = await requestGoogleReport(analytics, accessToken, range, collectedAt);
+    } catch (error) {
+      if (!(error instanceof CollectorError)) throw error;
+      failedPeriods.push(range.period);
+      failureCode ??= error.code;
+    }
+  }
+
+  return {
+    group: Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null,
+    failedPeriods,
+    eligiblePeriods,
+    ...(failureCode ? { failureCode } : {})
+  };
 }
 
 async function fetchCaylentPage(source, offset, page) {
@@ -691,20 +1037,73 @@ function isValidNewsletterGroup(group) {
   return Number.isSafeInteger(group.subscribers) && group.subscribers >= 0;
 }
 
+function isValidArticleViewRecord(record, period) {
+  if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", "views", "qualifications"])) {
+    return false;
+  }
+  if (record.basis !== (period === "total" ? "recorded-total" : "period")) return false;
+  if (typeof record.collectedAt !== "string") return false;
+  const collected = Date.parse(record.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== record.collectedAt) return false;
+  if (typeof record.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(record.scopeId)) return false;
+  if (!exactKeys(record.publication, ["id", "label", "language"]) ||
+      record.publication.id !== GOOGLE_ANALYTICS_PUBLICATION.id ||
+      record.publication.label !== GOOGLE_ANALYTICS_PUBLICATION.label || record.publication.language !== "en") {
+    return false;
+  }
+  if (!isValidIanaTimeZone(record.timeZone) || !isRealIsoDate(record.startDate) || !isRealIsoDate(record.endDate) ||
+      record.startDate > record.endDate) {
+    return false;
+  }
+  if (!Number.isSafeInteger(record.views) || record.views < 0 || !Array.isArray(record.qualifications)) return false;
+  const qualifications = new Set();
+  for (const qualification of record.qualifications) {
+    if (typeof qualification !== "string" || !GOOGLE_VIEW_QUALIFICATIONS.has(qualification) || qualifications.has(qualification)) {
+      return false;
+    }
+    qualifications.add(qualification);
+  }
+  return true;
+}
+
+function sanitizeArticleViewsGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 || !isObject(group.records)) {
+    return null;
+  }
+  const records = {};
+  for (const period of GOOGLE_VIEWS_PERIODS) {
+    if (Object.hasOwn(group.records, period) && isValidArticleViewRecord(group.records[period], period)) {
+      records[period] = group.records[period];
+    }
+  }
+  return Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null;
+}
+
+function isValidArticleViewsGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 ||
+      !isObject(group.records) || Object.keys(group.records).length === 0) {
+    return false;
+  }
+  return Object.entries(group.records).every(([period, record]) =>
+    GOOGLE_VIEWS_PERIODS.includes(period) && isValidArticleViewRecord(record, period));
+}
+
 function validateOutput(output) {
   if (!exactKeys(output, ["schemaVersion", "groups"]) || output.schemaVersion !== 1 ||
       !isObject(output.groups)) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const families = Object.keys(output.groups);
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews"]);
   if (families.length < 1 || families.some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   for (const family of families) {
     const valid = family === "newsletter"
       ? isValidNewsletterGroup(output.groups[family])
-      : isValidGroup(output.groups[family], family);
+      : family === "articleViews"
+        ? isValidArticleViewsGroup(output.groups[family])
+        : isValidGroup(output.groups[family], family);
     if (!valid) throw fail("OUTPUT_SCHEMA_INVALID");
   }
 }
@@ -738,18 +1137,22 @@ async function readPreviousAggregate(bucket, key) {
       !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews"]);
   if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const groups = {};
   for (const family of supportedFamilies) {
+    if (!Object.hasOwn(previous.groups, family)) continue;
+    if (family === "articleViews") {
+      const sanitized = sanitizeArticleViewsGroup(previous.groups[family]);
+      if (sanitized) groups[family] = sanitized;
+      continue;
+    }
     const valid = family === "newsletter"
       ? isValidNewsletterGroup(previous.groups[family])
       : isValidGroup(previous.groups[family], family);
-    if (Object.hasOwn(previous.groups, family) && valid) {
-      groups[family] = previous.groups[family];
-    }
+    if (valid) groups[family] = previous.groups[family];
   }
   return groups;
 }
@@ -789,6 +1192,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   const groups = {};
   const failures = {};
   let articleCollection;
+  let articleViewsResult;
   try {
     articleCollection = await collectPublications(configuration.sources, now);
     groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
@@ -806,12 +1210,31 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     }
   }
 
-  if (configuration.schemaVersion === 4) {
+  if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5) {
     try {
       groups.newsletter = await collectNewsletter(configuration.newsletter, env, collectedAt);
     } catch (error) {
       if (!(error instanceof CollectorError)) throw error;
       failures.newsletter = error.code;
+    }
+  }
+
+  if (configuration.schemaVersion === 5) {
+    try {
+      articleViewsResult = await collectArticleViews(configuration.analytics, env, collectedAt, now);
+      if (articleViewsResult.group) groups.articleViews = articleViewsResult.group;
+      if (articleViewsResult.failedPeriods.length > 0) {
+        failures.articleViews = articleViewsResult.failureCode ?? "ANALYTICS_REPORT_FAILED";
+      }
+    } catch (error) {
+      if (!(error instanceof CollectorError)) throw error;
+      failures.articleViews = error.code;
+      articleViewsResult = {
+        group: null,
+        failedPeriods: [],
+        eligiblePeriods: supportedGoogleViewRanges(configuration.analytics, now).map(({ period }) => period)
+      };
+      articleViewsResult.failedPeriods = articleViewsResult.eligiblePeriods;
     }
   }
 
@@ -823,7 +1246,20 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     previousGroups = await readPreviousAggregate(env.bucket, env.outputKey);
     if (previousGroups) {
       for (const family of Object.keys(failures)) {
-        if (previousGroups[family]) groups[family] = previousGroups[family];
+        if (family === "articleViews") {
+          const prior = previousGroups.articleViews;
+          const eligiblePeriods = new Set(articleViewsResult?.eligiblePeriods ?? []);
+          const currentYtdStart = `${localDateAt(configuration.analytics.timeZone, now).slice(0, 4)}-01-01`;
+          const records = { ...(groups.articleViews?.records ?? {}) };
+          for (const period of articleViewsResult?.failedPeriods ?? []) {
+            if (!eligiblePeriods.has(period) || !prior || !Object.hasOwn(prior.records, period)) continue;
+            if (period === "ytd" && prior.records[period].startDate !== currentYtdStart) continue;
+            records[period] = prior.records[period];
+          }
+          if (Object.keys(records).length > 0) groups.articleViews = { definitionVersion: 1, records };
+        } else if (previousGroups[family]) {
+          groups[family] = previousGroups[family];
+        }
       }
     }
   }
@@ -837,9 +1273,12 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     pagesBySource: articleCollection?.pagesBySource ?? {},
     ...(articleCollection ? { publicationCount: articleCollection.publications.length } : {}),
     families: Object.fromEntries(Object.entries(groups).map(([family, group]) => [family, {
-      ...(group.counts ? { counts: group.counts } : { subscribers: group.subscribers }),
-      collectedAt: group.collectedAt,
-      scopeId: group.scopeId,
+      ...(group.counts ? { counts: group.counts } : {}),
+      ...(Object.hasOwn(group, "subscribers") ? { subscribers: group.subscribers } : {}),
+      ...(group.records ? { periods: Object.keys(group.records) } : {
+        collectedAt: group.collectedAt,
+        scopeId: group.scopeId
+      }),
       retained: Object.hasOwn(failures, family)
     }])),
     familyFailures: failures,
@@ -860,7 +1299,7 @@ async function handler() {
 
     const collectedAt = new Date().toISOString();
     const now = Date.parse(collectedAt);
-    return configuration.schemaVersion === 3 || configuration.schemaVersion === 4
+    return configuration.schemaVersion === 3 || configuration.schemaVersion === 4 || configuration.schemaVersion === 5
       ? await collectIndependentGroups(configuration, env, collectedAt, now)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {
