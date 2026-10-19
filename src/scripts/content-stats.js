@@ -1,6 +1,7 @@
 const endpointPath = '/content-stats/v1/current.json';
 const knownKinds = ['articles', 'talks', 'books', 'newsletter'];
 const knownViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
+const knownSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
@@ -9,7 +10,9 @@ const allowedKeys = {
   newsletterGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'subscribers'],
   publication: ['id', 'label', 'language'],
   articleViewsGroup: ['definitionVersion', 'records'],
-  articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications']
+  articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications'],
+  articleSearchClicksGroup: ['definitionVersion', 'records'],
+  articleSearchClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks']
 };
 const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
@@ -161,19 +164,52 @@ function validateArticleViews(value) {
   ]));
 }
 
+function validateArticleSearchClicksRecord(value) {
+  if (!hasOnlyKeys(value, allowedKeys.articleSearchClicksRecord)
+    || value.basis !== 'period'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSha256(value.scopeId)
+    || !hasOnlyKeys(value.publication, allowedKeys.publication)
+    || value.publication.id !== supportedNewsletter.id
+    || value.publication.label !== supportedNewsletter.label
+    || value.publication.language !== 'en'
+    || value.timeZone !== 'America/Los_Angeles'
+    || !isRealDateOnly(value.startDate)
+    || !isRealDateOnly(value.endDate)
+    || value.startDate > value.endDate
+    || !isNonnegativeCount(value.clicks)) return null;
+
+  return value;
+}
+
+function validateArticleSearchClicks(value) {
+  if (!hasOnlyKeys(value, allowedKeys.articleSearchClicksGroup)
+    || value.definitionVersion !== 1
+    || !isRecord(value.records)
+    || !hasAllowedKeys(value.records, knownSearchPeriods)) return null;
+
+  return Object.fromEntries(knownSearchPeriods.map((period) => [
+    period,
+    Object.hasOwn(value.records, period) ? validateArticleSearchClicksRecord(value.records[period]) : null
+  ]));
+}
+
 function validateSnapshot(value) {
   if (!isRecord(value)
     || !hasOnlyKeys(value, allowedKeys.document)
     || value.schemaVersion !== 1
     || !isRecord(value.groups)
-    || !hasAllowedKeys(value.groups, [...knownKinds, 'articleViews'])) return null;
+    || !hasAllowedKeys(value.groups, [...knownKinds, 'articleViews', 'articleSearchClicks'])) return null;
 
   return {
     groups: Object.fromEntries(knownKinds.map((kind) => [
       kind,
       Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
     ])),
-    articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null
+    articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null,
+    articleSearchClicks: Object.hasOwn(value.groups, 'articleSearchClicks')
+      ? validateArticleSearchClicks(value.groups.articleSearchClicks)
+      : null
   };
 }
 
@@ -204,12 +240,24 @@ function getElements(section) {
     qualifications: viewsRegion.querySelector('[data-stats-views-qualifications]')
   } : null;
 
+  const searchRegion = section.querySelector('[data-stats-search]');
+  const search = searchRegion ? {
+    region: searchRegion,
+    status: searchRegion.querySelector('[data-stats-search-status]'),
+    results: searchRegion.querySelector('[data-stats-search-results]'),
+    value: searchRegion.querySelector('[data-stats-search-value]'),
+    coverage: searchRegion.querySelector('[data-stats-search-coverage]'),
+    interval: searchRegion.querySelector('[data-stats-search-interval]'),
+    collectedDate: searchRegion.querySelector('[data-stats-search-collected-date]')
+  } : null;
+
   return {
     cards,
     selector: section.querySelector('[data-stats-language]'),
     periodSelector: section.querySelector('[data-stats-period]'),
     totalOption: section.querySelector('[data-stats-period]')?.querySelector('[value="total"]') ?? null,
-    views
+    views,
+    search
   };
 }
 
@@ -368,6 +416,61 @@ function renderViews(snapshot, locale, language, elements) {
   views.status.textContent = '';
 }
 
+function searchElementsReady(elements) {
+  const search = elements.search;
+  return Boolean(elements.periodSelector && search?.region && search.status && search.results
+    && search.value && search.coverage && search.interval && search.collectedDate);
+}
+
+function clearSearchResult(search) {
+  search.value.textContent = '';
+  search.coverage.textContent = '';
+  search.interval.textContent = '';
+  search.collectedDate.textContent = '';
+}
+
+function renderSearchUnavailable(elements, locale) {
+  const { search } = elements;
+  search.results.hidden = true;
+  clearSearchResult(search);
+  search.status.textContent = search.region.dataset.statsSearchUnavailable?.trim()
+    || (locale === 'es' ? 'No se pueden mostrar los clics de búsqueda para este período.' : 'Search clicks are unavailable for this period.');
+  search.status.hidden = false;
+}
+
+function renderSearchLoading(search) {
+  search.results.hidden = true;
+  clearSearchResult(search);
+  search.status.hidden = false;
+}
+
+function renderSearch(snapshot, locale, language, elements) {
+  if (!searchElementsReady(elements)) return;
+
+  const { periodSelector, search } = elements;
+  if (language === 'es' || periodSelector.value === 'total') {
+    renderSearchUnavailable(elements, locale);
+    return;
+  }
+
+  const period = knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
+  const record = snapshot?.articleSearchClicks?.[period];
+  if (!record) {
+    renderSearchUnavailable(elements, locale);
+    return;
+  }
+
+  const startDate = formatDateOnly(record.startDate, locale);
+  const endDate = formatDateOnly(record.endDate, locale);
+  search.value.textContent = new Intl.NumberFormat(locale).format(record.clicks);
+  search.coverage.textContent = record.publication.label;
+  search.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
+  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
+  search.results.hidden = false;
+  search.status.hidden = true;
+  search.status.textContent = '';
+}
+
 async function loadContentStats(section) {
   const elements = getElements(section);
   const cardsReady = knownKinds.every((kind) => {
@@ -385,6 +488,7 @@ async function loadContentStats(section) {
     card.card.setAttribute('aria-busy', 'true');
   }
   if (viewsElementsReady(elements)) renderViewsLoading(elements.views);
+  if (searchElementsReady(elements)) renderSearchLoading(elements.search);
 
   let snapshot = null;
   try {
@@ -404,15 +508,18 @@ async function loadContentStats(section) {
   }
 
   renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
-  if (snapshot && viewsElementsReady(elements)) elements.periodSelector.disabled = false;
+  if (snapshot && (viewsElementsReady(elements) || searchElementsReady(elements))) elements.periodSelector.disabled = false;
   else if (elements.totalOption) elements.totalOption.disabled = true;
   renderViews(snapshot, locale, elements.selector.value, elements);
+  renderSearch(snapshot, locale, elements.selector.value, elements);
   elements.selector.addEventListener('change', () => {
     renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
     renderViews(snapshot, locale, elements.selector.value, elements);
+    renderSearch(snapshot, locale, elements.selector.value, elements);
   });
-  if (viewsElementsReady(elements)) {
+  if (viewsElementsReady(elements) || searchElementsReady(elements)) {
     elements.periodSelector.addEventListener('change', () => renderViews(snapshot, locale, elements.selector.value, elements));
+    elements.periodSelector.addEventListener('change', () => renderSearch(snapshot, locale, elements.selector.value, elements));
   }
 }
 

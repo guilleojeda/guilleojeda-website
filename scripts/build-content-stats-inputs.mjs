@@ -160,13 +160,43 @@ function projectAnalytics(analytics) {
   return result;
 }
 
+function projectSearchConsole(searchConsole) {
+  assertObject(searchConsole, 'searchConsole');
+  const keys = Object.keys(searchConsole).sort();
+  const expectedKeys = ['availableSince', 'articleUrlPattern', 'id', 'language', 'siteUrl'].sort();
+  if (keys.join(',') !== expectedKeys.join(',')) {
+    invalid('searchConsole must contain only the supported selectors and history boundary');
+  }
+  if (searchConsole.id !== 'simple-aws') invalid('unsupported searchConsole publication id');
+  if (searchConsole.siteUrl !== 'sc-domain:simpleaws.dev') invalid('unsupported searchConsole site property');
+  if (searchConsole.language !== 'en') invalid('searchConsole language must be en');
+  if (searchConsole.articleUrlPattern !== String.raw`(?-i)^https://newsletter\.simpleaws\.dev/p/[^/?#]+/?$`) {
+    invalid('unsupported searchConsole article URL pattern');
+  }
+  if (!isRealDate(searchConsole.availableSince)) {
+    invalid('searchConsole availableSince must be a real YYYY-MM-DD date');
+  }
+
+  return {
+    id: searchConsole.id,
+    siteUrl: searchConsole.siteUrl,
+    language: searchConsole.language,
+    articleUrlPattern: searchConsole.articleUrlPattern,
+    availableSince: searchConsole.availableSince
+  };
+}
+
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
   const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
+  const hasSearchConsole = Object.hasOwn(articleConfig, 'searchConsole');
   if (hasAnalytics && !hasNewsletter) invalid('analytics requires the existing newsletter selection');
+  if (hasSearchConsole && (!hasNewsletter || !hasAnalytics)) {
+    invalid('searchConsole requires the existing newsletter and analytics selections');
+  }
   return {
-    schemaVersion: hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
+    schemaVersion: hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
@@ -174,7 +204,8 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
       books: projectBooks(books)
     },
     ...(hasNewsletter ? { newsletter: projectNewsletter(articleConfig.newsletter) } : {}),
-    ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {})
+    ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
+    ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {})
   };
 }
 
