@@ -148,6 +148,10 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosure, /ingl[eé]s/i, 'Spanish source disclosure identifies the supported content language');
   }
   const disclosureText = normalizedText(disclosure);
+  const searchDisclosureParagraph = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => normalizedText(match[1]))
+    .find((paragraph) => /search console/i.test(paragraph));
+  assert.ok(searchDisclosureParagraph, `${locale} disclosure needs a Search Console explanation`);
   if (locale === 'en') {
     assert.match(disclosureText, /simple aws[\s\S]*views?|views?[\s\S]*simple aws/i, 'English disclosure connects views to Simple AWS');
     assert.match(disclosureText, /page views?|repeated views?|views? can repeat/i, 'English disclosure explains that views can repeat');
@@ -155,6 +159,13 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosureText, /views?[\s\S]{0,100}(coverage|scope)[\s\S]{0,100}(count|article)|count[\s\S]{0,100}views?/i, 'English disclosure distinguishes count and views coverage');
     assert.match(disclosureText, /delay|lag|not immediately current/i, 'English disclosure explains reporting delay');
     assert.match(disclosureText, /revis|updated later|can change/i, 'English disclosure explains later revisions');
+    assert.match(searchDisclosureParagraph, /simple aws/i, 'English disclosure connects Search clicks to Simple AWS');
+    assert.match(searchDisclosureParagraph, /clicks?/, 'English disclosure identifies Search Console clicks');
+    assert.match(searchDisclosureParagraph, /partial|may omit|can omit|filtering|reporting limits/i, 'English disclosure identifies Search clicks as partial');
+    assert.match(searchDisclosureParagraph, /canonical.{0,120}(article|url)|(article|url).{0,120}canonical|google.{0,80}(preferred|selected).{0,80}(article|url)/i, 'English disclosure limits Search to canonical or Google-preferred article URLs');
+    assert.match(searchDisclosureParagraph, /not unique (people|visitors|readers)|(?:aren't|are not|do not represent) (?:unique )?(?:people|visitors|readers)|not (?:a count of )?(?:unique )?(?:people|visitors|readers)/i, 'English disclosure says clicks do not represent unique people');
+    assert.match(searchDisclosureParagraph, /not (?:added to|combined with|summed with)|shown separately|kept separate|separate from|distinct from/i, 'English disclosure keeps Search clicks separate from views');
+    assert.match(searchDisclosureParagraph, /views?|analytics/i, 'English separation statement names the existing views metric');
   } else {
     assert.match(disclosureText, /simple aws[\s\S]*vistas?|vistas?[\s\S]*simple aws/i, 'Spanish disclosure connects views to Simple AWS');
     assert.match(disclosureText, /vistas? de paginas?|visitas? repetidas?|se pueden repetir/i, 'Spanish disclosure explains that views can repeat');
@@ -162,15 +173,26 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosureText, /vistas?[\s\S]{0,100}(cobertura|alcance)[\s\S]{0,100}(conteo|articulos?)|conteo[\s\S]{0,100}vistas?/i, 'Spanish disclosure distinguishes count and views coverage');
     assert.match(disclosureText, /demora|retras|tardar|no refleja.{0,30}inmediato/i, 'Spanish disclosure explains reporting delay');
     assert.match(disclosureText, /revis|puede[n]? cambiar|cambiar despues/i, 'Spanish disclosure explains later revisions');
+    assert.match(searchDisclosureParagraph, /simple aws/i, 'Spanish disclosure connects Search clicks to Simple AWS');
+    assert.match(searchDisclosureParagraph, /clics?/, 'Spanish disclosure identifies Search Console clicks');
+    assert.match(searchDisclosureParagraph, /parcial|puede omitir|puede excluir|filtra|filtrado|limites? de (?:datos|informe)/i, 'Spanish disclosure identifies Search clicks as partial');
+    assert.match(searchDisclosureParagraph, /canonicas?.{0,120}(articulos?|url)|(?:articulos?|url).{0,120}canonicas?|google.{0,80}(?:preferida|seleccionada|preferidos|seleccionados).{0,80}(?:articulo|url)/i, 'Spanish disclosure limits Search to canonical or Google-preferred article URLs');
+    assert.match(searchDisclosureParagraph, /no (?:son|representan|identifican) (?:personas|visitantes|lectores) unic[oa]s|no representan a personas unicas/i, 'Spanish disclosure says clicks do not represent unique people');
+    assert.match(searchDisclosureParagraph, /no se (?:suman|combinan|agregan)|se muestran por separado|se mantienen separad[oa]s?|separad[oa]s? de|distint[oa]s? de/i, 'Spanish disclosure keeps Search clicks separate from views');
+    assert.match(searchDisclosureParagraph, /vistas?|analytics/i, 'Spanish separation statement names the existing views metric');
   }
 
   const articlesCard = extractElement(statsHtml, 'article', 'data-stats-kind', 'articles');
   assert.ok(articlesCard, `${locale} needs an Articles card for independent views`);
   const countResults = extractElement(articlesCard.html, null, 'data-stats-results');
   const viewsRegion = extractElement(articlesCard.html, null, 'data-stats-views');
+  const searchRegion = extractElement(articlesCard.html, null, 'data-stats-search');
   assert.ok(countResults, `${locale} Articles needs its cumulative count results`);
   assert.ok(viewsRegion, `${locale} Articles needs an independent views region`);
   assert.ok(viewsRegion.start > countResults.start && viewsRegion.start >= countResults.end, `${locale} views region must sit outside and after count results`);
+  assert.ok(searchRegion, `${locale} Articles needs an independent Search clicks region`);
+  assert.ok(searchRegion.start > countResults.start && searchRegion.start >= countResults.end, `${locale} Search region must sit outside and after count results`);
+  assert.ok(searchRegion.end <= viewsRegion.start || viewsRegion.end <= searchRegion.start, `${locale} Search and Views regions must remain independent siblings`);
   for (const field of ['status', 'results', 'value', 'coverage', 'interval', 'collected-date', 'qualifications']) {
     const attribute = `data-stats-views-${field}`;
     assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(viewsRegion.html), `${locale} views region needs ${field}`);
@@ -186,6 +208,30 @@ function checkContentStatsShell(page, html) {
   if (locale === 'en') assert.match(unavailableText, /unavailable|not available/i, 'English views unavailable copy is meaningful');
   else assert.match(unavailableText, /no disponibles?|no disponible|no se pueden/i, 'Spanish views unavailable copy is meaningful');
 
+  for (const field of ['status', 'results', 'value', 'coverage', 'interval', 'collected-date']) {
+    const attribute = `data-stats-search-${field}`;
+    assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(searchRegion.html), `${locale} Search region needs ${field}`);
+  }
+  const searchStatus = extractElement(searchRegion.html, null, 'data-stats-search-status');
+  assert.ok(searchStatus, `${locale} Search region needs a status message`);
+  mustContain(searchStatus.html, 'aria-live="polite"', `${locale} Search status announces changes politely`);
+  const searchRegionText = normalizedText(searchRegion.html);
+  if (locale === 'en') {
+    assert.match(searchRegionText, /search[\s\S]{0,40}clicks?|clicks?[\s\S]{0,40}search/, 'English Search region distinguishes Search clicks from Views');
+    assert.match(searchRegionText, /clicks?/, 'English Search region labels its unit');
+    assert.match(normalizedText(searchStatus.html), /loading[\s\S]{0,50}(search console|search)[\s\S]{0,30}clicks?|loading[\s\S]{0,50}clicks?/, 'English Search status has a localized loading message');
+  } else {
+    assert.match(searchRegionText, /clics?[\s\S]{0,40}busqueda|busqueda[\s\S]{0,40}clics?/, 'Spanish Search region distinguishes Search clicks from Views');
+    assert.match(searchRegionText, /clics?/, 'Spanish Search region labels its unit');
+    assert.match(normalizedText(searchStatus.html), /cargando[\s\S]{0,50}(search console|busqueda)[\s\S]{0,30}clics?|cargando[\s\S]{0,50}clics?/, 'Spanish Search status has a localized loading message');
+  }
+  mustContain(searchRegion.html, 'data-stats-search-unavailable=', `${locale} Search region needs localized unavailable copy`);
+  const searchUnavailableAttribute = searchRegion.html.match(/\bdata-stats-search-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
+  const searchUnavailableText = normalizedText(searchUnavailableAttribute);
+  if (locale === 'en') assert.match(searchUnavailableText, /unavailable|not available/i, 'English Search unavailable copy is meaningful');
+  else assert.match(searchUnavailableText, /no disponibles?|no disponible|no se pueden/i, 'Spanish Search unavailable copy is meaningful');
+
+  assert.equal([...statsHtml.matchAll(/<select\b[^>]*\bdata-stats-period\b/gi)].length, 1, `${locale} Views and Search share one period selector`);
   const periodSelector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-period\b)[^>]*>([\s\S]*?)<\/select>/i);
   assert.ok(periodSelector, `${locale} needs a native article-views period selector`);
   const periodSelectorTag = periodSelector[0].match(/^<select\b([^>]*)>/i)?.[1] ?? '';
@@ -222,6 +268,7 @@ function checkContentStatsShell(page, html) {
   if (locale === 'en') assert.match(normalizedText(periodLabel), /views|period/i, 'English period label describes views or their period');
   else assert.match(normalizedText(periodLabel), /vistas|periodo/i, 'Spanish period label describes views or their period');
 
+  assert.equal([...statsHtml.matchAll(/<select\b[^>]*\bdata-stats-language\b/gi)].length, 1, `${locale} content types share one language selector`);
   const selector = statsHtml.match(/<select\b(?=[^>]*\bdata-stats-language\b)[^>]*>([\s\S]*?)<\/select>/i);
   assert.ok(selector, `${locale} must use a native content-language selector`);
   const languageSelectorId = selector[0].match(/^<select\b[^>]*\bid=["']([^"']+)["']/i)?.[1];
@@ -335,16 +382,18 @@ const inputs = JSON.parse(read('_content-stats/inputs.json'));
 const sourceConfig = JSON.parse(readFileSync(join(root, 'public/_content-stats/inputs.json'), 'utf8'));
 const hasNewsletterSelection = Object.hasOwn(inputs, 'newsletter');
 const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
+const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 assert.deepEqual(Object.keys(inputs).sort(), [
   'curated',
   'definitionVersion',
   ...(hasNewsletterSelection ? ['newsletter'] : []),
   ...(hasAnalyticsSelection ? ['analytics'] : []),
+  ...(hasSearchConsoleSelection ? ['searchConsole'] : []),
   'schemaVersion',
   'sources'
 ].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
-assert.equal(inputs.schemaVersion, hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 if (hasNewsletterSelection) {
@@ -374,6 +423,22 @@ if (hasAnalyticsSelection) {
   assert.deepEqual(inputs.analytics, sourceConfig.analytics, 'views build input must project the exact maintained analytics selection');
 } else {
   assert.ok(!Object.hasOwn(sourceConfig, 'analytics'), 'schema-v3/v4 output must match a source configuration without analytics');
+}
+if (hasSearchConsoleSelection) {
+  assert.ok(hasNewsletterSelection && hasAnalyticsSelection, 'Search Console input6 must retain both input5 selections');
+  assert.ok(sourceConfig.searchConsole, 'Search Console input must come from a maintained selector');
+  assert.deepEqual(Object.keys(sourceConfig.searchConsole).sort(), ['articleUrlPattern', 'availableSince', 'id', 'language', 'siteUrl'], 'maintained Search Console selection must contain only its source and interval configuration');
+  assert.equal(sourceConfig.searchConsole.id, 'simple-aws', 'Search Console selection must name Simple AWS');
+  assert.equal(sourceConfig.searchConsole.siteUrl, 'sc-domain:simpleaws.dev', 'Search Console selection must name the approved domain property');
+  assert.equal(sourceConfig.searchConsole.language, 'en', 'Simple AWS Search Console content-language policy');
+  assert.equal(sourceConfig.searchConsole.articleUrlPattern, '(?-i)^https://newsletter\\.simpleaws\\.dev/p/[^/?#]+/?$', 'Search Console selection must limit results to canonical Simple AWS article URLs');
+  const availableSince = sourceConfig.searchConsole.availableSince;
+  assert.ok(typeof availableSince === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(availableSince), 'Search Console selection needs a source-verified history boundary');
+  const parsedAvailableSince = new Date(`${availableSince}T00:00:00.000Z`);
+  assert.ok(Number.isFinite(parsedAvailableSince.getTime()) && parsedAvailableSince.toISOString().slice(0, 10) === availableSince, 'Search Console history boundary must be a real date');
+  assert.deepEqual(inputs.searchConsole, sourceConfig.searchConsole, 'Search Console input must project the exact maintained selector');
+} else {
+  assert.ok(!Object.hasOwn(sourceConfig, 'searchConsole'), 'schema-v3/v4/v5 output must match a source configuration without Search Console');
 }
 assert.deepEqual(inputs.sources.map((source) => source?.id).sort(), ['builder-center', 'caylent'], 'protected build input must contain exactly the approved article sources');
 const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
@@ -418,7 +483,6 @@ const policyPages = [
     canonicalPath: '/content-statistics/privacy/',
     alternatePath: '/es/content-statistics/privacy/',
     title: 'Statistics privacy and use · Guille Ojeda',
-    description: 'How Guille Ojeda’s private content statistics tool uses Google Analytics and publishes totals.',
     heading: 'Statistics privacy and use',
     privacy: 'Privacy',
     use: 'Use',
@@ -431,7 +495,6 @@ const policyPages = [
     canonicalPath: '/es/content-statistics/privacy/',
     alternatePath: '/content-statistics/privacy/',
     title: 'Privacidad y uso de las estadísticas · Guille Ojeda',
-    description: 'Cómo se usan Google Analytics y se publican los totales en la herramienta privada de estadísticas de contenido de Guille Ojeda.',
     heading: 'Privacidad y uso de las estadísticas',
     privacy: 'Privacidad',
     use: 'Uso',
@@ -448,7 +511,12 @@ for (const page of policyPages) {
   const spanishPath = page.lang === 'es' ? canonical : alternate;
   mustContain(html, `<html lang="${page.lang}">`, `${page.lang} privacy-page language`);
   mustContain(html, `<title>${page.title}</title>`, `${page.lang} privacy-page title`);
-  mustContain(html, `<meta name="description" content="${page.description}">`, `${page.lang} privacy-page description`);
+  const description = html.match(/<meta name="description" content="([^"]*)">/i)?.[1] ?? '';
+  assert.ok(description.length > 0, `${page.lang} privacy-page description is present`);
+  assert.match(description, /Google Analytics/i, `${page.lang} privacy-page description names Analytics`);
+  assert.match(description, /Search Console/i, `${page.lang} privacy-page description names Search Console`);
+  if (page.lang === 'en') assert.match(normalizedText(description), /^how\b/, 'English privacy description uses English copy');
+  else assert.match(normalizedText(description), /^como\b/, 'Spanish privacy description uses Spanish copy');
   mustContain(html, `<link rel="canonical" href="${canonical}">`, `${page.lang} privacy-page canonical`);
   mustContain(html, `<link rel="alternate" hreflang="en" href="${englishPath}">`, `${page.lang} privacy-page English alternate`);
   mustContain(html, `<link rel="alternate" hreflang="es" href="${spanishPath}">`, `${page.lang} privacy-page Spanish alternate`);
@@ -461,6 +529,8 @@ for (const page of policyPages) {
   const useSection = extractElement(html, 'section', 'id', 'use');
   assert.ok(privacySection, `${page.lang} privacy section has a stable #privacy target`);
   assert.ok(useSection, `${page.lang} use section has a stable #use target`);
+  mustContainText(privacySection.html, 'Google Analytics', `${page.lang} privacy text names Analytics`);
+  mustContainText(privacySection.html, 'Search Console', `${page.lang} privacy text names Search Console`);
   const skipLink = html.match(/<a class="skip-link" href="([^"]+)">([^<]*)<\/a>/i);
   assert.ok(skipLink, `${page.lang} privacy page has a skip link`);
   assert.equal(skipLink[1], '#privacy', `${page.lang} privacy skip link targets this page`);

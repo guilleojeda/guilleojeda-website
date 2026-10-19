@@ -23,6 +23,9 @@ const googlePropertyId = "123456789";
 const googleHostname = "newsletter.simpleaws.dev";
 const googleArticlePathPattern = "/p/[^/]+/?";
 const googleTimeZone = "America/Argentina/Cordoba";
+const googleSearchSiteUrl = "sc-domain:simpleaws.dev";
+const googleSearchArticleUrlPattern = String.raw`(?-i)^https://newsletter\.simpleaws\.dev/p/[^/?#]+/?$`;
+const googleSearchTimeZone = "America/Los_Angeles";
 const googleResponseCanary = "synthetic-google-private-response-canary";
 const privateAuthorId = "synthetic-author-id";
 const builderAuthorId = "251f1678-ab8f-4f22-afb9-1ee13511c7ee";
@@ -95,6 +98,25 @@ function phaseFiveInput({ sources, curated, newsletter, analytics } = {}) {
   };
 }
 
+function phaseSixSearchConsole({
+  id = "simple-aws",
+  siteUrl = googleSearchSiteUrl,
+  language = "en",
+  articleUrlPattern = googleSearchArticleUrlPattern,
+  availableSince = "2025-06-20"
+} = {}) {
+  return { id, siteUrl, language, articleUrlPattern, availableSince };
+}
+
+function phaseSixInput({ sources, curated, newsletter, analytics, searchConsole } = {}) {
+  const input = phaseFiveInput({ sources, curated, newsletter, analytics });
+  return {
+    ...input,
+    schemaVersion: 6,
+    searchConsole: searchConsole === undefined ? phaseSixSearchConsole() : searchConsole
+  };
+}
+
 function talkFact(id, kind = "talk", status = "delivered", language = "en") {
   return { id, kind, status, language };
 }
@@ -156,6 +178,35 @@ function priorArticleViewsGroup(records = {
   "12m": priorArticleViewRecord({ startDate: "2025-10-08", endDate: "2026-10-07", scopeId: "f".repeat(64), views: 120 }),
   ytd: priorArticleViewRecord({ startDate: "2026-01-01", endDate: "2026-10-07", scopeId: "1".repeat(64), views: 200 }),
   total: priorArticleViewRecord({ basis: "recorded-total", startDate: "2024-01-01", endDate: "2026-10-07", scopeId: "2".repeat(64), views: 500 })
+}) {
+  return { definitionVersion: 1, records };
+}
+
+function priorArticleSearchRecord({
+  collectedAt = "2026-10-14T04:30:00.000Z",
+  scopeId = "a".repeat(64),
+  startDate = "2026-10-06",
+  endDate = "2026-10-12",
+  clicks = 17
+} = {}) {
+  return {
+    basis: "period",
+    collectedAt,
+    scopeId,
+    publication: { id: "simple-aws", label: "Simple AWS", language: "en" },
+    timeZone: googleSearchTimeZone,
+    startDate,
+    endDate,
+    clicks
+  };
+}
+
+function priorArticleSearchClicksGroup(records = {
+  "7d": priorArticleSearchRecord({ scopeId: "a".repeat(64), startDate: "2026-10-06", endDate: "2026-10-12", clicks: 17 }),
+  "30d": priorArticleSearchRecord({ scopeId: "b".repeat(64), startDate: "2026-09-13", endDate: "2026-10-12", clicks: 30 }),
+  "90d": priorArticleSearchRecord({ scopeId: "c".repeat(64), startDate: "2026-07-15", endDate: "2026-10-12", clicks: 90 }),
+  "12m": priorArticleSearchRecord({ scopeId: "d".repeat(64), startDate: "2025-10-13", endDate: "2026-10-12", clicks: 120 }),
+  ytd: priorArticleSearchRecord({ scopeId: "e".repeat(64), startDate: "2026-01-01", endDate: "2026-10-12", clicks: 200 })
 }) {
   return { definitionVersion: 1, records };
 }
@@ -558,6 +609,7 @@ function phaseFiveApiFetch({
   requestLog = [],
   tokenResponder,
   reportResponder,
+  searchResponder,
   newsletterResponder,
   articleFetcher,
   timeZone = googleTimeZone
@@ -570,6 +622,8 @@ function phaseFiveApiFetch({
       ? "google-oauth"
       : url.hostname === "analyticsdata.googleapis.com" && url.pathname.endsWith(":runReport")
         ? "google-report"
+        : url.origin === "https://www.googleapis.com" && url.pathname.includes("/searchAnalytics/query")
+          ? "google-search"
         : null;
     if (kind === null) return fallback(input, init);
 
@@ -582,10 +636,12 @@ function phaseFiveApiFetch({
       redirect: init.redirect,
       signal: init.signal,
       body: bodyTextValue,
-      json: kind === "google-report" ? JSON.parse(bodyTextValue) : undefined
+      json: kind === "google-report" || kind === "google-search" ? JSON.parse(bodyTextValue) : undefined
     };
     const key = kind === "google-report"
       ? `${kind}:${request.json.dateRanges?.[0]?.startDate}:${request.json.dateRanges?.[0]?.endDate}`
+      : kind === "google-search"
+        ? `${kind}:${request.json.startDate}:${request.json.endDate}`
       : kind;
     const attempt = (attempts.get(key) ?? 0) + 1;
     attempts.set(key, attempt);
@@ -594,6 +650,11 @@ function phaseFiveApiFetch({
       if (typeof tokenResponder === "function") return tokenResponder({ request, attempt });
       if (tokenResponder !== undefined) return responseFromFixture(tokenResponder);
       return jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" });
+    }
+    if (kind === "google-search") {
+      if (typeof searchResponder === "function") return searchResponder({ request, attempt });
+      if (searchResponder !== undefined) return responseFromFixture(searchResponder);
+      return jsonResponse(searchConsoleResponse({ clicks: 42 }));
     }
     if (typeof reportResponder === "function") return reportResponder({ request, attempt });
     if (reportResponder !== undefined) return responseFromFixture(reportResponder);
@@ -2434,6 +2495,20 @@ function googleRequests(requestLog, kind) {
   return requestLog.filter((request) => request.kind === kind);
 }
 
+function searchConsoleResponse({
+  clicks = 42,
+  rows,
+  aggregationType = "byPage",
+  metadata = {},
+  ...rowFields
+} = {}) {
+  return {
+    rows: rows ?? [{ keys: [], clicks, ...rowFields }],
+    responseAggregationType: aggregationType,
+    ...(Object.keys(metadata).length === 0 ? {} : { metadata })
+  };
+}
+
 function reportRange(request) {
   return request.json.dateRanges[0];
 }
@@ -2442,6 +2517,12 @@ function assertGoogleRequest(request, kind) {
   assert.equal(request.method, "POST");
   assert.equal(request.redirect, "error", `${kind} must refuse credential redirects`);
   assert.ok(request.signal, `${kind} must carry a bounded request signal`);
+}
+
+function assertSearchRequest(request) {
+  assert.equal(request.method, "POST");
+  assert.equal(request.redirect, "error", "Search Console requests must refuse redirects");
+  assert.ok(request.signal, "Search Console requests must carry a bounded request signal");
 }
 
 test("inputs 1 through 4 remain compatible and never retrieve Google credentials or call Analytics", async () => {
@@ -2565,6 +2646,563 @@ test("input 5 sends one fixed aggregate query per supported period and publishes
   assertNoGoogleCanaries(harness, googleClientId, googleClientSecret, googleRefreshToken, googleAccessToken, googleOAuthParameterArn);
 });
 
+test("input 6 shares one decrypted OAuth refresh and publishes fixed Search Console aggregates safely", async () => {
+  const clock = createClock("2026-10-16T04:30:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: () => jsonResponse(ga4Report({ views: 42 })),
+      searchResponder: () => jsonResponse(searchConsoleResponse({
+        rows: [{ clicks: 42, impressions: 100, ctr: 0.42, position: 2.5 }],
+        metadata: { providerPrivateField: googleResponseCanary }
+      }))
+    }),
+    clock
+  });
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  const records = output.groups.articleSearchClicks.records;
+  assert.deepEqual(Object.keys(output.groups.articleSearchClicks).sort(), ["definitionVersion", "records"]);
+  assert.equal(output.groups.articleSearchClicks.definitionVersion, 1);
+  assert.equal(output.schemaVersion, 1);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "talks"]);
+
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
+  const tokenRequests = googleRequests(requestLog, "google-oauth");
+  assert.equal(tokenRequests.length, 1, "Analytics and Search Console share one invocation-local token refresh");
+  const reports = googleRequests(requestLog, "google-report");
+  const searches = googleRequests(requestLog, "google-search");
+  assert.equal(reports.length, 5);
+  assert.equal(searches.length, 5);
+  assert.ok([...reports, ...searches].every((request) => newsletterRequestHeader(request, "authorization") === `Bearer ${googleAccessToken}`));
+
+  const expectedSearchRanges = [
+    ["2026-10-06", "2026-10-12"],
+    ["2026-09-13", "2026-10-12"],
+    ["2026-07-15", "2026-10-12"],
+    ["2025-10-13", "2026-10-12"],
+    ["2026-01-01", "2026-10-12"]
+  ];
+  assert.deepEqual(searches.map((request) => [request.json.startDate, request.json.endDate]), expectedSearchRanges);
+  const expectedFilter = {
+    groupType: "and",
+    filters: [{
+      dimension: "page",
+      operator: "includingRegex",
+      expression: googleSearchArticleUrlPattern
+    }]
+  };
+  for (const request of searches) {
+    assertSearchRequest(request);
+    assert.equal(request.url, `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(googleSearchSiteUrl)}/searchAnalytics/query`);
+    assert.equal(newsletterRequestHeader(request, "authorization"), `Bearer ${googleAccessToken}`);
+    assert.deepEqual(request.json, {
+      startDate: request.json.startDate,
+      endDate: request.json.endDate,
+      type: "web",
+      dataState: "final",
+      aggregationType: "auto",
+      dimensionFilterGroups: [expectedFilter]
+    });
+    assert.deepEqual(Object.keys(request.json).sort(), ["aggregationType", "dataState", "dimensionFilterGroups", "endDate", "startDate", "type"]);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
+  }
+  assert.deepEqual(
+    reports.map((request) => [reportRange(request).startDate, reportRange(request).endDate])[0],
+    ["2026-10-07", "2026-10-13"],
+    "Analytics keeps its configured Cordoba date while Search Console uses Pacific dates"
+  );
+
+  const expectedRecordKeys = ["basis", "collectedAt", "clicks", "endDate", "publication", "scopeId", "startDate", "timeZone"].sort();
+  const periods = ["7d", "30d", "90d", "12m", "ytd"];
+  assert.deepEqual(Object.keys(records).sort(), periods.slice().sort());
+  for (let index = 0; index < periods.length; index += 1) {
+    const periodRecord = records[periods[index]];
+    assert.deepEqual(Object.keys(periodRecord).sort(), expectedRecordKeys);
+    assert.equal(periodRecord.basis, "period");
+    assert.equal(periodRecord.collectedAt, "2026-10-16T04:30:00.000Z");
+    assert.equal(periodRecord.startDate, expectedSearchRanges[index][0]);
+    assert.equal(periodRecord.endDate, expectedSearchRanges[index][1]);
+    assert.equal(periodRecord.timeZone, googleSearchTimeZone);
+    assert.deepEqual(periodRecord.publication, { id: "simple-aws", label: "Simple AWS", language: "en" });
+    assert.equal(periodRecord.clicks, 42);
+    assert.match(periodRecord.scopeId, /^[a-f0-9]{64}$/);
+  }
+
+  const serialized = bodyText(harness.putCalls[0].Body);
+  for (const privateValue of [
+    googleClientId,
+    googleClientSecret,
+    googleRefreshToken,
+    googleAccessToken,
+    googleOAuthParameterArn,
+    googlePropertyId,
+    googleSearchSiteUrl,
+    googleSearchArticleUrlPattern,
+    googleHostname,
+    googleArticlePathPattern,
+    googleResponseCanary
+  ]) {
+    assert.equal(serialized.includes(privateValue), false, `public aggregate must omit ${privateValue}`);
+  }
+  assertNoGoogleCanaries(harness, googleClientId, googleClientSecret, googleRefreshToken, googleAccessToken, googleOAuthParameterArn, googleResponseCanary);
+});
+
+test("input 5 remains Analytics-only, while input 6 validates the exact Search Console selector before provider access", async () => {
+  const input5Log = [];
+  const input5Harness = createHarness({ input: phaseFiveInput(), fetchFn: phaseFiveApiFetch({ requestLog: input5Log }) });
+  await input5Harness.handler({}, {});
+  assert.equal(googleRequests(input5Log, "google-search").length, 0, "legacy input 5 cannot make a Search Console request");
+  assert.equal(Object.hasOwn((await readPut(input5Harness.putCalls[0])).groups, "articleSearchClicks"), false);
+
+  const selectorCases = [
+    ["missing selector", undefined],
+    ["null selector", null],
+    ["unsupported identity", { ...phaseSixSearchConsole(), id: "other" }],
+    ["wrong property", { ...phaseSixSearchConsole(), siteUrl: "https://simpleaws.dev/" }],
+    ["unsupported language", { ...phaseSixSearchConsole(), language: "es" }],
+    ["wrong article filter", { ...phaseSixSearchConsole(), articleUrlPattern: "https://newsletter.simpleaws.dev/.*" }],
+    ["missing history boundary", (() => { const value = phaseSixSearchConsole(); delete value.availableSince; return value; })()],
+    ["impossible history boundary", { ...phaseSixSearchConsole(), availableSince: "2025-02-30" }],
+    ["credential field", { ...phaseSixSearchConsole(), refreshToken: googleRefreshToken }],
+    ["unknown selector field", { ...phaseSixSearchConsole(), searchType: "web" }]
+  ];
+  for (const [name, selector] of selectorCases) {
+    const requestLog = [];
+    const input = selector === undefined
+      ? (() => { const value = phaseSixInput(); delete value.searchConsole; return value; })()
+      : phaseSixInput({ searchConsole: selector });
+    const harness = createHarness({ input, fetchFn: phaseFiveApiFetch({ requestLog }) });
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      assert.notEqual(error.code, "INPUT_VERSION_UNSUPPORTED", `${name} must reach its own input validation`);
+      return true;
+    });
+    assert.equal(harness.parameterCalls.length, 0, `${name} must fail before decrypting Google credentials`);
+    assert.equal(harness.secretCalls.length, 0, `${name} must fail before retrieving newsletter credentials`);
+    assert.equal(googleRequests(requestLog, "google-oauth").length, 0);
+    assert.equal(googleRequests(requestLog, "google-report").length, 0);
+    assert.equal(googleRequests(requestLog, "google-search").length, 0);
+    assert.equal(harness.putCalls.length, 0);
+  }
+
+  for (const input of [
+    { ...phaseSixInput(), analytics: null },
+    { ...phaseSixInput(), unexpected: true }
+  ]) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseFiveApiFetch({ requestLog }) });
+    await assert.rejects(() => harness.handler({}, {}));
+    assert.equal(harness.parameterCalls.length, 0);
+    assert.equal(googleRequests(requestLog, "google-search").length, 0);
+  }
+});
+
+test("Search provenance stays independent from Analytics property changes and credential rotation", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    fetchFn: phaseFiveApiFetch({ requestLog })
+  });
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+
+  const rotatedClientId = "rotated-google-client-id-canary";
+  const rotatedClientSecret = "rotated-google-client-secret-canary";
+  const rotatedRefreshToken = "rotated-google-refresh-token-canary";
+  harness.setParameterResponse({
+    Parameter: {
+      Name: googleOAuthParameterArn,
+      Type: "SecureString",
+      Value: JSON.stringify({ clientId: rotatedClientId, clientSecret: rotatedClientSecret, refreshToken: rotatedRefreshToken })
+    }
+  });
+  harness.setInput(phaseSixInput({ analytics: phaseFiveAnalytics({ propertyId: "987654321" }) }));
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+
+  assert.equal(second.groups.articleSearchClicks.records["7d"].scopeId, first.groups.articleSearchClicks.records["7d"].scopeId);
+  assert.notEqual(second.groups.articleViews.records["7d"].scopeId, first.groups.articleViews.records["7d"].scopeId);
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 2, "each invocation still performs only one shared token refresh");
+  assertNoGoogleCanaries(harness, rotatedClientId, rotatedClientSecret, rotatedRefreshToken);
+});
+
+test("Search Console uses Pacific calendar windows, keeps full history windows, and omits unsupported YTD", async () => {
+  const clock = createClock("2026-01-02T04:30:00.000Z");
+  const requestLog = [];
+  const input = phaseSixInput();
+  const harness = createHarness({ input, fetchFn: phaseFiveApiFetch({ requestLog }), clock });
+  await harness.handler({}, {});
+  const searches = googleRequests(requestLog, "google-search");
+  assert.deepEqual(searches.map((request) => [request.json.startDate, request.json.endDate]), [
+    ["2025-12-23", "2025-12-29"],
+    ["2025-11-30", "2025-12-29"],
+    ["2025-10-01", "2025-12-29"]
+  ], "Search uses Los Angeles D/E and does not issue a shortened 12-month range or future YTD");
+  const records = (await readPut(harness.putCalls[0])).groups.articleSearchClicks.records;
+  assert.deepEqual(Object.keys(records).sort(), ["30d", "7d", "90d"]);
+
+  const previous = priorFullOutput();
+  const previousSearchRecords = priorArticleSearchClicksGroup().records;
+  previousSearchRecords.ytd = priorArticleSearchRecord({
+    scopeId: "f".repeat(64),
+    startDate: "2025-01-01",
+    endDate: "2025-12-29",
+    clicks: 500
+  });
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup(previousSearchRecords);
+  const staleYtdLog = [];
+  const staleYtdHarness = createHarness({
+    input,
+    clock: createClock("2026-01-02T04:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: staleYtdLog,
+      searchResponder: ({ request }) => request.json.startDate === "2025-12-23"
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(searchConsoleResponse({ clicks: 12 }))
+    })
+  });
+  staleYtdHarness.objects.set(outputKey, JSON.stringify(previous));
+  await staleYtdHarness.handler({}, {});
+  const staleYtdRecords = (await readPut(staleYtdHarness.putCalls[0])).groups.articleSearchClicks.records;
+  assert.equal(Object.hasOwn(staleYtdRecords, "ytd"), false, "a previous calendar year's YTD cannot survive when current YTD is unsupported");
+
+  const currentClock = createClock("2026-10-16T04:30:00.000Z");
+  const currentLog = [];
+  const boundedHarness = createHarness({
+    input: phaseSixInput({ searchConsole: phaseSixSearchConsole({ availableSince: "2025-10-14" }) }),
+    fetchFn: phaseFiveApiFetch({ requestLog: currentLog }),
+    clock: currentClock
+  });
+  await boundedHarness.handler({}, {});
+  const boundedSearches = googleRequests(currentLog, "google-search");
+  assert.deepEqual(boundedSearches.map((request) => [request.json.startDate, request.json.endDate]), [
+    ["2026-10-06", "2026-10-12"],
+    ["2026-09-13", "2026-10-12"],
+    ["2026-07-15", "2026-10-12"],
+    ["2026-01-01", "2026-10-12"]
+  ], "availableSince removes the unsupported full 12-month request instead of clipping it");
+  assert.deepEqual(Object.keys((await readPut(boundedHarness.putCalls[0])).groups.articleSearchClicks.records).sort(), ["30d", "7d", "90d", "ytd"]);
+
+  const leapClock = createClock("2024-03-02T12:00:00.000Z");
+  const leapLog = [];
+  const leapHarness = createHarness({
+    input: phaseSixInput({ searchConsole: phaseSixSearchConsole({ availableSince: "2023-02-28" }) }),
+    fetchFn: phaseFiveApiFetch({ requestLog: leapLog }),
+    clock: leapClock
+  });
+  await leapHarness.handler({}, {});
+  const leapTwelveMonthQuery = googleRequests(leapLog, "google-search").find((request) => request.json.startDate === "2023-02-28");
+  assert.ok(leapTwelveMonthQuery, "12-month Search range subtracts calendar months and clamps leap day to Feb 28");
+  assert.deepEqual([leapTwelveMonthQuery.json.startDate, leapTwelveMonthQuery.json.endDate], ["2023-02-28", "2024-02-28"]);
+});
+
+test("Search Console distinguishes explicit zero from empty, malformed, grouped, and incomplete responses", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    clock: createClock("2026-10-16T04:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => {
+        const { startDate } = request.json;
+        if (startDate === "2026-10-06") {
+          return jsonResponse(searchConsoleResponse({ clicks: 0, impressions: 5, ctr: 0, position: 2 }));
+        }
+        if (startDate === "2026-09-13") return jsonResponse({ rows: [], responseAggregationType: "byPage" });
+        if (startDate === "2026-07-15") return jsonResponse(searchConsoleResponse({ aggregationType: "byProperty", clicks: 5 }));
+        if (startDate === "2025-10-13") return jsonResponse(searchConsoleResponse({ clicks: Number.MAX_SAFE_INTEGER + 1 }));
+        return jsonResponse(searchConsoleResponse({ metadata: { first_incomplete_date: "2026-10-10" } }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  const records = output.groups.articleSearchClicks.records;
+  assert.deepEqual(Object.keys(records), ["7d"], "only the explicit ungrouped zero is a publishable Search result");
+  assert.equal(records["7d"].clicks, 0);
+  for (const period of ["30d", "90d", "12m", "ytd"]) assert.equal(Object.hasOwn(records, period), false);
+  assert.equal(Object.hasOwn(output.groups.articleViews.records, "7d"), true, "Search response failures do not suppress Analytics");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+
+  const multiRowLog = [];
+  const multiRowHarness = createHarness({
+    input: phaseSixInput({ searchConsole: phaseSixSearchConsole({ availableSince: "2026-09-13" }) }),
+    clock: createClock("2026-10-16T04:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: multiRowLog,
+      searchResponder: ({ request }) => request.json.startDate === "2026-10-06"
+        ? jsonResponse(searchConsoleResponse({
+          rows: [
+            { keys: ["https://newsletter.simpleaws.dev/p/first"], clicks: 2 },
+            { keys: ["https://newsletter.simpleaws.dev/p/second"], clicks: 3 }
+          ]
+        }))
+        : jsonResponse(searchConsoleResponse({ metadata: { first_incomplete_hour: "2026-10-13T00:00:00" } }))
+    })
+  });
+  await multiRowHarness.handler({}, {});
+  const multiRowOutput = await readPut(multiRowHarness.putCalls[0]);
+  assert.equal(Object.hasOwn(multiRowOutput.groups, "articleSearchClicks"), false, "multiple grouped rows cannot be converted into an aggregate");
+  assert.equal(googleRequests(multiRowLog, "google-search").length, 2, "history eligibility leaves only the 7-day and 30-day queries in this focused response case");
+});
+
+test("Search Console retries a transient period once and does not retry a forbidden period", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    clock: createClock("2026-10-16T04:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request, attempt }) => {
+        if (request.json.startDate === "2026-10-06" && attempt === 1) {
+          return jsonResponse({ error: googleResponseCanary }, 429);
+        }
+        if (request.json.startDate === "2026-09-13") return jsonResponse({ error: googleResponseCanary }, 403);
+        return jsonResponse(searchConsoleResponse({ clicks: request.json.startDate === "2026-10-06" ? 10 : 20 }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const searches = googleRequests(requestLog, "google-search");
+  const attemptsByStart = new Map();
+  for (const request of searches) attemptsByStart.set(request.json.startDate, (attemptsByStart.get(request.json.startDate) ?? 0) + 1);
+  assert.deepEqual([...attemptsByStart.entries()], [
+    ["2026-10-06", 2],
+    ["2026-09-13", 1],
+    ["2026-07-15", 1],
+    ["2025-10-13", 1],
+    ["2026-01-01", 1]
+  ]);
+  const records = (await readPut(harness.putCalls[0])).groups.articleSearchClicks.records;
+  assert.equal(records["7d"].clicks, 10, "the transient period recovers on its one retry");
+  assert.equal(Object.hasOwn(records, "30d"), false, "the forbidden period stays unavailable without retry");
+  assert.equal(records["90d"].clicks, 20, "a forbidden sibling does not suppress healthy Search periods");
+  assert.equal(Object.hasOwn((await readPut(harness.putCalls[0])).groups, "articleViews"), true);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("Search and Analytics period failures retain only their own prior records and recover independently", async () => {
+  let searchPeriodFails = true;
+  let viewPeriodFails = true;
+  let searchClicks = 60;
+  let pageViews = 70;
+  const clock = createClock("2026-10-16T04:30:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => reportRange(request).startDate === "2026-10-07" && viewPeriodFails
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(ga4Report({ views: pageViews })),
+      searchResponder: ({ request }) => request.json.startDate === "2026-09-13" && searchPeriodFails
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(searchConsoleResponse({ clicks: searchClicks }))
+    }),
+    clock
+  });
+  const previous = priorFullOutput();
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup();
+  harness.objects.set(outputKey, JSON.stringify(previous));
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.deepEqual(first.groups.articleSearchClicks.records["30d"], previous.groups.articleSearchClicks.records["30d"], "a failed Search period keeps its original dates, scope, and collection time");
+  assert.equal(first.groups.articleSearchClicks.records["7d"].clicks, 60, "healthy Search periods refresh while a sibling fails");
+  assert.deepEqual(first.groups.articleViews.records["7d"], previous.groups.articleViews.records["7d"], "a failed Analytics period retains its own prior record");
+  assert.equal(first.groups.articleViews.records["30d"].views, 70, "Analytics refresh continues beside Search and period failures");
+
+  searchPeriodFails = false;
+  viewPeriodFails = false;
+  searchClicks = 99;
+  pageViews = 88;
+  clock.set("2026-10-17T04:30:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[1]);
+  assert.equal(recovered.groups.articleSearchClicks.records["30d"].clicks, 99);
+  assert.equal(recovered.groups.articleSearchClicks.records["30d"].collectedAt, "2026-10-17T04:30:00.000Z");
+  assert.equal(recovered.groups.articleViews.records["7d"].views, 88);
+  assert.equal(recovered.groups.articleViews.records["7d"].collectedAt, "2026-10-17T04:30:00.000Z");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("one shared OAuth failure retains both Google metrics while count families refresh", async () => {
+  const requestLog = [];
+  const previous = priorFullOutput();
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup();
+  delete previous.groups.articleViews.records.total;
+  const harness = createHarness({
+    input: phaseSixInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      tokenResponder: () => jsonResponse({ error: googleResponseCanary }, 403)
+    })
+  });
+  harness.objects.set(outputKey, JSON.stringify(previous));
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(output.groups.articleViews, previous.groups.articleViews);
+  assert.deepEqual(output.groups.articleSearchClicks, previous.groups.articleSearchClicks);
+  assert.equal(output.groups.articles.collectedAt, "2026-10-16T12:00:00.000Z", "unrelated count families keep refreshing");
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 1);
+  assert.equal(googleRequests(requestLog, "google-report").length, 0);
+  assert.equal(googleRequests(requestLog, "google-search").length, 0);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+
+  const damagedPrevious = structuredClone(output);
+  damagedPrevious.groups.articleSearchClicks.records["30d"].query = googleResponseCanary;
+  harness.objects.set(outputKey, JSON.stringify(damagedPrevious));
+  await harness.handler({}, {});
+  const isolated = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(isolated.groups.articleSearchClicks.records, "30d"), false,
+    "an invalid prior Search period cannot publish a private provider field during fallback");
+  for (const period of ["7d", "90d", "12m", "ytd"]) {
+    assert.deepEqual(isolated.groups.articleSearchClicks.records[period], previous.groups.articleSearchClicks.records[period],
+      "a malformed known record cannot suppress healthy prior Search periods");
+  }
+  assert.deepEqual(isolated.groups.articleViews, previous.groups.articleViews);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("Search-only success publishes while every other family fails", async () => {
+  const requestLog = [];
+  const failingArticles = async () => jsonResponse({ error: googleResponseCanary }, 503);
+  const harness = createHarness({
+    input: phaseSixInput({ curated: {
+      talks: [{ id: "bad-talk", kind: "unknown", status: "invalid", language: "en" }],
+      books: [{ id: "bad-book", status: "draft", language: "en" }]
+    } }),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      articleFetcher: failingArticles,
+      newsletterResponder: () => jsonResponse({ error: googleResponseCanary }, 403),
+      reportResponder: () => jsonResponse({ error: googleResponseCanary }, 403),
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 9 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(output.groups), ["articleSearchClicks"]);
+  assert.deepEqual(Object.keys(output.groups.articleSearchClicks.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.equal(output.groups.articleSearchClicks.records["7d"].clicks, 9);
+  assert.equal(googleRequests(requestLog, "google-search").length, 5);
+  assert.equal(googleRequests(requestLog, "google-report").length, 5);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "failed sibling families require one prior-object lookup before publishing the fresh Search family");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("a prior Search record whose start falls before the new history boundary cannot be retained", async () => {
+  let failEligibleSearchWindow = false;
+  const clock = createClock("2026-10-16T04:30:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => failEligibleSearchWindow
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(searchConsoleResponse({ clicks: 18 }))
+    }),
+    clock
+  });
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.equal(first.groups.articleSearchClicks.records["7d"].startDate, "2026-10-06");
+
+  failEligibleSearchWindow = true;
+  harness.setInput(phaseSixInput({ searchConsole: phaseSixSearchConsole({ availableSince: "2026-10-07" }) }));
+  clock.set("2026-10-17T04:30:00.000Z");
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+  const searchRequests = googleRequests(requestLog, "google-search");
+  assert.deepEqual(searchRequests.slice(-1).map((request) => [request.json.startDate, request.json.endDate]), [["2026-10-07", "2026-10-13"]]);
+  assert.equal(Object.hasOwn(second.groups, "articleSearchClicks"), false, "the old Oct 6 record is ineligible after the boundary moves to Oct 7");
+  assert.equal(second.groups.articles.collectedAt, "2026-10-17T04:30:00.000Z", "healthy count families still publish through Search failure");
+});
+
+test("rolling back to input 5 removes Search even when Analytics refresh fails", async () => {
+  let failAnalytics = false;
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSixInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: () => failAnalytics
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(ga4Report({ views: 41 })),
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 52 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(first.groups, "articleSearchClicks"), true);
+  const searchRequestCount = googleRequests(requestLog, "google-search").length;
+
+  failAnalytics = true;
+  harness.setInput(phaseFiveInput());
+  await harness.handler({}, {});
+  const rolledBack = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(rolledBack.groups, "articleSearchClicks"), false, "removing the selector intentionally removes its prior family");
+  assert.deepEqual(rolledBack.groups.articleViews, first.groups.articleViews, "the still-enabled Analytics family keeps its prior records after failed refresh");
+  assert.equal(googleRequests(requestLog, "google-search").length, searchRequestCount, "input 5 makes no Search request during rollback");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "fallback accepts the known Search family while retaining enabled siblings");
+});
+
+test("input 6 all-failed runs and fallback storage failures do not replace the previous object", async () => {
+  const previous = priorFullOutput();
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup();
+  const previousBytes = JSON.stringify(previous);
+  const failingArticles = async () => jsonResponse({ error: googleResponseCanary }, 503);
+  const allFailedLog = [];
+  const allFailed = createHarness({
+    input: phaseSixInput({ curated: {
+      talks: [{ id: "bad-talk", kind: "unknown", status: "invalid", language: "en" }],
+      books: [{ id: "bad-book", status: "draft", language: "en" }]
+    } }),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: allFailedLog,
+      articleFetcher: failingArticles,
+      newsletterResponder: () => jsonResponse({ error: googleResponseCanary }, 403),
+      reportResponder: () => jsonResponse({ error: googleResponseCanary }, 403),
+      searchResponder: () => jsonResponse({ error: googleResponseCanary }, 403)
+    })
+  });
+  allFailed.objects.set(outputKey, previousBytes);
+  await assert.rejects(() => allFailed.handler({}, {}), { code: "NO_SUCCESSFUL_GROUPS" });
+  assert.equal(allFailed.putCalls.length, 0, "when every family fails, no replacement is attempted");
+  assert.equal(allFailed.getCalls.filter(({ Key }) => Key === outputKey).length, 0, "all-failed collection does not read old output for fallback");
+  assert.equal(allFailed.objects.get(outputKey), previousBytes);
+  assert.equal(googleRequests(allFailedLog, "google-search").length, 5);
+
+  const storageLog = [];
+  const readFailure = createHarness({
+    input: phaseSixInput(),
+    clock: createClock("2026-10-16T04:30:00.000Z"),
+    getFailures: new Map([[outputKey, new Error(googleResponseCanary)]]),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: storageLog,
+      searchResponder: ({ request }) => request.json.startDate === "2026-10-06"
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(searchConsoleResponse({ clicks: 4 }))
+    })
+  });
+  readFailure.objects.set(outputKey, previousBytes);
+  await assert.rejects(() => readFailure.handler({}, {}));
+  assert.equal(readFailure.putCalls.length, 0, "a fallback storage read failure blocks publication");
+  assert.equal(readFailure.objects.get(outputKey), previousBytes);
+  assertNoGoogleCanaries(allFailed, googleResponseCanary);
+  assertNoGoogleCanaries(readFailure, googleResponseCanary);
+});
+
 test("input 5 requires newsletter and validates the exact analytics selection before provider work", async () => {
   const missingNewsletter = phaseFiveInput();
   delete missingNewsletter.newsletter;
@@ -2599,10 +3237,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 5 are rejected as unsupported", async () => {
+test("schema versions newer than input 6 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseFiveInput(), schemaVersion: 6 },
+    input: { ...phaseSixInput(), schemaVersion: 7 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");
