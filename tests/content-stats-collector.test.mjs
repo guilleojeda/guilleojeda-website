@@ -3095,7 +3095,7 @@ test("Search-only success publishes while every other family fails", async () =>
   assert.equal(output.groups.articleSearchClicks.records["7d"].clicks, 9);
   assert.equal(googleRequests(requestLog, "google-search").length, 5);
   assert.equal(googleRequests(requestLog, "google-report").length, 5);
-  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0, "one fresh family publishes without fallback storage");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "failed sibling families require one prior-object lookup before publishing the fresh Search family");
   assertNoGoogleCanaries(harness, googleResponseCanary);
 });
 
@@ -3177,7 +3177,7 @@ test("input 6 all-failed runs and fallback storage failures do not replace the p
     })
   });
   allFailed.objects.set(outputKey, previousBytes);
-  await allFailed.handler({}, {});
+  await assert.rejects(() => allFailed.handler({}, {}), { code: "NO_SUCCESSFUL_GROUPS" });
   assert.equal(allFailed.putCalls.length, 0, "when every family fails, no replacement is attempted");
   assert.equal(allFailed.getCalls.filter(({ Key }) => Key === outputKey).length, 0, "all-failed collection does not read old output for fallback");
   assert.equal(allFailed.objects.get(outputKey), previousBytes);

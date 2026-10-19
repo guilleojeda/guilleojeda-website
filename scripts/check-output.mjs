@@ -427,7 +427,7 @@ if (hasAnalyticsSelection) {
 if (hasSearchConsoleSelection) {
   assert.ok(hasNewsletterSelection && hasAnalyticsSelection, 'Search Console input6 must retain both input5 selections');
   assert.ok(sourceConfig.searchConsole, 'Search Console input must come from a maintained selector');
-  assert.deepEqual(Object.keys(sourceConfig.searchConsole).sort(), ['availableSince', 'articleUrlPattern', 'id', 'language', 'siteUrl'], 'maintained Search Console selection must contain only its source and interval configuration');
+  assert.deepEqual(Object.keys(sourceConfig.searchConsole).sort(), ['articleUrlPattern', 'availableSince', 'id', 'language', 'siteUrl'], 'maintained Search Console selection must contain only its source and interval configuration');
   assert.equal(sourceConfig.searchConsole.id, 'simple-aws', 'Search Console selection must name Simple AWS');
   assert.equal(sourceConfig.searchConsole.siteUrl, 'sc-domain:simpleaws.dev', 'Search Console selection must name the approved domain property');
   assert.equal(sourceConfig.searchConsole.language, 'en', 'Simple AWS Search Console content-language policy');

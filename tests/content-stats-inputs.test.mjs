@@ -448,7 +448,7 @@ test('a configured Search Console source generates immutable exact input6 while 
   }, 'input6 must retain every input5 field unchanged');
   assert.notEqual(result.searchConsole, source.articleConfig.searchConsole, 'the generated artifact cannot mutate maintained configuration');
   assert.deepEqual(Object.keys(result.searchConsole).sort(), [
-    'availableSince', 'articleUrlPattern', 'id', 'language', 'siteUrl'
+    'articleUrlPattern', 'availableSince', 'id', 'language', 'siteUrl'
   ]);
   assert.equal(JSON.stringify(result).includes('clientSecret'), false);
   assert.equal(JSON.stringify(result).includes('refreshToken'), false);
