@@ -26,5 +26,12 @@
     "hostname": "newsletter.simpleaws.dev",
     "articlePathPattern": "/p/[^/]+/?",
     "timeZone": "America/Cordoba"
+  },
+  "searchConsole": {
+    "id": "simple-aws",
+    "siteUrl": "sc-domain:simpleaws.dev",
+    "language": "en",
+    "articleUrlPattern": "(?-i)^https://newsletter\\.simpleaws\\.dev/p/[^/?#]+/?$",
+    "availableSince": "2025-06-19"
   }
 }
