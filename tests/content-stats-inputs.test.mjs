@@ -302,6 +302,26 @@ function analyticsSelection() {
   };
 }
 
+function newsletterSelection() {
+  return { id: 'simple-aws', publicationId: 'pub_00000000-0000-4000-8000-000000000001', language: 'en' };
+}
+
+function searchConsoleSelection() {
+  return {
+    id: 'simple-aws',
+    siteUrl: 'sc-domain:simpleaws.dev',
+    language: 'en',
+    articleUrlPattern: String.raw`(?-i)^https://newsletter\.simpleaws\.dev/p/[^/?#]+/?$`,
+    availableSince: '2025-06-20'
+  };
+}
+
+function addInputFiveSelections(source) {
+  source.articleConfig.newsletter = newsletterSelection();
+  source.articleConfig.analytics = analyticsSelection();
+  return source;
+}
+
 test('a configured analytics source generates input5 while preserving input4 data and protecting selectors', async () => {
   const build = await inputBuilder();
   const source = fixture();
@@ -405,4 +425,90 @@ test('analytics timezone validation preserves fixed IANA zones but rejects numer
     source.articleConfig.analytics.timeZone = timeZone;
     assert.throws(() => build(source), /IANA time zone/i);
   }
+});
+
+test('a configured Search Console source generates immutable exact input6 while preserving input5 fields', async () => {
+  const build = await inputBuilder();
+  const source = addInputFiveSelections(fixture());
+  const input5 = build(source);
+  const selection = searchConsoleSelection();
+  source.articleConfig.searchConsole = selection;
+  freeze(source);
+
+  const result = build(source);
+
+  assert.deepEqual(result, {
+    ...input5,
+    schemaVersion: 6,
+    searchConsole: selection
+  });
+  assert.deepEqual({ ...result, schemaVersion: 5, searchConsole: undefined }, {
+    ...input5,
+    searchConsole: undefined
+  }, 'input6 must retain every input5 field unchanged');
+  assert.notEqual(result.searchConsole, source.articleConfig.searchConsole, 'the generated artifact cannot mutate maintained configuration');
+  assert.deepEqual(Object.keys(result.searchConsole).sort(), [
+    'availableSince', 'articleUrlPattern', 'id', 'language', 'siteUrl'
+  ]);
+  assert.equal(JSON.stringify(result).includes('clientSecret'), false);
+  assert.equal(JSON.stringify(result).includes('refreshToken'), false);
+  assert.equal(JSON.stringify(result).includes('accessToken'), false);
+
+  result.searchConsole.availableSince = '2025-06-21';
+  assert.equal(source.articleConfig.searchConsole.availableSince, '2025-06-20', 'result mutations must not change maintained configuration');
+});
+
+test('Search Console selector rejects unsupported, unknown, secret-bearing, null, and malformed values', async () => {
+  const build = await inputBuilder();
+  const valid = searchConsoleSelection();
+  const missingRequiredFields = ['id', 'siteUrl', 'language', 'articleUrlPattern', 'availableSince'].map((key) => {
+    const value = { ...valid };
+    delete value[key];
+    return value;
+  });
+  const invalid = [
+    null,
+    [],
+    {},
+    ...missingRequiredFields,
+    { ...valid, id: 'another-publication' },
+    { ...valid, siteUrl: 'sc-domain:other.dev' },
+    { ...valid, siteUrl: 'https://sc-domain:simpleaws.dev' },
+    { ...valid, siteUrl: null },
+    { ...valid, language: 'es' },
+    { ...valid, language: null },
+    { ...valid, articleUrlPattern: String.raw`(?-i)^https://newsletter\.simpleaws\.dev/.*$` },
+    { ...valid, articleUrlPattern: '' },
+    { ...valid, articleUrlPattern: null },
+    { ...valid, availableSince: '2025-6-20' },
+    { ...valid, availableSince: '2025-02-29' },
+    { ...valid, availableSince: null },
+    { ...valid, clientSecret: 'synthetic-client-secret' },
+    { ...valid, refreshToken: 'synthetic-refresh-token' },
+    { ...valid, accessToken: 'synthetic-access-token' },
+    { ...valid, secretArn: 'arn:aws:ssm:us-east-1:123456789012:parameter/google' },
+    { ...valid, apiKey: 'synthetic-private-key' },
+    { ...valid, typo: true }
+  ];
+
+  for (const value of invalid) {
+    const source = addInputFiveSelections(fixture());
+    source.articleConfig.searchConsole = value;
+    assert.throws(() => build(source), /searchConsole|Search Console|siteUrl|language|articleUrlPattern|availableSince|date|credential|secret|input/i,
+      `invalid Search Console selection ${JSON.stringify(value)}`);
+  }
+});
+
+test('Search Console selection requires the existing input5 newsletter and analytics root combination', async () => {
+  const build = await inputBuilder();
+  const withoutInputFive = fixture();
+  withoutInputFive.articleConfig.searchConsole = searchConsoleSelection();
+  assert.throws(() => build(withoutInputFive), /searchConsole|Search Console|analytics|newsletter|input5|input 5|input/i,
+    'Search Console cannot produce input6 without the existing input5 selections');
+
+  const withoutAnalytics = fixture();
+  withoutAnalytics.articleConfig.newsletter = newsletterSelection();
+  withoutAnalytics.articleConfig.searchConsole = searchConsoleSelection();
+  assert.throws(() => build(withoutAnalytics), /searchConsole|Search Console|analytics|input5|input 5|input/i,
+    'Search Console cannot produce input6 without the existing analytics selection');
 });

@@ -13,6 +13,7 @@ const builderCenter = { id: 'builder-center', label: 'AWS Builder Center' };
 const websiteInventory = { id: 'website-inventory', label: 'Website inventory' };
 const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
+const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 
 const articleViewPeriodFacts = {
   '7d': { views: 7, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31', qualifications: ['sampled'] },
@@ -21,6 +22,14 @@ const articleViewPeriodFacts = {
   '12m': { views: 1200, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'thresholding', 'other-row'] },
   ytd: { views: 800, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: [] },
   total: { views: 3000, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2026-04-15', endDate: '2026-08-31', qualifications: ['sampled', 'other-row'] }
+};
+
+const articleSearchPeriodFacts = {
+  '7d': { clicks: 7, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31' },
+  '30d': { clicks: 30, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31' },
+  '90d': { clicks: 90, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31' },
+  '12m': { clicks: 1200, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31' },
+  ytd: { clicks: 800, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31' }
 };
 
 function aggregateGroup({
@@ -118,6 +127,31 @@ function articleViewsRecords() {
 function snapshotWithArticleViews({ records = articleViewsRecords(), definitionVersion = 1 } = {}) {
   const data = snapshotWithNewsletter();
   data.groups.articleViews = { definitionVersion, records };
+  return data;
+}
+
+function articleSearchRecord(period, overrides = {}) {
+  const facts = articleSearchPeriodFacts[period];
+  return {
+    basis: 'period',
+    collectedAt: facts.collectedAt,
+    scopeId: 'd'.repeat(64),
+    publication: { ...simpleAws, language: 'en' },
+    timeZone: 'America/Los_Angeles',
+    startDate: facts.startDate,
+    endDate: facts.endDate,
+    clicks: facts.clicks,
+    ...overrides
+  };
+}
+
+function articleSearchRecords() {
+  return Object.fromEntries(articleSearchPeriods.map((period) => [period, articleSearchRecord(period)]));
+}
+
+function snapshotWithArticleSearchClicks({ records = articleSearchRecords(), definitionVersion = 1, includeViews = true } = {}) {
+  const data = includeViews ? snapshotWithArticleViews() : snapshotWithNewsletter();
+  data.groups.articleSearchClicks = { definitionVersion, records };
   return data;
 }
 
@@ -247,6 +281,19 @@ const viewsCopy = {
   }
 };
 
+const searchCopy = {
+  en: {
+    loading: 'Loading Search Console clicks…',
+    unavailable: 'Search clicks are unavailable for this period.',
+    unit: 'clicks'
+  },
+  es: {
+    loading: 'Cargando clics de Search Console…',
+    unavailable: 'Los clics de búsqueda no están disponibles para este período.',
+    unit: 'clics'
+  }
+};
+
 function makeCard(kind, locale) {
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
@@ -288,7 +335,25 @@ function makeArticleViews(card, locale) {
   return { region, status, results, value, unit, coverage, interval, collectedDate, qualifications };
 }
 
-function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true } = {}) {
+function makeArticleSearch(card, locale) {
+  const region = card.appendChild(new SemanticElement({
+    dataset: { statsSearch: '', statsSearchUnavailable: searchCopy[locale].unavailable }
+  }));
+  const status = region.appendChild(new SemanticElement({
+    dataset: { statsSearchStatus: '' },
+    textContent: searchCopy[locale].loading,
+    hidden: true
+  }));
+  const results = region.appendChild(new SemanticElement({ dataset: { statsSearchResults: '' }, hidden: true }));
+  const value = results.appendChild(new SemanticElement({ dataset: { statsSearchValue: '' } }));
+  const unit = results.appendChild(new SemanticElement({ textContent: searchCopy[locale].unit }));
+  const coverage = results.appendChild(new SemanticElement({ dataset: { statsSearchCoverage: '' } }));
+  const interval = results.appendChild(new SemanticElement({ dataset: { statsSearchInterval: '' } }));
+  const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsSearchCollectedDate: '' } }));
+  return { region, status, results, value, unit, coverage, interval, collectedDate };
+}
+
+function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, includeViews = true, includeSearch = true } = {}) {
   const section = new SemanticElement({
     dataset: {
       statsSource: '/content-stats/v1/current.json',
@@ -319,7 +384,8 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     section.appendChild(card.card);
     return [kind, card];
   }));
-  cards.articles.views = makeArticleViews(cards.articles.card, locale);
+  if (includeViews) cards.articles.views = makeArticleViews(cards.articles.card, locale);
+  if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
   const fetchCalls = [];
 
   const context = {
@@ -462,6 +528,40 @@ function assertViewsVisible(page, locale, period) {
     if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
     if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
   }
+}
+
+function assertSearchUnavailable(page, locale) {
+  const search = page.cards.articles.search;
+  assert.equal(search.results.hidden, true, 'unavailable Search clicks must not reveal an old value');
+  assert.equal(search.value.textContent, '', 'unavailable Search clicks must clear the old value');
+  assert.equal(search.coverage.textContent, '', 'unavailable Search clicks must clear old source coverage');
+  assert.equal(search.interval.textContent, '', 'unavailable Search clicks must clear the old interval');
+  assert.equal(search.collectedDate.textContent, '', 'unavailable Search clicks must clear the old collection date');
+  assert.equal(search.status.hidden, false, 'unavailable Search clicks need a visible status');
+  if (locale === 'es') assert.match(search.status.textContent, /no\s+est.n\s+disponibles?|no\s+está[n]?\s+disponible|no\s+se\s+pueden/i);
+  else assert.match(search.status.textContent, /unavailable|not available/i);
+}
+
+function assertLocalizedSearchUnit(page, locale) {
+  const label = page.cards.articles.search.unit.textContent;
+  if (locale === 'es') assert.match(label, /clics?/i, 'Search clicks have a Spanish unit');
+  else assert.match(label, /clicks?/i, 'Search clicks have an English unit');
+}
+
+function assertSearchVisible(page, locale, period) {
+  const record = page.data.groups.articleSearchClicks.records[period];
+  const search = page.cards.articles.search;
+  assert.equal(search.results.hidden, false, `${period} Search clicks should render independently`);
+  assert.equal(search.status.hidden, true);
+  assert.equal(search.value.textContent, new Intl.NumberFormat(locale).format(record.clicks));
+  assertLocalizedSearchUnit(page, locale);
+  assert.equal(search.coverage.textContent, record.publication.label, 'Search source comes from the selected record');
+  assert.ok(search.interval.textContent.includes(record.timeZone), 'the selected Search interval includes Pacific time');
+  const formatDateOnly = (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
+  assert.ok(search.interval.textContent.includes(formatDateOnly(record.startDate)), 'Search interval uses its retained localized start date');
+  assert.ok(search.interval.textContent.includes(formatDateOnly(record.endDate)), 'Search interval uses its retained localized end date');
+  assert.notEqual(search.interval.textContent.trim(), '', 'the Search interval should be visible');
+  assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'Search retains its own collection date');
 }
 
 function assertAllUnavailable(page, locale) {
@@ -1030,6 +1130,229 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.fetchCount, 1);
     });
   }
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} snapshot fetch and root failures also finish the Search loading state`, async () => {
+    for (const failure of ['network', 'unknown family', 'unsupported schema']) {
+      const data = snapshotWithArticleSearchClicks();
+      if (failure === 'unknown family') data.groups.futureMetric = {};
+      if (failure === 'unsupported schema') data.schemaVersion = 99;
+      const page = createPage({
+        locale,
+        data,
+        ...(failure === 'network' ? { fetchError: new Error('synthetic fetch failure') } : {})
+      });
+      await page.settle();
+      assertSearchUnavailable(page, locale);
+      assertAllUnavailable(page, locale);
+      assert.equal(page.fetchCount, 1);
+      assert.equal(page.periodSelector.disabled, true);
+    }
+  });
+
+  test(`${locale} Search clicks expose their own localized loading status`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks() });
+
+    assert.equal(page.cards.articles.search.status.hidden, false, 'Search has its own loading status while the shared snapshot is fetched');
+    assert.match(page.cards.articles.search.status.textContent, locale === 'es' ? /cargando/i : /loading/i);
+    assert.equal(page.cards.articles.search.results.hidden, true);
+    await page.settle();
+    assertSearchVisible(page, locale, '12m');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Search clicks and views use shared local selectors with one aggregate fetch`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks() });
+    await page.settle();
+
+    assertSearchVisible(page, locale, '12m');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.selector.disabled, false, 'the shared language selector becomes usable');
+    assert.equal(page.periodSelector.disabled, false, 'the shared period selector becomes usable');
+
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertSearchVisible(page, locale, '30d');
+    assertViewsVisible(page, locale, '30d');
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertSearchVisible(page, locale, '30d');
+    assertViewsVisible(page, locale, '30d');
+    assert.equal(page.cards.articles.count.textContent, '7', 'the shared language selector changes counts locally');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertSearchUnavailable(page, locale);
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '4', 'unsupported Search language does not suppress Spanish article counts');
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assertSearchVisible(page, locale, '30d');
+    assertViewsVisible(page, locale, '30d');
+    assert.equal(page.fetchCount, 1, 'both metric families and all selector changes reuse one snapshot fetch');
+    assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+    assert.equal(page.location.href, 'https://guilleojeda.com/', 'local filtering does not navigate');
+  });
+
+  test(`${locale} Search zero is visible and unavailable language or period clears stale metadata`, async () => {
+    const records = articleSearchRecords();
+    records['12m'].clicks = 0;
+    delete records.ytd;
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks({ records }) });
+    await page.settle();
+
+    assert.equal(page.cards.articles.search.results.hidden, false, 'an explicit zero is valid Search data');
+    assert.equal(page.cards.articles.search.value.textContent, '0');
+    assert.equal(page.cards.articles.search.status.hidden, true);
+
+    page.periodSelector.value = 'ytd';
+    page.periodSelector.dispatch('change');
+    assertSearchUnavailable(page, locale);
+
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertSearchVisible(page, locale, '7d');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} valid Search clicks render when the Views region is absent`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks({ includeViews: false }), includeViews: false });
+    await page.settle();
+
+    assertSearchVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.periodSelector.disabled, false, 'Search alone makes shared period controls usable');
+    page.periodSelector.value = '90d';
+    page.periodSelector.dispatch('change');
+    assertSearchVisible(page, locale, '90d');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} invalid Search family leaves valid Views and counts available`, async () => {
+    const data = snapshotWithArticleSearchClicks({ definitionVersion: 2 });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertSearchUnavailable(page, locale);
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '7d');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} malformed Search period records are isolated from healthy Search, Views and counts`, async () => {
+    const invalidRecordCases = [
+      ['unsafe clicks', { clicks: Number.MAX_SAFE_INTEGER + 1 }],
+      ['string clicks', { clicks: '1200' }],
+      ['negative clicks', { clicks: -1 }],
+      ['invalid interval date', { startDate: '2026-02-30' }],
+      ['wrong timezone', { timeZone: 'America/New_York' }],
+      ['wrong basis', { basis: 'recorded-total' }],
+      ['invalid scope hash', { scopeId: 'not-a-sha256' }],
+      ['extra provider field', { query: 'private search query' }]
+    ];
+
+    for (const [description, changes] of invalidRecordCases) {
+      const data = snapshotWithArticleSearchClicks();
+      Object.assign(data.groups.articleSearchClicks.records['12m'], changes);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertSearchUnavailable(page, locale);
+      assertViewsVisible(page, locale, '12m');
+      assert.equal(page.cards.articles.count.textContent, '11', `${description} does not affect article counts`);
+      page.periodSelector.value = '7d';
+      page.periodSelector.dispatch('change');
+      assertSearchVisible(page, locale, '7d');
+      assertViewsVisible(page, locale, '7d');
+      assert.equal(page.fetchCount, 1);
+    }
+  });
+
+  test(`${locale} Search rejects a total record key without affecting GA4 or counts`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    data.groups.articleSearchClicks.records.total = articleSearchRecord('12m');
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertSearchUnavailable(page, locale);
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, 'total');
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} invalid Views family leaves valid Search clicks and counts available`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    data.groups.articleViews.definitionVersion = 2;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertSearchVisible(page, locale, '12m');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertSearchVisible(page, locale, '7d');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} legacy snapshots without Search keep existing cards and Views`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleViews() });
+    await page.settle();
+
+    assertSearchUnavailable(page, locale);
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} retained Search provenance supplies source, interval, timezone and collection date`, async () => {
+    const records = articleSearchRecords();
+    records['12m'] = articleSearchRecord('12m', {
+      collectedAt: '2025-11-03T00:00:00.000Z',
+      scopeId: 'f'.repeat(64),
+      startDate: '2024-11-01',
+      endDate: '2025-10-31'
+    });
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks({ records }) });
+    await page.settle();
+
+    assertSearchVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.search.coverage.textContent, 'Simple AWS');
+    assert.ok(page.cards.articles.search.interval.textContent.includes('America/Los_Angeles'));
+    assert.ok(page.cards.articles.search.interval.textContent.includes(new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date('2024-11-01T00:00:00.000Z'))));
+    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDate(locale, '2025-11-03T00:00:00.000Z'));
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Search has no total while a valid GA4 recorded total remains selectable`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks() });
+    await page.settle();
+
+    assert.equal(page.periodOptions.total.disabled, false, 'the existing GA4 total keeps the shared total option enabled');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, 'total');
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.fetchCount, 1);
+  });
 }
 
 const invalidSnapshots = [
