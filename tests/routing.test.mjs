@@ -33,6 +33,21 @@ test("the production routing function serves both language roots internally", ()
   assert.equal(spanish.uri, "/es/index.html");
 });
 
+test("statistics privacy routes resolve only their published directory pages", () => {
+  for (const path of ["/content-statistics/privacy/", "/es/content-statistics/privacy/"]) {
+    assert.equal(route(request(path)).uri, `${path}index.html`);
+    const redirect = route(request(path.slice(0, -1), "flag&topic=AI%20agents&empty="));
+    assert.equal(redirect.statusCode, 301);
+    assert.equal(redirect.headers.location.value, `${path}?flag&topic=AI%20agents&empty=`);
+  }
+  const unknown = request("/content-statistics/missing/");
+  const protectedInput = request("/_content-stats/inputs.json");
+  const collectorOutput = request("/content-stats/v1/current.json");
+  assert.equal(route(unknown), unknown.request);
+  assert.equal(route(protectedInput), protectedInput.request);
+  assert.equal(route(collectorOutput), collectorOutput.request);
+});
+
 test("www requests redirect to the apex while preserving the complete path", () => {
   const root = route(request("/", undefined, "www.guilleojeda.com"));
   const spanish = route(request("/es/", undefined, "www.guilleojeda.com"));

@@ -1,0 +1,49 @@
+---
+import type { Locale } from '../content/types';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const copy = locale === 'en'
+  ? {
+      title: 'Statistics privacy and use',
+      privacy: 'Privacy',
+      use: 'Use',
+      paragraphs: [
+        'Daily content stats is Guille Ojeda’s private tool for publishing statistics about his content. Only Guille connects a Google account; website visitors do not sign in.',
+        'With his permission, the tool reads aggregate page-view totals from Google Analytics and publishes them with their source and reporting period. It does not request visitor identities or individual-article reports. Google data is used only for these statistics.',
+        'Access credentials are stored encrypted, and processing and hosting use AWS. The tool keeps the latest published totals, without a daily history. Older totals can remain after a failed update, with their original dates.',
+        'Guille can revoke Google access and remove stored credentials or published totals. For questions, contact him through the website’s LinkedIn link.'
+      ],
+      useText: 'The tool is for Guille’s own use. Public statistics cover the sources and periods shown and may be revised.'
+    }
+  : {
+      title: 'Privacidad y uso de las estadísticas',
+      privacy: 'Privacidad',
+      use: 'Uso',
+      paragraphs: [
+        'Las estadísticas diarias de contenido son una herramienta privada de Guille Ojeda para publicar estadísticas sobre su contenido. Solo Guille conecta una cuenta de Google; los visitantes del sitio web no inician sesión.',
+        'Con su permiso, la herramienta lee totales agregados de vistas de páginas de Google Analytics y los publica junto con su fuente y período de informe. No solicita identidades de visitantes ni informes de artículos individuales. Los datos de Google se usan solo para estas estadísticas.',
+        'Las credenciales de acceso se almacenan cifradas, y el procesamiento y alojamiento utilizan AWS. La herramienta conserva los últimos totales publicados, sin un historial diario. Los totales anteriores pueden permanecer después de una actualización fallida, con sus fechas originales.',
+        'Guille puede revocar el acceso de Google y eliminar las credenciales almacenadas o los totales publicados. Si tienes preguntas, contáctalo mediante el enlace de LinkedIn en el sitio web.'
+      ],
+      useText: 'La herramienta es para uso propio de Guille. Las estadísticas públicas cubren las fuentes y los períodos que se muestran y pueden revisarse.'
+    };
+---
+
+<article class="section content-stats-policy">
+  <div class="content-stats-policy-shell">
+    <section id="privacy" tabindex="-1" aria-labelledby="content-stats-policy-title">
+      <h1 id="content-stats-policy-title">{copy.title}</h1>
+      <h2>{copy.privacy}</h2>
+      {copy.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+    </section>
+
+    <section id="use" aria-labelledby="content-stats-use-title">
+      <h2 id="content-stats-use-title">{copy.use}</h2>
+      <p>{copy.useText}</p>
+    </section>
+  </div>
+</article>
