@@ -410,3 +410,72 @@ for (const fact of inputs.curated.books) {
 assert.ok(!existsSync(join(dist, 'content-stats/v1/current.json')), 'the build must not contain a placeholder or collector-owned public aggregate');
 
 console.log('Static output checks passed for /, /es/, and /404.html.');
+
+const policyPages = [
+  {
+    path: 'content-statistics/privacy/index.html',
+    lang: 'en',
+    canonicalPath: '/content-statistics/privacy/',
+    alternatePath: '/es/content-statistics/privacy/',
+    title: 'Statistics privacy and use · Guille Ojeda',
+    description: 'How Guille Ojeda’s private content statistics tool uses Google Analytics and publishes totals.',
+    heading: 'Statistics privacy and use',
+    privacy: 'Privacy',
+    use: 'Use',
+    skipLabel: 'Skip to privacy',
+    homePath: '/'
+  },
+  {
+    path: 'es/content-statistics/privacy/index.html',
+    lang: 'es',
+    canonicalPath: '/es/content-statistics/privacy/',
+    alternatePath: '/content-statistics/privacy/',
+    title: 'Privacidad y uso de las estadísticas · Guille Ojeda',
+    description: 'Cómo se usan Google Analytics y se publican los totales en la herramienta privada de estadísticas de contenido de Guille Ojeda.',
+    heading: 'Privacidad y uso de las estadísticas',
+    privacy: 'Privacidad',
+    use: 'Uso',
+    skipLabel: 'Ir a privacidad',
+    homePath: '/es/'
+  }
+];
+
+for (const page of policyPages) {
+  const html = read(page.path);
+  const canonical = new URL(page.canonicalPath, siteUrl).href;
+  const alternate = new URL(page.alternatePath, siteUrl).href;
+  const englishPath = page.lang === 'en' ? canonical : alternate;
+  const spanishPath = page.lang === 'es' ? canonical : alternate;
+  mustContain(html, `<html lang="${page.lang}">`, `${page.lang} privacy-page language`);
+  mustContain(html, `<title>${page.title}</title>`, `${page.lang} privacy-page title`);
+  mustContain(html, `<meta name="description" content="${page.description}">`, `${page.lang} privacy-page description`);
+  mustContain(html, `<link rel="canonical" href="${canonical}">`, `${page.lang} privacy-page canonical`);
+  mustContain(html, `<link rel="alternate" hreflang="en" href="${englishPath}">`, `${page.lang} privacy-page English alternate`);
+  mustContain(html, `<link rel="alternate" hreflang="es" href="${spanishPath}">`, `${page.lang} privacy-page Spanish alternate`);
+  mustContain(html, `<link rel="alternate" hreflang="x-default" href="${englishPath}">`, `${page.lang} privacy-page default alternate`);
+  mustContain(html, `<a class="lang-toggle" href="${page.alternatePath}"`, `${page.lang} privacy-page language switch stays on this page`);
+  mustContainText(html, page.heading, `${page.lang} privacy-page heading`);
+  mustContainText(html, page.privacy, `${page.lang} privacy section heading`);
+  mustContainText(html, page.use, `${page.lang} use section heading`);
+  const privacySection = extractElement(html, 'section', 'id', 'privacy');
+  const useSection = extractElement(html, 'section', 'id', 'use');
+  assert.ok(privacySection, `${page.lang} privacy section has a stable #privacy target`);
+  assert.ok(useSection, `${page.lang} use section has a stable #use target`);
+  const skipLink = html.match(/<a class="skip-link" href="([^"]+)">([^<]*)<\/a>/i);
+  assert.ok(skipLink, `${page.lang} privacy page has a skip link`);
+  assert.equal(skipLink[1], '#privacy', `${page.lang} privacy skip link targets this page`);
+  assert.equal(skipLink[2], page.skipLabel, `${page.lang} privacy skip link label`);
+  assert.match(privacySection.html, /tabindex="-1"/, `${page.lang} privacy skip target can receive focus`);
+  assert.ok(privacySection.start < useSection.start, `${page.lang} Privacy section comes before Use`);
+  mustContain(html, '<header class="site-header">', `${page.lang} policy uses the shared header`);
+  mustContain(html, '<footer class="site-footer">', `${page.lang} policy uses the shared footer`);
+
+  const homeHtml = read(page.homePath === '/' ? 'index.html' : 'es/index.html');
+  const homeSkipLink = homeHtml.match(/<a class="skip-link" href="([^"]+)">([^<]*)<\/a>/i);
+  assert.equal(homeSkipLink?.[1], '#work', `${page.lang} home keeps its original skip target`);
+  const statsDetails = extractElement(homeHtml, 'details', 'class', 'content-stats-sources');
+  assert.ok(statsDetails, `${page.lang} home retains the statistics disclosure`);
+  mustContain(statsDetails.html, `href="${page.canonicalPath}"`, `${page.lang} statistics disclosure links to its privacy page`);
+}
+
+console.log('Static output checks passed for both content-statistics privacy routes.');

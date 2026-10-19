@@ -44,18 +44,19 @@ function handler(event) {
     return canonicalRedirect(request);
   }
 
-  if (request.uri === "/") {
-    request.uri = "/index.html";
+  var pageRoots = [
+    "/",
+    "/es/",
+    "/content-statistics/privacy/",
+    "/es/content-statistics/privacy/"
+  ];
+  if (pageRoots.indexOf(request.uri) !== -1) {
+    request.uri += "index.html";
     return request;
   }
 
-  if (request.uri === "/es/") {
-    request.uri = "/es/index.html";
-    return request;
-  }
-
-  if (request.uri === "/es") {
-    return permanentRedirect("/es/", request);
+  if (pageRoots.indexOf(request.uri + "/") !== -1) {
+    return permanentRedirect(request.uri + "/", request);
   }
 
   // Assets and unknown paths pass through so S3/CloudFront can return their

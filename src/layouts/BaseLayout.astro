@@ -5,17 +5,37 @@ import type { Locale } from '../content/types';
 
 interface Props {
   locale: Locale;
+  canonicalPath?: string;
+  alternateLocalePath?: string;
+  pageTitle?: string;
+  pageDescription?: string;
+  skipLinkHref?: string;
+  skipLinkLabel?: string;
 }
 
-const { locale } = Astro.props;
+const {
+  locale,
+  canonicalPath: routePath,
+  alternateLocalePath,
+  pageTitle,
+  pageDescription,
+  skipLinkHref,
+  skipLinkLabel
+} = Astro.props;
 const localePath = locale === 'en' ? '/' : '/es/';
-const otherLocalePath = locale === 'en' ? '/es/' : '/';
+const homeAlternateLocalePath = locale === 'en' ? '/es/' : '/';
+const canonicalPath = routePath ?? localePath;
+const otherLocalePath = alternateLocalePath ?? homeAlternateLocalePath;
+const englishAlternatePath = locale === 'en' ? canonicalPath : otherLocalePath;
+const spanishAlternatePath = locale === 'es' ? canonicalPath : otherLocalePath;
 const siteUrl = Astro.site;
 if (!siteUrl) throw new Error('Astro.site is required; set SITE_URL before building.');
-const canonical = new URL(localePath, siteUrl).href;
+const canonical = new URL(canonicalPath, siteUrl).href;
 const portraitUrl = new URL('/images/guille-portrait.jpg', siteUrl).href;
-const title = text(content.site.title, locale);
-const description = text(content.site.description, locale);
+const title = pageTitle ?? text(content.site.title, locale);
+const description = pageDescription ?? text(content.site.description, locale);
+const skipHref = skipLinkHref ?? '#work';
+const resolvedSkipLabel = skipLinkLabel ?? (locale === 'en' ? 'Skip to selected work' : 'Ir al trabajo seleccionado');
 ---
 
 <!doctype html>
@@ -25,9 +45,9 @@ const description = text(content.site.description, locale);
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
-    <link rel="alternate" hreflang="en" href={new URL('/', siteUrl).href} />
-    <link rel="alternate" hreflang="es" href={new URL('/es/', siteUrl).href} />
-    <link rel="alternate" hreflang="x-default" href={new URL('/', siteUrl).href} />
+    <link rel="alternate" hreflang="en" href={new URL(englishAlternatePath, siteUrl).href} />
+    <link rel="alternate" hreflang="es" href={new URL(spanishAlternatePath, siteUrl).href} />
+    <link rel="alternate" hreflang="x-default" href={new URL(englishAlternatePath, siteUrl).href} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={content.site.name} />
     <meta property="og:title" content={title} />
@@ -42,9 +62,7 @@ const description = text(content.site.description, locale);
     <title>{title}</title>
   </head>
   <body>
-    <a class="skip-link" href="#work">
-      {locale === 'en' ? 'Skip to selected work' : 'Ir al trabajo seleccionado'}
-    </a>
+    <a class="skip-link" href={skipHref}>{resolvedSkipLabel}</a>
     <header class="site-header">
       <div class="nav-shell">
         <a class="wordmark" href={localePath} aria-label={locale === 'en' ? 'Back to home' : 'Volver al inicio'}>{content.site.wordmark}</a>
