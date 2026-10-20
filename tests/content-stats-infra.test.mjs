@@ -151,7 +151,7 @@ test("collector and scheduler roles grant only their required object and invoke 
   assert.ok(!JSON.stringify(invokes[0].Resource).includes("*"), "Scheduler invoke access must name the collector");
 });
 
-test("CloudFront and site CI are explicitly denied access to collector-owned objects", () => {
+test("CloudFront is denied protected inputs and site CI can read only collector templates", () => {
   const bucketPolicies = entriesOfType("AWS::S3::BucketPolicy");
   assert.equal(bucketPolicies.length, 1, "expected the existing bucket policy to be extended");
   const bucketStatements = statementsIn(bucketPolicies[0][1].Properties.PolicyDocument);
@@ -174,6 +174,12 @@ test("CloudFront and site CI are explicitly denied access to collector-owned obj
       JSON.stringify(statement.Resource).includes("/content-stats/*");
   });
   assert.equal(publicOutputDenies.length, 1, "site CI needs an explicit deny for collector output");
+  const ciObjectReads = ciStatements.filter((statement) => hasAction(statement, "s3:GetObject"));
+  assert.equal(ciObjectReads.length, 1, "site CI needs only the CloudFormation template read");
+  assert.deepEqual(actionList(ciObjectReads[0]), ["s3:GetObject"]);
+  assert.match(JSON.stringify(ciObjectReads[0].Resource), /\/_content-stats\/templates\/\*/);
+  assert.equal(JSON.stringify(ciObjectReads[0].Resource).includes("inputs.json"), false);
+  assert.equal(JSON.stringify(ciObjectReads[0].Resource).includes("content-stats/v1/current.json"), false);
 
   const unnecessaryResourceTypes = Object.values(resources).map((resource) => resource.Type).filter((type) =>
     /AWS::(?:SSM::Parameter|SecretsManager::Secret|Cognito::|ApiGateway::Authorizer|ApiGateway::ApiKey)/.test(type)

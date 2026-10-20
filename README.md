@@ -63,7 +63,7 @@ Run `npm run verify` with `SITE_URL` set before publishing a content change. See
 
 ## AWS setup
 
-Infrastructure is defined in `infra/template.json`. `infra/cloudfront-routing.js` and `infra/content-stats-collector.cjs` are the authoritative function sources; the renderer embeds them into a deployable template so there is no second copy to maintain. Collector code and resource changes use this operator path; ordinary site/configuration edits use GitHub Actions.
+Infrastructure is defined in `infra/template.json`. `infra/cloudfront-routing.js` and `infra/content-stats-collector.cjs` are the authoritative function sources; the renderer embeds them into a deployable template so there is no second copy to maintain. Initial setup and infrastructure changes use an operator CloudFormation session. After the one-time CI-policy bootstrap below, collector code-only updates run in the existing main-branch site job; all other infrastructure changes remain operator-managed.
 
 Use a temporary AWS operator session for the intended account and `us-east-1`. Inspect the existing GitHub OIDC provider before setup:
 
@@ -136,6 +136,59 @@ Configure these GitHub Actions **repository variables**:
 
 These values are identifiers, not credentials. For example, `gh variable set AWS_REGION --body us-east-1`. GitHub assumes the deployment role through OIDC; do not add AWS access-key secrets to the repository.
 
+### Bootstrap collector code deployment in CI
+
+The first adoption of collector deployment in CI needs one operator CloudFormation update. It adds only the site role's access to the existing stack and named change sets, exact collector Lambda handler permissions, pass-role access to that collector's execution role for Lambda only, and read access to `_content-stats/templates/*`. Keep the current deployed `ContentStatsCollector.Properties.Code.ZipFile` during this bootstrap so the first CI run exercises a real collector code update. The normal workflow keeps the same `production-site` concurrency group and updates the collector before it publishes the matching site build and protected inputs.
+
+In the authorized operator session, render the current template but restore the deployed collector source into this one-time bootstrap copy:
+
+```sh
+set -euo pipefail
+guille_original_template="$(mktemp)"
+guille_rendered_template="$(mktemp)"
+guille_bootstrap_template="$(mktemp)"
+aws cloudformation get-template \
+  --stack-name guilleojeda-website --template-stage Original --region us-east-1 \
+  --query TemplateBody --output json > "$guille_original_template"
+node scripts/render-infra.mjs --output "$guille_rendered_template"
+jq --slurpfile original "$guille_original_template" \
+  '.Resources.ContentStatsCollector.Properties.Code.ZipFile = $original[0].Resources.ContentStatsCollector.Properties.Code.ZipFile' \
+  "$guille_rendered_template" > "$guille_bootstrap_template"
+guille_template_bucket="$(aws cloudformation describe-stacks \
+  --stack-name guilleojeda-website --region us-east-1 \
+  --query 'Stacks[0].Outputs[?OutputKey==`BucketName`].OutputValue | [0]' --output text)"
+guille_template_key="_content-stats/templates/ci-bootstrap-$(date -u +%s).json"
+guille_parameters="$(aws cloudformation describe-stacks \
+  --stack-name guilleojeda-website --region us-east-1 \
+  --query 'Stacks[0].Parameters[].ParameterKey' --output json | \
+  jq 'map({ParameterKey: ., UsePreviousValue: true})')"
+aws s3 cp "$guille_bootstrap_template" "s3://$guille_template_bucket/$guille_template_key" \
+  --region us-east-1 --content-type application/json --cache-control private,no-store
+guille_change_set="collector-ci-bootstrap-$(date -u +%s)"
+aws cloudformation create-change-set \
+  --stack-name guilleojeda-website --change-set-name "$guille_change_set" \
+  --change-set-type UPDATE \
+  --template-url "https://s3.us-east-1.amazonaws.com/$guille_template_bucket/$guille_template_key" \
+  --parameters "$guille_parameters" --capabilities CAPABILITY_IAM --region us-east-1
+aws cloudformation wait change-set-create-complete \
+  --stack-name guilleojeda-website --change-set-name "$guille_change_set" --region us-east-1
+aws cloudformation describe-change-set \
+  --stack-name guilleojeda-website --change-set-name "$guille_change_set" --region us-east-1 \
+  --query 'Changes[].ResourceChange.[LogicalResourceId,ResourceType,Action,Replacement]' --output table
+```
+
+Inspect the change set and proceed only when it updates the existing `SiteDeploymentRole` policy with no collector-code or other resource change. Then execute it and wait for the stack update:
+
+```sh
+aws cloudformation execute-change-set \
+  --stack-name guilleojeda-website --change-set-name "$guille_change_set" --region us-east-1
+aws cloudformation wait stack-update-complete \
+  --stack-name guilleojeda-website --region us-east-1
+rm "$guille_original_template" "$guille_rendered_template" "$guille_bootstrap_template"
+```
+
+The CI role can upload templates through its existing site-object permission and can read only that template prefix for CloudFormation. It cannot write `content-stats/v1/current.json`, invoke the collector, read protected inputs or the prior aggregate, or read Beehiiv/Google credentials. CloudFormation actions are scoped to the existing stack, the collector change-set name prefix and the protected template prefix. Lambda actions are scoped to the collector, and `iam:PassRole` names only its execution role with Lambda as the service. CloudFormation's handler permissions include exact-function configuration, tag and metadata operations; the code-only restriction is enforced by the deployment script, not by IAM's nested property evaluation. The script rejects a nonempty CloudFormation service-role ARN so the existing CI caller permissions remain effective. It checks that its checkout and `GITHUB_SHA` are current `main`, compares the deployed original template to the renderer, and fails before mutation if anything besides the collector's inline code differs. It creates and inspects one UPDATE change set, preserves every stack parameter with `UsePreviousValue`, waits for the stack, then keeps the Lambda's signed code URL in memory and fetches its code without logging the URL or source. A temporary archive is read with the system `unzip` command to compare the deployed `index.js` bytes and SHA-256 with the rendered source. No-op updates are idempotent and still verify deployed source; failed or uncertain CloudFormation responses fail the job.
+
 ### Collector operation
 
 EventBridge Scheduler invokes the collector daily at **09:15 America/Argentina/Cordoba**, with no flexible window. The Node 24 Lambda has a five-minute timeout and 30-day log retention. Provider requests have a ten-second deadline and one transient retry; Caylent pagination is capped at 100 pages of 10 records, and Builder Center at 20 cursor pages of 50 records. Short or empty Builder pages with a cursor still continue. Builder article bodies are not fetched for counts. Reaching the cap fails the refresh rather than publishing an incomplete count. Scheduler delivery and Lambda asynchronous execution each allow one retry within one hour.
@@ -164,7 +217,7 @@ For recovery, inspect the named function's CloudWatch log group, correct the sou
 
 Pull requests verify and build. A push to `main` verifies, packages the exact build artifact, and deploys it through the main-only AWS role. Deployment uploads assets before HTML, retains old hashed assets, invalidates CloudFront, and checks the live English and Spanish pages. A superseded push does not overwrite a newer commit. Missing variables and failed checks fail explicitly.
 
-Infrastructure updates use the versioned CloudFormation template under the operator session. Normal site updates use CI; do not manually upload `dist/` to bypass the workflow.
+Infrastructure updates use the versioned CloudFormation template under the operator session. Collector code-only updates use the guarded CloudFormation change set in the main-branch CI job. Normal site updates use CI; do not manually upload `dist/` to bypass the workflow.
 
 If a deployment fails, inspect the failing Actions step and its error before retrying. After repairing an upload or invalidation failure, rerun the workflow for the current intended commit. The operations are repeatable, but multi-object uploads are not atomic, so a failed run may leave mixed files until the successful retry.
 
