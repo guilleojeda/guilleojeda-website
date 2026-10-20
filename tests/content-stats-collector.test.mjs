@@ -26,6 +26,9 @@ const googleTimeZone = "America/Argentina/Cordoba";
 const googleSearchSiteUrl = "sc-domain:simpleaws.dev";
 const googleSearchArticleUrlPattern = String.raw`(?-i)^https://newsletter\.simpleaws\.dev/p/[^/?#]+/?$`;
 const googleSearchTimeZone = "America/Los_Angeles";
+const directoryGooglePropertyId = "424203315";
+const directoryHostname = "dondeaprendoaws.com";
+const directoryTimeZone = "America/Buenos_Aires";
 const googleResponseCanary = "synthetic-google-private-response-canary";
 const privateAuthorId = "synthetic-author-id";
 const builderAuthorId = "251f1678-ab8f-4f22-afb9-1ee13511c7ee";
@@ -138,6 +141,26 @@ function phaseEightInput({ sources, ...options } = {}) {
   return {
     ...input,
     sources: sources ?? [...input.sources, cloudyThingsSource()]
+  };
+}
+
+function phaseNineDirectoryAnalytics({
+  id = "donde-aprendo-aws",
+  propertyId = directoryGooglePropertyId,
+  hostname = directoryHostname,
+  language = "es",
+  timeZone = directoryTimeZone,
+  ...extra
+} = {}) {
+  return { id, propertyId, hostname, language, timeZone, ...extra };
+}
+
+function phaseNineInput({ baseInput, directoryAnalytics, ...options } = {}) {
+  const input = baseInput === undefined ? phaseEightInput(options) : structuredClone(baseInput);
+  return {
+    ...input,
+    schemaVersion: 7,
+    directoryAnalytics: directoryAnalytics === undefined ? phaseNineDirectoryAnalytics() : directoryAnalytics
   };
 }
 
@@ -893,9 +916,9 @@ function phaseFiveApiFetch({
       json: kind === "google-report" || kind === "google-search" ? JSON.parse(bodyTextValue) : undefined
     };
     const key = kind === "google-report"
-      ? `${kind}:${request.json.dateRanges?.[0]?.startDate}:${request.json.dateRanges?.[0]?.endDate}`
+      ? `${kind}:${url.origin}${url.pathname}:${request.json.dateRanges?.[0]?.startDate}:${request.json.dateRanges?.[0]?.endDate}`
       : kind === "google-search"
-        ? `${kind}:${request.json.startDate}:${request.json.endDate}`
+        ? `${kind}:${url.origin}${url.pathname}:${request.json.startDate}:${request.json.endDate}`
       : kind;
     const attempt = (attempts.get(key) ?? 0) + 1;
     attempts.set(key, attempt);
@@ -2828,6 +2851,14 @@ function assertGoogleRequest(request, kind) {
   assert.equal(request.method, "POST");
   assert.equal(request.redirect, "error", `${kind} must refuse credential redirects`);
   assert.ok(request.signal, `${kind} must carry a bounded request signal`);
+}
+
+function googleFilterLeaves(filter) {
+  if (filter === null || typeof filter !== "object") return [];
+  if (Object.hasOwn(filter, "filter")) return [filter.filter];
+  return Object.values(filter).flatMap((value) => Array.isArray(value)
+    ? value.flatMap(googleFilterLeaves)
+    : googleFilterLeaves(value));
 }
 
 function assertSearchRequest(request) {
@@ -5236,4 +5267,408 @@ test("Cloudy Things rejects boundary-lookalike metadata while retaining the whol
     assert.ok(requestLog.some(({ kind }) => kind === "cloudy-archive"), `${scenario.name} reaches the Cloudy provider`);
     assertNoCloudyCanaries(harness, ...scenario.canaries, beehiivApiKey);
   }
+});
+
+test("input 7 supports directory-only traffic and sends five bounded, all-path aggregate reports", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const harness = createHarness({
+    input: phaseNineInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => jsonResponse(ga4Report({
+        views: 0,
+        timeZone: request.url.includes(`/properties/${directoryGooglePropertyId}:`)
+          ? directoryTimeZone
+          : googleTimeZone
+      }))
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(output.schemaVersion, 1);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "directoryViews", "talks"]);
+  const reports = googleRequests(requestLog, "google-report");
+  assert.equal(reports.length, 5);
+  assert.deepEqual(reports.map((request) => [reportRange(request).startDate, reportRange(request).endDate]), [
+    ["2026-10-11", "2026-10-17"],
+    ["2026-09-18", "2026-10-17"],
+    ["2026-07-20", "2026-10-17"],
+    ["2025-10-18", "2026-10-17"],
+    ["2026-01-01", "2026-10-17"]
+  ], "the verified Buenos Aires timezone and three-closed-day lag define all five supported periods");
+  const expectedHostFilter = {
+    fieldName: "hostName",
+    stringFilter: { matchType: "EXACT", value: directoryHostname, caseSensitive: true }
+  };
+  for (const request of reports) {
+    assertGoogleRequest(request, "Dónde Aprendo AWS Analytics request");
+    assert.equal(request.url, `https://analyticsdata.googleapis.com/v1beta/properties/${directoryGooglePropertyId}:runReport`);
+    assert.equal(newsletterRequestHeader(request, "authorization"), `Bearer ${googleAccessToken}`);
+    assert.deepEqual(request.json.metrics, [{ name: "screenPageViews" }]);
+    assert.deepEqual(googleFilterLeaves(request.json.dimensionFilter), [expectedHostFilter],
+      "only the exact host is filtered, leaving every path in scope");
+    assert.deepEqual(Object.keys(request.json).sort(), ["dateRanges", "dimensionFilter", "metrics"]);
+    assert.equal(Object.hasOwn(request.json, "dimensions"), false);
+    assert.equal(JSON.stringify(request.json).includes("browserLanguage"), false);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
+  }
+  const group = output.groups.directoryViews;
+  assert.deepEqual(Object.keys(group).sort(), ["definitionVersion", "records"]);
+  assert.equal(group.definitionVersion, 1);
+  assert.deepEqual(Object.keys(group.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.equal(Object.hasOwn(group.records, "total"), false, "a directory lifetime total is not inferred");
+  for (const record of Object.values(group.records)) {
+    assert.deepEqual(Object.keys(record).sort(), ["basis", "collectedAt", "endDate", "publication", "qualifications", "scopeId", "startDate", "timeZone", "views"]);
+    assert.equal(record.basis, "period");
+    assert.equal(record.collectedAt, "2026-10-20T16:45:46.000Z");
+    assert.equal(record.timeZone, directoryTimeZone);
+    assert.deepEqual(record.publication, { id: "donde-aprendo-aws", label: "Dónde Aprendo AWS", language: "es" });
+    assert.equal(record.views, 0, "an explicit numeric zero is measured data");
+    assert.deepEqual(record.qualifications, []);
+    assert.match(record.scopeId, /^[a-f0-9]{64}$/);
+  }
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 1);
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
+  assert.deepEqual(harness.secretCalls, [], "directory-only input does not retrieve a Beehiiv secret");
+  assert.equal(requestLog.some(({ kind }) => kind.startsWith("beehiiv")), false);
+  assert.equal(Object.hasOwn(output.groups, "newsletter"), false);
+  assert.equal(Object.hasOwn(output.groups, "articleViews"), false);
+  assert.equal(Object.hasOwn(output.groups, "articleSearchClicks"), false);
+  assertNoGoogleCanaries(harness, googleClientId, googleClientSecret, googleRefreshToken, googleAccessToken,
+    googleOAuthParameterArn, directoryGooglePropertyId, directoryHostname);
+});
+
+test("malformed directory selectors fail before any provider or credential work", async () => {
+  const valid = phaseNineDirectoryAnalytics();
+  const { timeZone: _timeZone, ...missingTimeZone } = valid;
+  const malformed = [
+    { ...valid, privateNote: "directory selector canary" },
+    { ...valid, propertyId: "not-a-decimal-property" },
+    { ...valid, hostname: "www.dondeaprendoaws.com" },
+    { ...valid, language: "en" },
+    { ...valid, timeZone: "+03:00" },
+    missingTimeZone
+  ];
+  for (const directoryAnalytics of malformed) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseNineInput({ baseInput: phaseThreeInput(), directoryAnalytics }),
+      fetchFn: phaseFiveApiFetch({ requestLog })
+    });
+    const previous = '{"schemaVersion":1,"groups":{"articles":{"collectedAt":"2026-10-15T12:00:00.000Z"}}}';
+    harness.objects.set(outputKey, previous);
+    await assert.rejects(() => harness.handler({}, {}), (error) => error.code !== "INPUT_VERSION_UNSUPPORTED",
+      "the malformed selector must reach input-7 selector validation, not merely fail because input 7 is unsupported");
+    assert.equal(harness.putCalls.length, 0);
+    assert.equal(harness.objects.get(outputKey), previous);
+    assert.deepEqual(requestLog, [], "selector validation precedes all provider requests");
+    assert.deepEqual(harness.secretCalls, []);
+    assert.deepEqual(harness.parameterCalls, [], "invalid configuration is rejected before Google credentials");
+  }
+});
+
+test("directory reports retain and recover per period while sharing OAuth with Simple AWS views and Search", async () => {
+  let failDirectory30d = false;
+  let oauthFails = false;
+  let directoryViews = 0;
+  let simpleViews = 51;
+  let searchClicks = 61;
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const cloudy = cloudyArticle({ id: "phase-nine-cloudy-row", title: "Phase Nine four-source proof" });
+  const harness = createHarness({
+    input: phaseNineInput(),
+    clock,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      tokenResponder: () => oauthFails
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" }),
+      reportResponder: ({ request }) => {
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+        const range = reportRange(request);
+        const daySpan = (Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)) / 86_400_000;
+        if (isDirectory && failDirectory30d && daySpan === 29) return jsonResponse({ error: googleResponseCanary }, 403);
+        return jsonResponse(ga4Report({
+          views: isDirectory ? directoryViews : simpleViews,
+          timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+        }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: searchClicks })),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+    })
+  });
+
+  const requestCountFrom = (start, kind) => googleRequests(requestLog.slice(start), kind);
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(first.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "directoryViews", "newsletter", "talks"]);
+  assert.deepEqual(first.groups.articles.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "simple-aws", label: "Simple AWS" },
+    { id: "cloudy-things", label: "Cloudy Things" }
+  ], "input 7 preserves the complete current four-source article family");
+  assert.deepEqual(first.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(requestCountFrom(0, "google-oauth").length, 1, "all three Google families share one invocation-local OAuth refresh");
+  assert.equal(requestCountFrom(0, "google-report").length, 10, "Simple AWS and Dónde each request five periods");
+  assert.equal(requestCountFrom(0, "google-search").length, 5);
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }],
+    "two Analytics properties and Search still retrieve one shared OAuth parameter");
+  assert.equal(first.groups.directoryViews.records["7d"].views, 0);
+  assert.equal(first.groups.articleViews.records["7d"].views, simpleViews);
+  assert.equal(first.groups.articleSearchClicks.records["7d"].clicks, searchClicks);
+
+  failDirectory30d = true;
+  directoryViews = 73;
+  simpleViews = 82;
+  searchClicks = 92;
+  clock.set("2026-10-21T16:45:46.000Z");
+  const secondStart = requestLog.length;
+  const secondParameterStart = harness.parameterCalls.length;
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls[1]);
+  assert.deepEqual(retained.groups.directoryViews.records["30d"], first.groups.directoryViews.records["30d"],
+    "a Dónde report error retains only its exact old interval, scope, value and collection date");
+  assert.equal(retained.groups.directoryViews.records["7d"].views, 73);
+  assert.equal(retained.groups.directoryViews.records["7d"].collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(retained.groups.articleViews.records["30d"].views, 82, "Simple AWS views refresh beside a Dónde failure");
+  assert.equal(retained.groups.articleSearchClicks.records["30d"].clicks, 92, "Search refreshes beside a Dónde failure");
+  assert.equal(requestCountFrom(secondStart, "google-oauth").length, 1);
+  assert.equal(harness.parameterCalls.length - secondParameterStart, 1);
+
+  failDirectory30d = false;
+  directoryViews = 101;
+  clock.set("2026-10-22T16:45:46.000Z");
+  const thirdStart = requestLog.length;
+  const thirdParameterStart = harness.parameterCalls.length;
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.equal(recovered.groups.directoryViews.records["30d"].views, 101, "recovery replaces rather than accumulates counts");
+  assert.equal(recovered.groups.directoryViews.records["30d"].collectedAt, "2026-10-22T16:45:46.000Z");
+  assert.equal(requestCountFrom(thirdStart, "google-oauth").length, 1);
+  assert.equal(harness.parameterCalls.length - thirdParameterStart, 1);
+
+  oauthFails = true;
+  clock.set("2026-10-23T16:45:46.000Z");
+  const fourthStart = requestLog.length;
+  const fourthParameterStart = harness.parameterCalls.length;
+  await harness.handler({}, {});
+  const sharedFailure = await readPut(harness.putCalls[3]);
+  for (const group of ["directoryViews", "articleViews", "articleSearchClicks"]) {
+    assert.deepEqual(sharedFailure.groups[group], recovered.groups[group], `${group} retains its own prior records on shared OAuth failure`);
+  }
+  assert.equal(sharedFailure.groups.articles.collectedAt, "2026-10-23T16:45:46.000Z", "non-Google inventory still refreshes");
+  assert.equal(sharedFailure.groups.newsletter.collectedAt, "2026-10-23T16:45:46.000Z", "non-Google subscriber data still refreshes");
+  assert.equal(requestCountFrom(fourthStart, "google-oauth").length, 1);
+  assert.equal(harness.parameterCalls.length - fourthParameterStart, 1);
+  assert.equal(requestCountFrom(fourthStart, "google-report").length, 0);
+  assert.equal(requestCountFrom(fourthStart, "google-search").length, 0);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("directory report failure without a usable prior omits only that family", async () => {
+  const requestLog = [];
+  const previous = priorFullOutput();
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup();
+  const harness = createHarness({
+    input: phaseNineInput({ baseInput: phaseSevenInput() }),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => request.url.includes(`/properties/${directoryGooglePropertyId}:`)
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(ga4Report({ views: 44, timeZone: googleTimeZone })),
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 55 })),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+    })
+  });
+  harness.objects.set(outputKey, JSON.stringify(previous));
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "directoryViews"), false,
+    "an unavailable new family is omitted when there is no valid prior directory record");
+  assert.equal(output.groups.articleViews.records["7d"].views, 44);
+  assert.equal(output.groups.articleSearchClicks.records["7d"].clicks, 55);
+  assert.equal(output.groups.articles.collectedAt, "2026-10-16T12:00:00.000Z");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("directory report validation keeps qualified aggregates and rejects wrong-timezone, noninteger, and truncated results", async () => {
+  let exerciseInvalidReports = false;
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const harness = createHarness({
+    input: phaseNineInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => {
+        const range = reportRange(request);
+        const daySpan = (Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)) / 86_400_000;
+        const qualifications = daySpan === 6 ? {
+          samplingMetadatas: [{ samplesReadCount: "10", samplingSpaceSize: "20" }],
+          subjectToThresholding: true,
+          dataLossFromOtherRow: true
+        } : {};
+        const timeZone = exerciseInvalidReports && daySpan === 29 ? "UTC" : directoryTimeZone;
+        const response = ga4Report({ views: 55, timeZone, metadata: qualifications });
+        if (exerciseInvalidReports && daySpan === 89) response.rows[0].metricValues[0].value = "1.5";
+        if (exerciseInvalidReports && daySpan === 364) response.metadata.dataTruncationReasons = ["DATE_RANGE"];
+        return jsonResponse(response);
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const original = structuredClone(first);
+  assert.deepEqual(first.groups.directoryViews.records["7d"].qualifications, ["sampled", "thresholding", "other-row"]);
+  assert.deepEqual(first.groups.directoryViews.records["30d"].qualifications, []);
+
+  original.groups.directoryViews.records["30d"].providerPropertyId = directoryGooglePropertyId;
+  harness.objects.set(outputKey, JSON.stringify(original));
+  exerciseInvalidReports = true;
+  clock.set("2026-10-21T16:45:46.000Z");
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+  const records = second.groups.directoryViews.records;
+  assert.equal(Object.hasOwn(records, "30d"), false, "a malformed prior cannot be republished after a wrong-timezone response");
+  assert.deepEqual(records["90d"], original.groups.directoryViews.records["90d"],
+    "a noninteger current result retains its valid previous period exactly");
+  assert.deepEqual(records["12m"], original.groups.directoryViews.records["12m"],
+    "a truncated current result retains its valid previous period exactly");
+  assert.deepEqual(records["7d"].qualifications, ["sampled", "thresholding", "other-row"]);
+  assertNoGoogleCanaries(harness, directoryGooglePropertyId, googleResponseCanary);
+});
+
+test("directory scope is independent of article selectors and disappears when disabled", async () => {
+  const requestLog = [];
+  let postRows = [beehiivPost({ id: "scope-one", title: "Directory-independent one" })];
+  const harness = createHarness({
+    input: phaseNineInput({ baseInput: phaseSevenInput() }),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope(postRows)),
+      reportResponder: ({ request }) => jsonResponse(ga4Report({
+        views: 42,
+        timeZone: request.url.includes(`/properties/${directoryGooglePropertyId}:`) || request.url.includes("/properties/987654321:")
+          ? directoryTimeZone
+          : googleTimeZone
+      })),
+      newsletterResponder: ({ request }) => {
+        const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(publicationId, 12));
+      }
+    })
+  });
+  const metricScopes = (output) => ({
+    directory: Object.fromEntries(Object.entries(output.groups.directoryViews.records).map(([period, record]) => [period, record.scopeId])),
+    articleViews: Object.fromEntries(Object.entries(output.groups.articleViews.records).map(([period, record]) => [period, record.scopeId])),
+    search: Object.fromEntries(Object.entries(output.groups.articleSearchClicks.records).map(([period, record]) => [period, record.scopeId])),
+    newsletter: output.groups.newsletter.scopeId
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const initialScopes = metricScopes(first);
+  const reorderedSources = [simpleAwsArticleSource(), builderCenterSource(), sourceInput().source];
+  const rotatedArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:synthetic-directory-independent-rotated-key";
+  harness.setSecretResponse(rotatedArn, { SecretString: JSON.stringify({ apiKey: "synthetic-directory-independent-rotated-key-value" }) });
+  harness.env.BEEHIIV_API_KEY_SECRET_ARN = rotatedArn;
+  postRows = [
+    ...postRows,
+    beehiivPost({ id: "scope-two", title: "New remote article does not change metric scope" })
+  ];
+  harness.setInput(phaseNineInput({ baseInput: phaseSevenInput({ sources: reorderedSources }) }));
+  await harness.handler({}, {});
+  const reordered = await readPut(harness.putCalls[1]);
+  assert.deepEqual(metricScopes(reordered), initialScopes,
+    "source order, Beehiiv key/ARN rotation, and remote post changes leave directory and existing independent metric scopes unchanged");
+  assert.notEqual(reordered.groups.articles.counts.all, first.groups.articles.counts.all);
+
+  harness.setInput(phaseNineInput({
+    baseInput: phaseSevenInput({
+      sources: reorderedSources,
+      analytics: phaseFiveAnalytics({ propertyId: "555555555" })
+    })
+  }));
+  await harness.handler({}, {});
+  const changedSimpleProperty = await readPut(harness.putCalls[2]);
+  assert.deepEqual(Object.fromEntries(Object.entries(changedSimpleProperty.groups.directoryViews.records).map(([period, record]) => [period, record.scopeId])), initialScopes.directory,
+    "changing the Simple AWS Analytics selector leaves Dónde scope independent");
+  assert.notDeepEqual(Object.fromEntries(Object.entries(changedSimpleProperty.groups.articleViews.records).map(([period, record]) => [period, record.scopeId])), initialScopes.articleViews);
+  assert.deepEqual(Object.fromEntries(Object.entries(changedSimpleProperty.groups.articleSearchClicks.records).map(([period, record]) => [period, record.scopeId])), initialScopes.search);
+
+  const changedPublicationId = "synthetic-second-newsletter-publication";
+  harness.setInput(phaseNineInput({
+    baseInput: phaseSevenInput({
+      sources: reorderedSources,
+      newsletter: { id: "simple-aws", publicationId: changedPublicationId, language: "en" }
+    })
+  }));
+  await harness.handler({}, {});
+  const changedNewsletter = await readPut(harness.putCalls[3]);
+  assert.deepEqual(Object.fromEntries(Object.entries(changedNewsletter.groups.directoryViews.records).map(([period, record]) => [period, record.scopeId])), initialScopes.directory,
+    "changing the shared newsletter publication selector does not change Dónde scope");
+  assert.notEqual(changedNewsletter.groups.newsletter.scopeId, initialScopes.newsletter);
+  assert.notEqual(changedNewsletter.groups.articles.scopeId, reordered.groups.articles.scopeId);
+  assert.deepEqual(Object.fromEntries(Object.entries(changedNewsletter.groups.articleViews.records).map(([period, record]) => [period, record.scopeId])), initialScopes.articleViews);
+  assert.deepEqual(Object.fromEntries(Object.entries(changedNewsletter.groups.articleSearchClicks.records).map(([period, record]) => [period, record.scopeId])), initialScopes.search);
+
+  harness.setInput(phaseNineInput({
+    baseInput: phaseSevenInput({ sources: reorderedSources }),
+    directoryAnalytics: phaseNineDirectoryAnalytics({ propertyId: "987654321" })
+  }));
+  await harness.handler({}, {});
+  const changedDirectory = await readPut(harness.putCalls[4]);
+  for (const period of Object.keys(initialScopes.directory)) {
+    assert.notEqual(changedDirectory.groups.directoryViews.records[period].scopeId, initialScopes.directory[period],
+      "changing the directory property changes its own semantic scope");
+    assert.equal(changedDirectory.groups.articleViews.records[period].scopeId, initialScopes.articleViews[period]);
+    assert.equal(changedDirectory.groups.articleSearchClicks.records[period].scopeId, initialScopes.search[period]);
+  }
+  assert.equal(changedDirectory.groups.newsletter.scopeId, initialScopes.newsletter);
+
+  const disabledStart = requestLog.length;
+  harness.setInput(phaseSevenInput({ sources: reorderedSources }));
+  await harness.handler({}, {});
+  const disabled = await readPut(harness.putCalls[5]);
+  assert.equal(Object.hasOwn(disabled.groups, "directoryViews"), false, "removing the selector removes the family");
+  assert.ok(googleRequests(requestLog.slice(disabledStart), "google-report").every((request) => request.url.includes(`/properties/${googlePropertyId}:`)),
+    "disabled directory analytics makes no Dónde property request");
+  assert.deepEqual(Object.fromEntries(Object.entries(disabled.groups.articleViews.records).map(([period, record]) => [period, record.scopeId])), initialScopes.articleViews);
+  assert.deepEqual(Object.fromEntries(Object.entries(disabled.groups.articleSearchClicks.records).map(([period, record]) => [period, record.scopeId])), initialScopes.search);
+  assert.equal(disabled.groups.newsletter.scopeId, initialScopes.newsletter);
+});
+
+test("directory YTD is not retained across the year boundary when the lag ends in the prior year", async () => {
+  const requestLog = [];
+  const clock = createClock("2025-12-30T16:00:00.000Z");
+  const harness = createHarness({
+    input: phaseNineInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: () => jsonResponse(ga4Report({ views: 7, timeZone: directoryTimeZone }))
+    })
+  });
+  await harness.handler({}, {});
+  const prior = await readPut(harness.putCalls[0]);
+  assert.equal(prior.groups.directoryViews.records.ytd.startDate, "2025-01-01");
+
+  clock.set("2026-01-03T16:00:00.000Z");
+  const secondInvocationStart = requestLog.length;
+  await harness.handler({}, {});
+  const current = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(current.groups.directoryViews.records, "ytd"), false,
+    "the prior year's YTD record is not relabeled when the three-day lag has not reached January 1");
+  const currentReports = googleRequests(requestLog.slice(secondInvocationStart), "google-report");
+  assert.equal(currentReports.some((request) => reportRange(request).startDate === "2026-01-01" && reportRange(request).endDate === "2025-12-31"), false);
 });

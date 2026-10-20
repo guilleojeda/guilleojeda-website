@@ -98,11 +98,35 @@ function checkContentStatsShell(page, html) {
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
 
   const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
-  assert.deepEqual(cardKinds, ['articles', 'talks', 'books', 'newsletter'], `${locale} statistics must group articles, delivered sessions, published books and newsletter subscribers by content type`);
+  assert.equal(cardKinds.length, 5, `${locale} statistics add one separate Dónde Aprendo AWS card`);
+  assert.deepEqual(cardKinds.filter((kind) => ['articles', 'talks', 'books', 'newsletter'].includes(kind)),
+    ['articles', 'talks', 'books', 'newsletter'], `${locale} statistics retain the existing four content groups`);
+  assert.equal(cardKinds.filter((kind) => kind === 'directory-views').length, 1, `${locale} has exactly one directory Views card`);
   mustContain(statsHtml, 'data-stats-kind="articles"', `${locale} Articles card`);
   mustContainText(statsHtml, locale === 'en' ? 'Articles' : 'Artículos', `${locale} Articles card title`);
   mustContainText(statsHtml, locale === 'en' ? 'Talks & sessions' : 'Charlas y sesiones', `${locale} speaking card title`);
   mustContainText(statsHtml, locale === 'en' ? 'Books' : 'Libros', `${locale} books card title`);
+  const directoryViewsCard = extractElement(statsHtml, 'article', 'data-stats-kind', 'directory-views')?.html;
+  assert.ok(directoryViewsCard, `${locale} needs a separate Dónde Aprendo AWS page-views card`);
+  mustContainText(directoryViewsCard, 'Dónde Aprendo AWS', `${locale} directory card identity`);
+  const directoryCardText = normalizedText(directoryViewsCard);
+  if (locale === 'en') assert.match(directoryCardText, /page views?/, 'English directory unit identifies page views');
+  else assert.match(directoryCardText, /vistas? de paginas?/, 'Spanish directory unit identifies page views');
+  for (const field of ['status', 'results', 'value', 'unit', 'coverage', 'interval', 'collected-date', 'qualifications']) {
+    assert.ok(directoryViewsCard.includes(`data-stats-directory-views-${field}`), `${locale} directory page views need ${field}`);
+  }
+  assert.equal(directoryViewsCard.includes('data-stats-count'), false, `${locale} directory page views are a period metric, not a count card`);
+  const directoryViewsStatus = extractElement(directoryViewsCard, null, 'data-stats-directory-views-status');
+  assert.ok(directoryViewsStatus, `${locale} directory Views needs its own loading/unavailable status`);
+  mustContain(directoryViewsStatus.html, 'role="status"', `${locale} directory status has a status role`);
+  mustContain(directoryViewsStatus.html, 'aria-live="polite"', `${locale} directory status announces updates politely`);
+  const directoryViewsStatusText = normalizedText(directoryViewsStatus.html);
+  if (locale === 'en') assert.match(directoryViewsStatusText, /loading.*views?/i, 'English directory Views status has localized loading copy');
+  else assert.match(directoryViewsStatusText, /cargando.*vistas?/i, 'Spanish directory Views status has localized loading copy');
+  const directoryUnavailable = directoryViewsCard.match(/data-stats-directory-views-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
+  const directoryUnavailableText = normalizedText(directoryUnavailable);
+  if (locale === 'en') assert.match(directoryUnavailableText, /unavailable|not available/i, 'English directory Views unavailable copy is meaningful');
+  else assert.match(directoryUnavailableText, /no disponibles?|no disponible|no se pueden/i, 'Spanish directory Views unavailable copy is meaningful');
   const newsletterCardElement = extractElement(statsHtml, 'article', 'data-stats-kind', 'newsletter');
   const newsletterCard = newsletterCardElement?.html;
   assert.ok(newsletterCard, `${locale} newsletter must have a distinct accessible card`);
@@ -161,6 +185,16 @@ function checkContentStatsShell(page, html) {
   assert.ok(cloudyThingsCountDisclosure, `${locale} disclosure connects Cloudy Things to article-count coverage`);
   assert.match(cloudyThingsCountDisclosure, locale === 'en' ? /\bcan\b|\bmay\b/ : /\bpuede\b|\bpueden\b/,
     `${locale} Cloudy Things count disclosure describes optional coverage`);
+  assert.match(disclosureText, /donde aprendo aws/i, `${locale} source disclosure identifies the directory measured by its own Views card`);
+  if (locale === 'en') {
+    assert.match(disclosureText, /page views?/i, 'English disclosure identifies directory page views');
+    assert.match(disclosureText, /full (?:directory|site)|entire (?:directory|website)|all (?:directory )?pages/i, 'English disclosure defines full-directory coverage');
+    assert.match(disclosureText, /repeat|more than once|same person|multiple times/i, 'English disclosure makes clear that page views can repeat');
+  } else {
+    assert.match(disclosureText, /vistas? de paginas?/i, 'Spanish disclosure identifies directory page views');
+    assert.match(disclosureText, /directorio completo|todas las paginas|sitio completo|todo el sitio/i, 'Spanish disclosure defines full-directory coverage');
+    assert.match(disclosureText, /repetid|varias veces|misma persona/i, 'Spanish disclosure makes clear that page views can repeat');
+  }
   const searchDisclosureParagraph = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
     .map((match) => normalizedText(match[1]))
     .find((paragraph) => /search console/i.test(paragraph));
@@ -303,7 +337,7 @@ function checkContentStatsShell(page, html) {
     assert.ok(/\ball\b|\btodos?\b/.test(optionLabels[0]) && /ingles|english/.test(optionLabels[1]) && optionLabels[2].includes('espanol'), 'Spanish language filter labels');
   }
 
-  for (const forbidden of ['373694636', '5153208352', 'oauth2.googleapis.com', 'analyticsdata.googleapis.com', 'clientSecret', 'refreshToken', 'accessToken', 'propertyId', 'streamId']) {
+  for (const forbidden of ['373694636', '5153208352', '424203315', '6662500072', 'oauth2.googleapis.com', 'analyticsdata.googleapis.com', 'clientSecret', 'refreshToken', 'accessToken', 'propertyId', 'streamId']) {
     mustNotContain(statsHtml, forbidden, `${locale} public statistics must not expose provider identifiers, URLs or credentials`);
   }
   const isSelected = (option) => /(?:^|\s)selected(?:\s|=|$)/i.test(option.attributes);
@@ -396,17 +430,20 @@ const sourceConfig = JSON.parse(readFileSync(join(root, 'public/_content-stats/i
 const hasNewsletterSelection = Object.hasOwn(inputs, 'newsletter');
 const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
 const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
+const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
 assert.deepEqual(Object.keys(inputs).sort(), [
   'curated',
   'definitionVersion',
   ...(hasNewsletterSelection ? ['newsletter'] : []),
   ...(hasAnalyticsSelection ? ['analytics'] : []),
   ...(hasSearchConsoleSelection ? ['searchConsole'] : []),
+  ...(hasDirectoryAnalyticsSelection ? ['directoryAnalytics'] : []),
   'schemaVersion',
   'sources'
 ].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
-assert.equal(inputs.schemaVersion, hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
+assert.equal(inputs.schemaVersion, hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 if (hasNewsletterSelection) {
@@ -452,6 +489,20 @@ if (hasSearchConsoleSelection) {
   assert.deepEqual(inputs.searchConsole, sourceConfig.searchConsole, 'Search Console input must project the exact maintained selector');
 } else {
   assert.ok(!Object.hasOwn(sourceConfig, 'searchConsole'), 'schema-v3/v4/v5 output must match a source configuration without Search Console');
+}
+if (hasDirectoryAnalyticsSelection) {
+  assert.ok(sourceConfig.directoryAnalytics, 'directory Views input must come from a maintained selector');
+  assert.deepEqual(Object.keys(sourceConfig.directoryAnalytics).sort(), ['hostname', 'id', 'language', 'propertyId', 'timeZone'],
+    'maintained directory Analytics selector must contain only its source and scope facts');
+  assert.equal(sourceConfig.directoryAnalytics.id, 'donde-aprendo-aws', 'directory selector identity');
+  assert.equal(sourceConfig.directoryAnalytics.propertyId, '424203315', 'directory selector uses the verified GA4 property');
+  assert.equal(sourceConfig.directoryAnalytics.hostname, 'dondeaprendoaws.com', 'directory selector covers the production apex hostname');
+  assert.equal(sourceConfig.directoryAnalytics.language, 'es', 'directory language follows the Spanish original content');
+  assert.equal(sourceConfig.directoryAnalytics.timeZone, 'America/Buenos_Aires', 'directory selector uses the verified GA4 property timezone');
+  assert.deepEqual(inputs.directoryAnalytics, sourceConfig.directoryAnalytics, 'protected input7 projects the exact maintained selector');
+  assert.equal(Object.hasOwn(inputs.directoryAnalytics, 'recordedSince'), false, 'directory Views do not add recorded-total configuration');
+} else {
+  assert.ok(!Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'compatible generated input remains valid before directory enablement');
 }
 const simpleAwsArticleSource = sourceConfig.sources.find((source) => source?.id === 'simple-aws');
 const cloudyThingsArticleSource = sourceConfig.sources.find((source) => source?.id === 'cloudy-things');
@@ -569,6 +620,10 @@ for (const page of policyPages) {
   assert.ok(useSection, `${page.lang} use section has a stable #use target`);
   mustContainText(privacySection.html, 'Google Analytics', `${page.lang} privacy text names Analytics`);
   mustContainText(privacySection.html, 'Search Console', `${page.lang} privacy text names Search Console`);
+  mustContainText(privacySection.html, 'Dónde Aprendo AWS', `${page.lang} privacy text names directory Analytics use`);
+  const privacyText = normalizedText(privacySection.html);
+  if (page.lang === 'en') assert.match(privacyText, /aggregate page views?/i, 'English privacy text identifies aggregate directory page views');
+  else assert.match(privacyText, /vistas? de paginas? agregadas?|vistas? agregadas? de paginas?/i, 'Spanish privacy text identifies aggregate directory page views');
   const skipLink = html.match(/<a class="skip-link" href="([^"]+)">([^<]*)<\/a>/i);
   assert.ok(skipLink, `${page.lang} privacy page has a skip link`);
   assert.equal(skipLink[1], '#privacy', `${page.lang} privacy skip link targets this page`);

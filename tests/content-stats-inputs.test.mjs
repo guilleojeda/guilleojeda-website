@@ -316,6 +316,16 @@ function searchConsoleSelection() {
   };
 }
 
+function directoryAnalyticsSelection() {
+  return {
+    id: 'donde-aprendo-aws',
+    propertyId: '424203315',
+    hostname: 'dondeaprendoaws.com',
+    language: 'es',
+    timeZone: 'America/Buenos_Aires'
+  };
+}
+
 function addInputFiveSelections(source) {
   source.articleConfig.newsletter = newsletterSelection();
   source.articleConfig.analytics = analyticsSelection();
@@ -511,6 +521,106 @@ test('Search Console selection requires the existing input5 newsletter and analy
   withoutAnalytics.articleConfig.searchConsole = searchConsoleSelection();
   assert.throws(() => build(withoutAnalytics), /searchConsole|Search Console|analytics|input5|input 5|input/i,
     'Search Console cannot produce input6 without the existing analytics selection');
+});
+
+function addInputSixSelections(source) {
+  addInputFiveSelections(source);
+  source.articleConfig.searchConsole = searchConsoleSelection();
+  return source;
+}
+
+test('a directory Analytics selector generates protected input7 without changing input6 facts', async () => {
+  const build = await inputBuilder();
+  const source = addInputSixSelections(fixture());
+  const input6 = build(source);
+  const { schemaVersion: input6Version, ...input6Base } = input6;
+  const selector = directoryAnalyticsSelection();
+  source.articleConfig.directoryAnalytics = selector;
+  freeze(source);
+
+  const result = build(source);
+  const { schemaVersion, directoryAnalytics, ...input7Base } = result;
+
+  assert.equal(input6Version, 6);
+  assert.equal(schemaVersion, 7);
+  assert.deepEqual(input7Base, input6Base, 'input7 preserves every existing input6 selector and curated fact');
+  assert.deepEqual(directoryAnalytics, selector);
+  assert.notEqual(directoryAnalytics, source.articleConfig.directoryAnalytics, 'the generated selector cannot mutate maintained configuration');
+  assert.deepEqual(Object.keys(directoryAnalytics).sort(), ['hostname', 'id', 'language', 'propertyId', 'timeZone']);
+  assert.equal(JSON.stringify(result).includes('clientSecret'), false);
+  assert.equal(JSON.stringify(result).includes('refreshToken'), false);
+  assert.equal(JSON.stringify(result).includes('accessToken'), false);
+  assert.equal(Object.hasOwn(result, 'counts'), false, 'build projection does not compute traffic');
+
+  result.directoryAnalytics.timeZone = 'Etc/UTC';
+  assert.equal(source.articleConfig.directoryAnalytics.timeZone, 'America/Buenos_Aires', 'result mutation cannot change maintained configuration');
+});
+
+test('directory Analytics works with base input3 alone and preserves each existing input4 through input6 combination', async () => {
+  const build = await inputBuilder();
+  const variants = [
+    ['input3', () => {}, 3],
+    ['input4', (source) => { source.articleConfig.newsletter = newsletterSelection(); }, 4],
+    ['input5', (source) => { addInputFiveSelections(source); }, 5],
+    ['input6 with current article sources', (source) => {
+      addInputSixSelections(source);
+      source.articleConfig.sources.push({ id: 'simple-aws' }, cloudyThingsSelection());
+    }, 6]
+  ];
+
+  for (const [description, configure, priorVersion] of variants) {
+    const source = fixture();
+    configure(source);
+    const prior = build(source);
+    const { schemaVersion: priorSchemaVersion, ...previousFacts } = prior;
+    const selector = directoryAnalyticsSelection();
+    source.articleConfig.directoryAnalytics = selector;
+    freeze(source);
+
+    const expanded = build(source);
+    const { schemaVersion, directoryAnalytics, ...expandedFacts } = expanded;
+    assert.equal(priorSchemaVersion, priorVersion, `${description} prior schema remains supported`);
+    assert.equal(schemaVersion, 7, `${description} plus directory uses input7`);
+    assert.deepEqual(expandedFacts, previousFacts, `${description} retains every previous root fact unchanged`);
+    assert.deepEqual(directoryAnalytics, selector);
+    assert.notEqual(directoryAnalytics, source.articleConfig.directoryAnalytics, `${description} selector is independently projected`);
+    assert.equal(Object.hasOwn(expanded, 'counts'), false, `${description} does not add computed traffic`);
+  }
+});
+
+test('directory Analytics rejects missing, malformed, unknown, private, and credential-bearing selectors', async () => {
+  const build = await inputBuilder();
+  const valid = directoryAnalyticsSelection();
+  const missingRequiredFields = ['id', 'propertyId', 'hostname', 'language', 'timeZone'].map((key) => {
+    const value = { ...valid };
+    delete value[key];
+    return value;
+  });
+  const invalid = [
+    null,
+    [],
+    ...missingRequiredFields,
+    { ...valid, id: 'directory' },
+    { ...valid, propertyId: 424203315 },
+    { ...valid, propertyId: '424203315x' },
+    { ...valid, hostname: 'www.dondeaprendoaws.com' },
+    { ...valid, hostname: 'https://dondeaprendoaws.com' },
+    { ...valid, language: 'en' },
+    { ...valid, timeZone: 'Not/A_Timezone' },
+    { ...valid, timeZone: '-03:00' },
+    { ...valid, recordedSince: '2024-01-01' },
+    { ...valid, clientSecret: 'synthetic-client-secret' },
+    { ...valid, refreshToken: 'synthetic-refresh-token' },
+    { ...valid, accessToken: 'synthetic-access-token' },
+    { ...valid, unknownField: 'unexpected' }
+  ];
+
+  for (const selector of invalid) {
+    const source = fixture();
+    source.articleConfig.directoryAnalytics = selector;
+    assert.throws(() => build(source), /directory|analytics|property|host|language|timezone|credential|secret|input/i,
+      `invalid directory Analytics selector ${JSON.stringify(selector)}`);
+  }
 });
 
 test('the exact Simple AWS article source requires the existing valid English newsletter selection', async () => {
