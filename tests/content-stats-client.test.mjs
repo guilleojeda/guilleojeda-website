@@ -15,6 +15,14 @@ const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
 const cloudyThings = { id: 'cloudy-things', label: 'Cloudy Things' };
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
+const directoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
+const directoryViewPeriodFacts = {
+  '7d': { views: 17, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31', qualifications: ['sampled'] },
+  '30d': { views: 47, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31', qualifications: ['thresholding'] },
+  '90d': { views: 147, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31', qualifications: ['other-row'] },
+  '12m': { views: 1470, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'thresholding', 'other-row'] },
+  ytd: { views: 970, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: [] }
+};
 
 const articleViewPeriodFacts = {
   '7d': { views: 7, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31', qualifications: ['sampled'] },
@@ -102,6 +110,31 @@ function newsletterGroup({
 function snapshotWithNewsletter(options = {}) {
   const data = threeGroupSnapshot();
   data.groups.newsletter = newsletterGroup(options);
+  return data;
+}
+
+function directoryViewsRecord(period, overrides = {}) {
+  const facts = directoryViewPeriodFacts[period];
+  return {
+    basis: 'period',
+    collectedAt: facts.collectedAt,
+    scopeId: 'd'.repeat(64),
+    publication: { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' },
+    timeZone: 'America/Buenos_Aires',
+    startDate: facts.startDate,
+    endDate: facts.endDate,
+    views: facts.views,
+    qualifications: [...facts.qualifications],
+    ...overrides
+  };
+}
+
+function directoryViewsRecords() {
+  return Object.fromEntries(directoryViewPeriods.map((period) => [period, directoryViewsRecord(period)]));
+}
+
+function snapshotWithDirectoryViews({ data = snapshotWithArticleSearchClicks(), records = directoryViewsRecords(), definitionVersion = 1 } = {}) {
+  data.groups.directoryViews = { definitionVersion, records };
   return data;
 }
 
@@ -295,6 +328,19 @@ const searchCopy = {
   }
 };
 
+const directoryViewsCopy = {
+  en: {
+    loading: 'Loading Dónde Aprendo AWS page views…',
+    unavailable: 'Dónde Aprendo AWS page views are unavailable for this period.',
+    unit: 'page views'
+  },
+  es: {
+    loading: 'Cargando vistas de página de Dónde Aprendo AWS…',
+    unavailable: 'Las vistas de página de Dónde Aprendo AWS no están disponibles para este período.',
+    unit: 'vistas de página'
+  }
+};
+
 function makeCard(kind, locale) {
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
@@ -354,6 +400,33 @@ function makeArticleSearch(card, locale) {
   return { region, status, results, value, unit, coverage, interval, collectedDate };
 }
 
+function makeDirectoryViews(locale) {
+  const card = new SemanticElement({
+    dataset: {
+      statsKind: 'directory-views',
+      statsDirectoryViews: '',
+      statsDirectoryViewsUnavailable: directoryViewsCopy[locale].unavailable
+    },
+    attributes: { 'aria-busy': 'false' }
+  });
+  const status = card.appendChild(new SemanticElement({
+    dataset: { statsDirectoryViewsStatus: '' },
+    textContent: directoryViewsCopy[locale].loading,
+    hidden: true
+  }));
+  const results = card.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsResults: '' }, hidden: true }));
+  const value = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsValue: '' } }));
+  const unit = results.appendChild(new SemanticElement({
+    dataset: { statsDirectoryViewsUnit: '' },
+    textContent: directoryViewsCopy[locale].unit
+  }));
+  const coverage = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsCoverage: '' } }));
+  const interval = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsInterval: '' } }));
+  const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsCollectedDate: '' } }));
+  const qualifications = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsQualifications: '' }, hidden: true }));
+  return { card, status, results, value, unit, coverage, interval, collectedDate, qualifications };
+}
+
 function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, includeViews = true, includeSearch = true } = {}) {
   const section = new SemanticElement({
     dataset: {
@@ -385,6 +458,8 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     section.appendChild(card.card);
     return [kind, card];
   }));
+  cards.directoryViews = makeDirectoryViews(locale);
+  section.appendChild(cards.directoryViews.card);
   if (includeViews) cards.articles.views = makeArticleViews(cards.articles.card, locale);
   if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
   const fetchCalls = [];
@@ -565,6 +640,57 @@ function assertSearchVisible(page, locale, period) {
   assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'Search retains its own collection date');
 }
 
+function assertDirectoryViewsUnavailable(page, locale, { hidden = false } = {}) {
+  const views = page.cards.directoryViews;
+  assert.equal(views.card.hidden, hidden, 'directory page views follow their Spanish content-language applicability');
+  assert.equal(views.results.hidden, true, 'unavailable directory views must not reveal an old value');
+  assert.equal(views.value.textContent, '', 'unavailable directory views clear their value');
+  assert.equal(views.coverage.textContent, '', 'unavailable directory views clear old coverage');
+  assert.equal(views.interval.textContent, '', 'unavailable directory views clear old interval metadata');
+  assert.equal(views.collectedDate.textContent, '', 'unavailable directory views clear the old fetch date');
+  assert.equal(views.qualifications.textContent, '', 'unavailable directory views clear old qualifications');
+  assert.equal(views.card.getAttribute('aria-busy'), 'false');
+  if (hidden) {
+    assert.equal(views.status.hidden, true, 'the English content filter hides the inapplicable card status');
+    return;
+  }
+  assert.equal(views.status.hidden, false, 'applicable but unavailable directory views show a status');
+  if (locale === 'es') assert.match(views.status.textContent, /no.*disponible|no se pueden/i);
+  else assert.match(views.status.textContent, /unavailable|not available/i);
+}
+
+function assertLocalizedDirectoryViewsUnit(page, locale) {
+  if (locale === 'es') assert.match(page.cards.directoryViews.unit.textContent, /vistas\s+de\s+p[aá]gina/i);
+  else assert.match(page.cards.directoryViews.unit.textContent, /page\s+views/i);
+}
+
+function assertDirectoryViewsVisible(page, locale, period) {
+  const record = page.data.groups.directoryViews.records[period];
+  const views = page.cards.directoryViews;
+  assert.equal(views.card.hidden, false, 'All and Español can display this Spanish-source traffic');
+  assert.equal(views.results.hidden, false, `${period} directory views should render`);
+  assert.equal(views.status.hidden, true);
+  assert.equal(views.value.textContent, new Intl.NumberFormat(locale).format(record.views));
+  assertLocalizedDirectoryViewsUnit(page, locale);
+  assert.equal(views.coverage.textContent, record.publication.label, 'directory coverage comes from the saved record');
+  assert.ok(views.interval.textContent.includes(record.timeZone), 'the interval retains the source timezone');
+  const formatDateOnly = (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
+  assert.ok(views.interval.textContent.includes(formatDateOnly(record.startDate)), 'the interval retains its localized start date');
+  assert.ok(views.interval.textContent.includes(formatDateOnly(record.endDate)), 'the interval retains its localized end date');
+  assert.equal(views.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'directory views retain their own collection date');
+  assert.equal(views.qualifications.hidden, record.qualifications.length === 0);
+  const qualificationText = views.qualifications.textContent;
+  if (locale === 'es') {
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /muest|muestra/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /umbral/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /otras filas?|filas? restantes|l[ií]mite de filas/i);
+  } else {
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /sampl|sampled/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
+  }
+}
+
 function assertAllUnavailable(page, locale) {
   for (const kind of ['articles', 'talks', 'books', 'newsletter']) assertUnavailable(page, locale, kind);
   assertViewsUnavailable(page, locale);
@@ -585,6 +711,246 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.periodSelector.value, '12m', 'the period control defaults to twelve months');
     assert.equal(page.periodSelector.disabled, true, 'period selection stays disabled while loading');
     await page.settle();
+  });
+
+  test(`${locale} directory page views use their own five period records and Spanish content-language scope`, async () => {
+    const page = createPage({ locale, data: snapshotWithDirectoryViews() });
+    await page.settle();
+
+    assertDirectoryViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assert.equal(page.cards.articles.views.coverage.textContent, 'Simple AWS');
+    assert.equal(page.cards.articles.search.coverage.textContent, 'Simple AWS');
+    for (const period of directoryViewPeriods) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertDirectoryViewsVisible(page, locale, period);
+      assert.equal(page.cards.articles.count.textContent, '11', 'directory traffic does not replace cumulative article counts');
+      assert.equal(page.cards.newsletter.count.textContent, '27', 'directory traffic does not replace current subscribers');
+      assertViewsVisible(page, locale, period);
+      assertSearchVisible(page, locale, period);
+      assert.equal(page.fetchCount, 1, 'period changes reuse the aggregate snapshot');
+    }
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assert.equal(page.cards.articles.count.textContent, '7', 'English article counts remain independent');
+    assert.equal(page.cards.newsletter.count.textContent, '27', 'the English newsletter remains visible');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertDirectoryViewsVisible(page, locale, 'ytd');
+    assertViewsUnavailable(page, locale);
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.newsletter.card.hidden, true);
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assertDirectoryViewsVisible(page, locale, 'ytd');
+    assert.equal(page.fetchCount, 1, 'content-language changes stay local in both interface locales');
+  });
+
+  test(`${locale} directory page views distinguish zero, a missing period, and an invalid period record`, async () => {
+    const records = directoryViewsRecords();
+    records['7d'].views = 0;
+    delete records['30d'];
+    records['90d'] = { ...records['90d'], views: '147' };
+    const page = createPage({ locale, data: snapshotWithDirectoryViews({ records }) });
+    await page.settle();
+
+    assertDirectoryViewsVisible(page, locale, '12m');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertDirectoryViewsVisible(page, locale, '7d');
+    assert.equal(page.cards.directoryViews.value.textContent, '0', 'a source-reported zero is measured data');
+
+    for (const period of ['30d', '90d']) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertDirectoryViewsUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+      assertViewsVisible(page, locale, period);
+      assertSearchVisible(page, locale, period);
+    }
+    page.periodSelector.value = 'ytd';
+    page.periodSelector.dispatch('change');
+    assertDirectoryViewsVisible(page, locale, 'ytd');
+    assert.equal(page.fetchCount, 1, 'directory record validation is isolated to the selected period');
+  });
+
+  test(`${locale} an invalid directory Views group does not poison other families`, async () => {
+    const data = snapshotWithDirectoryViews({ definitionVersion: 2 });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertDirectoryViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assertViewsVisible(page, locale, '12m');
+    assertSearchVisible(page, locale, '12m');
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assertViewsVisible(page, locale, '30d');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} directory Views enforce their own publication and aggregate fields`, async () => {
+    const cases = [
+      ['wrong publication identity', (group) => {
+        group.records['12m'].publication = { id: 'simple-aws', label: 'Simple AWS', language: 'es' };
+      }, true],
+      ['wrong publication language', (group) => {
+        group.records['12m'].publication.language = 'en';
+      }, true],
+      ['private provider field', (group) => {
+        group.records['12m'].propertyId = '424203315';
+      }, true],
+      ['unsupported Recorded total key', (group) => {
+        group.records.total = directoryViewsRecord('12m', { basis: 'recorded-total' });
+      }, false],
+      ['unknown directory group field', (group) => {
+        group.hostname = 'dondeaprendoaws.com';
+      }, false]
+    ];
+
+    for (const [description, mutate, periodOnly] of cases) {
+      const data = snapshotWithDirectoryViews();
+      mutate(data.groups.directoryViews);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      if (periodOnly) {
+        assertDirectoryViewsUnavailable(page, locale);
+        page.periodSelector.value = '30d';
+        page.periodSelector.dispatch('change');
+        assertDirectoryViewsVisible(page, locale, '30d');
+      } else {
+        assertDirectoryViewsUnavailable(page, locale);
+        page.periodSelector.value = '30d';
+        page.periodSelector.dispatch('change');
+        assertDirectoryViewsUnavailable(page, locale);
+      }
+      assert.equal(page.cards.articles.count.textContent, '11', `${description} does not affect article counts`);
+      assert.equal(page.cards.newsletter.count.textContent, '27', `${description} does not affect subscribers`);
+      assertViewsVisible(page, locale, '30d');
+      assertSearchVisible(page, locale, '30d');
+      assert.equal(page.fetchCount, 1);
+    }
+  });
+
+  test(`${locale} retained and recovered directory Views keep their own dates and metadata`, async () => {
+    const retainedRecords = directoryViewsRecords();
+    retainedRecords['12m'] = directoryViewsRecord('12m', {
+      collectedAt: '2025-03-14T00:00:00.000Z',
+      scopeId: 'e'.repeat(64),
+      startDate: '2024-03-01',
+      endDate: '2025-02-28',
+      views: 520,
+      qualifications: ['sampled']
+    });
+    const retainedPage = createPage({ locale, data: snapshotWithDirectoryViews({ records: retainedRecords }) });
+    await retainedPage.settle();
+    assertDirectoryViewsVisible(retainedPage, locale, '12m');
+    assert.equal(retainedPage.cards.directoryViews.value.textContent, new Intl.NumberFormat(locale).format(520));
+    assert.equal(retainedPage.cards.directoryViews.collectedDate.textContent, expectedDate(locale, '2025-03-14T00:00:00.000Z'));
+
+    const recoveredRecords = directoryViewsRecords();
+    recoveredRecords['12m'] = directoryViewsRecord('12m', {
+      collectedAt: '2026-10-18T00:00:00.000Z',
+      scopeId: 'f'.repeat(64),
+      views: 690,
+      qualifications: ['other-row']
+    });
+    const recoveredPage = createPage({ locale, data: snapshotWithDirectoryViews({ records: recoveredRecords }) });
+    await recoveredPage.settle();
+    assertDirectoryViewsVisible(recoveredPage, locale, '12m');
+    assert.equal(recoveredPage.cards.directoryViews.value.textContent, new Intl.NumberFormat(locale).format(690));
+    assert.equal(recoveredPage.cards.directoryViews.collectedDate.textContent, expectedDate(locale, '2026-10-18T00:00:00.000Z'));
+    assert.equal(recoveredPage.cards.articles.count.textContent, '11');
+    assert.equal(recoveredPage.cards.newsletter.count.textContent, '27');
+    assert.equal(retainedPage.fetchCount, 1);
+    assert.equal(recoveredPage.fetchCount, 1);
+  });
+
+  test(`${locale} old snapshots keep existing groups and show directory views unavailable only for All and Español`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleSearchClicks() });
+    await page.settle();
+
+    assertDirectoryViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assertViewsVisible(page, locale, '12m');
+    assertSearchVisible(page, locale, '12m');
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assert.equal(page.cards.articles.count.textContent, '7');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.newsletter.card.hidden, true);
+    assertViewsUnavailable(page, locale);
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} directory views stay period-only when Recorded total is selected and Spanish restores 12 months`, async () => {
+    const page = createPage({ locale, data: snapshotWithDirectoryViews() });
+    await page.settle();
+
+    assertDirectoryViewsVisible(page, locale, '12m');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, 'total');
+    assertSearchUnavailable(page, locale);
+    assertDirectoryViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, '12m', 'the existing article Views fallback remains unchanged for Spanish');
+    assertViewsUnavailable(page, locale);
+    assertSearchUnavailable(page, locale);
+    assertDirectoryViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '4');
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assert.equal(page.cards.articles.count.textContent, '7');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} directory page views finish loading and isolate unavailable data after fetch failure`, async () => {
+    const page = createPage({ locale, fetchError: new Error('synthetic fetch failure') });
+    assert.equal(page.cards.directoryViews.status.hidden, false);
+    assert.equal(page.cards.directoryViews.card.getAttribute('aria-busy'), 'true');
+    await page.settle();
+
+    assertDirectoryViewsUnavailable(page, locale);
+    assert.equal(page.cards.articles.results.hidden, true);
+    assert.equal(page.cards.articles.count.textContent, '');
+    assert.equal(page.cards.talks.results.hidden, true);
+    assert.equal(page.cards.books.results.hidden, true);
+    assert.equal(page.cards.newsletter.results.hidden, true);
+    assert.equal(page.fetchCount, 1);
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assert.equal(page.fetchCount, 1);
   });
 
   test(`${locale} article views support each period locally and keep counts independent`, async () => {
@@ -1623,5 +1989,36 @@ test('views reject numeric-offset timezones while preserving fixed IANA zones an
   assert.equal(page.cards.articles.views.results.hidden, false);
   assert.equal(page.cards.articles.views.value.textContent, '30');
   assert.match(page.cards.articles.views.interval.textContent, /Etc\/GMT\+1/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('directory views accept a valid IANA timezone and render that source metadata', async () => {
+  const records = directoryViewsRecords();
+  records['12m'].timeZone = 'Etc/GMT+1';
+  const page = createPage({ locale: 'en', data: snapshotWithDirectoryViews({ records }) });
+  await page.settle();
+
+  assertDirectoryViewsVisible(page, 'en', '12m');
+  assert.match(page.cards.directoryViews.interval.textContent, /Etc\/GMT\+1/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('invalid directory timezone metadata isolates its periods and preserves healthy siblings', async () => {
+  const records = directoryViewsRecords();
+  records['12m'].timeZone = '+01:00';
+  records['30d'].timeZone = 'Not/A_Timezone';
+  records['90d'].timeZone = 'Etc/GMT+2';
+  const page = createPage({ locale: 'en', data: snapshotWithDirectoryViews({ records }) });
+  await page.settle();
+
+  assertDirectoryViewsUnavailable(page, 'en');
+  page.periodSelector.value = '30d';
+  page.periodSelector.dispatch('change');
+  assertDirectoryViewsUnavailable(page, 'en');
+  page.periodSelector.value = '90d';
+  page.periodSelector.dispatch('change');
+  assertDirectoryViewsVisible(page, 'en', '90d');
+  assert.match(page.cards.directoryViews.interval.textContent, /Etc\/GMT\+2/);
+  assert.equal(page.cards.articles.count.textContent, '11');
   assert.equal(page.fetchCount, 1);
 });

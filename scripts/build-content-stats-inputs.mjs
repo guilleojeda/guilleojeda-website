@@ -206,11 +206,39 @@ function projectSearchConsole(searchConsole) {
   };
 }
 
+function projectDirectoryAnalytics(directoryAnalytics) {
+  assertObject(directoryAnalytics, 'directoryAnalytics');
+  const keys = Object.keys(directoryAnalytics).sort();
+  if (keys.join(',') !== 'hostname,id,language,propertyId,timeZone') {
+    invalid('directoryAnalytics must contain only the supported directory scope selectors');
+  }
+  if (directoryAnalytics.id !== 'donde-aprendo-aws') invalid('unsupported directoryAnalytics publication id');
+  if (typeof directoryAnalytics.propertyId !== 'string' || !/^\d+$/.test(directoryAnalytics.propertyId)) {
+    invalid('directoryAnalytics propertyId must be a decimal string');
+  }
+  if (directoryAnalytics.hostname !== 'dondeaprendoaws.com') {
+    invalid('unsupported directoryAnalytics hostname');
+  }
+  if (directoryAnalytics.language !== 'es') invalid('directoryAnalytics language must be es');
+  if (!isTimeZone(directoryAnalytics.timeZone)) {
+    invalid('directoryAnalytics timeZone must be a valid IANA time zone');
+  }
+
+  return {
+    id: directoryAnalytics.id,
+    propertyId: directoryAnalytics.propertyId,
+    hostname: directoryAnalytics.hostname,
+    language: directoryAnalytics.language,
+    timeZone: directoryAnalytics.timeZone
+  };
+}
+
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const sourceIds = validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
   const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
   const hasSearchConsole = Object.hasOwn(articleConfig, 'searchConsole');
+  const hasDirectoryAnalytics = Object.hasOwn(articleConfig, 'directoryAnalytics');
   if (hasAnalytics && !hasNewsletter) invalid('analytics requires the existing newsletter selection');
   if (hasSearchConsole && (!hasNewsletter || !hasAnalytics)) {
     invalid('searchConsole requires the existing newsletter and analytics selections');
@@ -223,9 +251,12 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   if (sourceIds.has('simple-aws') && newsletter.language !== 'en') {
     invalid('Simple AWS article source requires an English newsletter selection');
   }
+  const directoryAnalytics = hasDirectoryAnalytics
+    ? projectDirectoryAnalytics(articleConfig.directoryAnalytics)
+    : null;
 
   return {
-    schemaVersion: hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
+    schemaVersion: hasDirectoryAnalytics ? 7 : hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
@@ -234,7 +265,8 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     },
     ...(newsletter ? { newsletter } : {}),
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
-    ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {})
+    ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {}),
+    ...(directoryAnalytics ? { directoryAnalytics } : {})
   };
 }
 
