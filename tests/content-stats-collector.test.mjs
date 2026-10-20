@@ -5881,6 +5881,131 @@ test("input 8 adds outbound clicks to four-source collection with one shared Goo
   assert.equal(harness.secretCalls.length, 2);
 });
 
+test("input 8 adds the Simple AWS available-history total without changing other families and retains then recovers it", async () => {
+  const clock = createClock("2026-10-20T12:00:00.000Z");
+  const requestLog = [];
+  const recordedSince = "2023-05-02";
+  const articleTimeZone = "America/Cordoba";
+  let failTotal = false;
+  let totalViews = 131598;
+  const analyticsWithoutTotal = phaseFiveAnalytics({ propertyId: googlePropertyId, timeZone: articleTimeZone });
+  const cloudy = cloudyArticle({ id: "phase-eleven-cloudy-row", title: "Phase Eleven four-source proof" });
+  const harness = createHarness({
+    input: phaseTenInput({ analytics: { ...analyticsWithoutTotal } }),
+    clock,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const range = reportRange(request);
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+        const isArticleViews = !isDirectory && metricName === "screenPageViews";
+        if (isArticleViews && range.startDate === recordedSince) {
+          if (failTotal) return jsonResponse({ error: googleResponseCanary }, 403);
+          return jsonResponse(ga4Report({ views: totalViews, metricName, timeZone: articleTimeZone }));
+        }
+        return jsonResponse(ga4Report({
+          views: metricName === "eventCount" ? 23 : isDirectory ? 31 : 41,
+          metricName,
+          timeZone: isDirectory ? directoryTimeZone : articleTimeZone
+        }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 51 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const baseline = await readPut(harness.putCalls[0]);
+  const reportsBeforeTotal = googleRequests(requestLog, "google-report");
+  assert.equal(reportsBeforeTotal.length, 15, "input8 without recordedSince keeps the three existing five-period Analytics families");
+  assert.deepEqual(Object.keys(baseline.groups.articleViews.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+
+  const totalInput = phaseTenInput({
+    analytics: { ...analyticsWithoutTotal, recordedSince }
+  });
+  harness.setInput(totalInput);
+  await harness.handler({}, {});
+  const enabled = await readPut(harness.putCalls[1]);
+  const enabledReports = googleRequests(requestLog, "google-report").slice(reportsBeforeTotal.length);
+  assert.equal(enabledReports.length, 16, "the supported article total adds one aggregate query to the existing input8 calls");
+  const totalRequests = enabledReports.filter(({ url, json }) => url.includes(`/properties/${googlePropertyId}:`)
+    && json.metrics?.[0]?.name === "screenPageViews" && reportRange({ json }).startDate === recordedSince);
+  assert.equal(totalRequests.length, 1);
+  const totalRequest = totalRequests[0];
+  assert.equal(totalRequest.method, "POST");
+  assert.equal(totalRequest.redirect, "error");
+  assert.ok(totalRequest.signal);
+  assert.deepEqual(reportRange(totalRequest), { startDate: recordedSince, endDate: "2026-10-17" });
+  assert.deepEqual(totalRequest.json.metrics, [{ name: "screenPageViews" }]);
+  assert.deepEqual(totalRequest.json.dimensionFilter, {
+    andGroup: {
+      expressions: [
+        { filter: { fieldName: "hostName", stringFilter: { matchType: "EXACT", value: googleHostname, caseSensitive: true } } },
+        { filter: { fieldName: "pagePath", stringFilter: { matchType: "FULL_REGEXP", value: googleArticlePathPattern, caseSensitive: true } } }
+      ]
+    }
+  });
+  assert.deepEqual(Object.keys(totalRequest.json).sort(), ["dateRanges", "dimensionFilter", "metrics"]);
+
+  const totalRecord = enabled.groups.articleViews.records.total;
+  assert.deepEqual(Object.keys(totalRecord).sort(), ["basis", "collectedAt", "endDate", "publication", "qualifications", "scopeId", "startDate", "timeZone", "views"]);
+  assert.equal(totalRecord.basis, "recorded-total");
+  assert.equal(totalRecord.startDate, recordedSince);
+  assert.equal(totalRecord.endDate, "2026-10-17");
+  assert.equal(totalRecord.timeZone, articleTimeZone);
+  assert.equal(totalRecord.collectedAt, "2026-10-20T12:00:00.000Z");
+  assert.deepEqual(totalRecord.publication, { id: "simple-aws", label: "Simple AWS", language: "en" });
+  assert.equal(totalRecord.views, totalViews);
+  assert.deepEqual(totalRecord.qualifications, []);
+  assert.match(totalRecord.scopeId, /^[a-f0-9]{64}$/);
+  assert.notEqual(totalRecord.scopeId, enabled.groups.articleViews.records["12m"].scopeId,
+    "the all-available-history interval has its own recorded scope");
+  assert.notEqual(totalRecord.scopeId, enabled.groups.directoryViews.records["7d"].scopeId,
+    "Simple AWS and directory measures keep independent scopes");
+
+  const oldFamilies = (groups) => Object.fromEntries(Object.entries(groups).filter(([name]) => name !== "articleViews"));
+  assert.deepEqual(oldFamilies(enabled.groups), oldFamilies(baseline.groups), "counts, subscribers, Search, and both directory measures remain unchanged");
+  const articlePeriodsOnly = ({ total, ...periods }) => periods;
+  assert.deepEqual(articlePeriodsOnly(enabled.groups.articleViews.records), baseline.groups.articleViews.records,
+    "the five ordinary article-view windows remain unchanged");
+  assert.deepEqual(Object.keys(enabled.groups.articleSearchClicks.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.deepEqual(Object.keys(enabled.groups.directoryViews.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.deepEqual(Object.keys(enabled.groups.directoryOutboundClicks.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.equal(enabled.schemaVersion, 1);
+
+  failTotal = true;
+  clock.set("2026-10-21T12:00:00.000Z");
+  const reportsBeforeFailure = googleRequests(requestLog, "google-report").length;
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls[2]);
+  const failedTotalRequests = googleRequests(requestLog, "google-report").slice(reportsBeforeFailure)
+    .filter(({ url, json }) => url.includes(`/properties/${googlePropertyId}:`)
+      && json.metrics?.[0]?.name === "screenPageViews" && reportRange({ json }).startDate === recordedSince);
+  assert.equal(failedTotalRequests.length, 1);
+  assert.deepEqual(reportRange(failedTotalRequests[0]), { startDate: recordedSince, endDate: "2026-10-18" });
+  assert.deepEqual(retained.groups.articleViews.records.total, totalRecord,
+    "a failed total refresh retains its last successful value and complete provenance");
+  assert.equal(retained.groups.articleViews.records["7d"].collectedAt, "2026-10-21T12:00:00.000Z",
+    "successful ordinary article periods still refresh while the total is retained");
+
+  failTotal = false;
+  totalViews += 1;
+  clock.set("2026-10-22T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[3]);
+  const recoveredTotal = recovered.groups.articleViews.records.total;
+  assert.equal(recoveredTotal.views, totalViews);
+  assert.equal(recoveredTotal.collectedAt, "2026-10-22T12:00:00.000Z");
+  assert.equal(recoveredTotal.startDate, recordedSince);
+  assert.equal(recoveredTotal.endDate, "2026-10-19");
+  assert.equal(recoveredTotal.scopeId, totalRecord.scopeId, "recovery refreshes the same total scope");
+  assert.equal(recovered.groups.articles.counts.all, enabled.groups.articles.counts.all);
+  assertNoGoogleCanaries(harness, googlePropertyId, googleHostname, googleArticlePathPattern, googleResponseCanary);
+});
+
 test("outbound-click failures retain and recover per period independently from directory views", async () => {
   let failClicks30d = false;
   let failViews30d = false;

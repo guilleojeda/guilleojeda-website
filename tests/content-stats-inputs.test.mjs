@@ -787,6 +787,33 @@ test('adding Simple AWS preserves root input4, input5, and input6 projections an
   }
 });
 
+test('the maintained four-source input8 can add Simple AWS available history without changing other selectors', async () => {
+  const build = await inputBuilder();
+  const articleConfig = JSON.parse(readFileSync(new URL('../public/_content-stats/inputs.json', import.meta.url), 'utf8'));
+  articleConfig.sources[0].apiKey = 'synthetic-public-delivery-key';
+  const source = {
+    articleConfig,
+    talks: JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8')),
+    books: JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'))
+  };
+  const before = build(source);
+  assert.equal(before.schemaVersion, 8);
+  assert.deepEqual(before.sources.map(({ id }) => id), ['caylent', 'builder-center', 'simple-aws', 'cloudy-things']);
+
+  source.articleConfig.analytics.recordedSince = '2023-05-02';
+  freeze(source);
+  const result = build(source);
+
+  assert.equal(result.schemaVersion, 8, 'recorded history does not require another protected-input version');
+  assert.deepEqual(result.sources.map(({ id }) => id), before.sources.map(({ id }) => id));
+  assert.deepEqual(result.analytics, { ...before.analytics, recordedSince: '2023-05-02' });
+  assert.deepEqual(result.newsletter, before.newsletter);
+  assert.deepEqual(result.searchConsole, before.searchConsole);
+  assert.deepEqual(result.directoryAnalytics, before.directoryAnalytics);
+  assert.deepEqual(result.curated, before.curated);
+  assert.equal(Object.hasOwn(result, 'counts'), false, 'the build does not add derived traffic counts');
+});
+
 function cloudyThingsSelection() {
   return { id: 'cloudy-things', authorName: 'Guillermo Ojeda', language: 'en' };
 }

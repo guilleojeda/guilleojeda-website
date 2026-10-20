@@ -33,7 +33,8 @@
     "language": "en",
     "hostname": "newsletter.simpleaws.dev",
     "articlePathPattern": "/p/[^/]+/?",
-    "timeZone": "America/Cordoba"
+    "timeZone": "America/Cordoba",
+    "recordedSince": "2023-05-02"
   },
   "searchConsole": {
     "id": "simple-aws",
