@@ -663,6 +663,74 @@ test('directory outbound clicks preserve base input3 through input7 and the curr
   }
 });
 
+test('a directory history date selects input9 for Views-only and click-enabled sources', async () => {
+  const build = await inputBuilder();
+  const recordedSince = '2024-01-21';
+
+  const viewsOnlySource = fixture();
+  const input3 = build(viewsOnlySource);
+  viewsOnlySource.articleConfig.directoryAnalytics = { ...directoryAnalyticsSelection(), recordedSince };
+  freeze(viewsOnlySource);
+  const viewsOnly = build(viewsOnlySource);
+  const { schemaVersion: viewsVersion, directoryAnalytics: viewsSelection, ...viewsBase } = viewsOnly;
+  const { schemaVersion: baseVersion, ...baseFacts } = input3;
+  assert.equal(baseVersion, 3);
+  assert.equal(viewsVersion, 9);
+  assert.deepEqual(viewsBase, baseFacts, 'directory-only input9 preserves input3 facts without adding an article or Newsletter dependency');
+  assert.deepEqual(viewsSelection, { ...directoryAnalyticsSelection(), recordedSince });
+  assert.equal(Object.hasOwn(viewsOnly, 'newsletter'), false);
+  assert.equal(Object.hasOwn(viewsOnly, 'analytics'), false);
+  assert.equal(Object.hasOwn(viewsOnly, 'searchConsole'), false);
+  assert.deepEqual(Object.keys(viewsSelection).sort(), ['hostname', 'id', 'language', 'propertyId', 'recordedSince', 'timeZone']);
+
+  const clickSource = JSON.parse(readFileSync(new URL('../public/_content-stats/inputs.json', import.meta.url), 'utf8'));
+  clickSource.sources[0].apiKey = 'synthetic-public-delivery-key';
+  const source = {
+    articleConfig: clickSource,
+    talks: JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8')),
+    books: JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'))
+  };
+  delete source.articleConfig.directoryAnalytics.recordedSince;
+  const input8 = build(source);
+  assert.equal(input8.schemaVersion, 8, 'the maintained selector without a directory date stays input8');
+  source.articleConfig.directoryAnalytics.recordedSince = recordedSince;
+  freeze(source);
+  const currentInput9 = build(source);
+  assert.equal(currentInput9.schemaVersion, 9);
+  assert.deepEqual(currentInput9.sources.map(({ id }) => id), input8.sources.map(({ id }) => id));
+  assert.deepEqual(currentInput9.analytics, input8.analytics);
+  assert.deepEqual(currentInput9.newsletter, input8.newsletter);
+  assert.deepEqual(currentInput9.searchConsole, input8.searchConsole);
+  assert.deepEqual(currentInput9.curated, input8.curated);
+  assert.deepEqual(currentInput9.directoryAnalytics, { ...input8.directoryAnalytics, recordedSince });
+  assert.deepEqual(Object.keys(currentInput9.directoryAnalytics).sort(), [
+    'hostname', 'id', 'language', 'outboundClicks', 'propertyId', 'recordedSince', 'timeZone'
+  ]);
+});
+
+test('directory recordedSince accepts only a real date and the existing literal click opt-in', async () => {
+  const build = await inputBuilder();
+  const valid = { ...directoryAnalyticsSelection(), recordedSince: '2024-01-21' };
+  const invalid = [
+    { ...valid, recordedSince: '2024-2-21' },
+    { ...valid, recordedSince: '2024-02-30' },
+    { ...valid, recordedSince: null },
+    { ...valid, recordedSince: 20240121 },
+    { ...valid, outboundClicks: false },
+    { ...valid, outboundClicks: null },
+    { ...valid, outboundClicks: 'true' },
+    { ...valid, outboundClicks: 1 },
+    { ...valid, clientSecret: 'synthetic-client-secret' },
+    { ...valid, unknownField: true }
+  ];
+  for (const selector of invalid) {
+    const source = fixture();
+    source.articleConfig.directoryAnalytics = selector;
+    assert.throws(() => build(source), /directory|analytics|date|credential|secret|input/i,
+      `invalid input9 directory selection ${JSON.stringify(selector)}`);
+  }
+});
+
 test('directory Analytics rejects missing, malformed, unknown, private, and credential-bearing selectors', async () => {
   const build = await inputBuilder();
   const valid = directoryAnalyticsSelection();
@@ -688,7 +756,6 @@ test('directory Analytics rejects missing, malformed, unknown, private, and cred
     { ...valid, outboundClicks: 'true' },
     { ...valid, outboundClicks: 1 },
     { ...valid, outboundClicks: undefined },
-    { ...valid, recordedSince: '2024-01-01' },
     { ...valid, clientSecret: 'synthetic-client-secret' },
     { ...valid, refreshToken: 'synthetic-refresh-token' },
     { ...valid, accessToken: 'synthetic-access-token' },
@@ -791,6 +858,7 @@ test('the maintained four-source input8 can add Simple AWS available history wit
   const build = await inputBuilder();
   const articleConfig = JSON.parse(readFileSync(new URL('../public/_content-stats/inputs.json', import.meta.url), 'utf8'));
   articleConfig.sources[0].apiKey = 'synthetic-public-delivery-key';
+  delete articleConfig.directoryAnalytics.recordedSince;
   const source = {
     articleConfig,
     talks: JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8')),

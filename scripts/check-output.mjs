@@ -489,6 +489,8 @@ const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
 const hasDirectoryOutboundClicks = hasDirectoryAnalyticsSelection
   && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'outboundClicks');
+const hasDirectoryRecordedTotal = hasDirectoryAnalyticsSelection
+  && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'recordedSince');
 assert.deepEqual(Object.keys(inputs).sort(), [
   'curated',
   'definitionVersion',
@@ -502,7 +504,7 @@ assert.deepEqual(Object.keys(inputs).sort(), [
 'protected build input must combine source configuration and maintained facts without credentials');
 assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
 if (hasDirectoryOutboundClicks) assert.equal(sourceConfig.directoryAnalytics.outboundClicks, true, 'outbound clicks require the literal true selector');
-assert.equal(inputs.schemaVersion, hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 if (hasNewsletterSelection) {
@@ -552,16 +554,24 @@ if (hasSearchConsoleSelection) {
 if (hasDirectoryAnalyticsSelection) {
   assert.ok(sourceConfig.directoryAnalytics, 'directory Views input must come from a maintained selector');
   assert.deepEqual(Object.keys(sourceConfig.directoryAnalytics).sort(), [
-    'hostname', 'id', 'language', 'propertyId', 'timeZone', ...(hasDirectoryOutboundClicks ? ['outboundClicks'] : [])
-  ].sort(), 'maintained directory Analytics selector must contain only its source, scope facts, and optional click opt-in');
+    'hostname', 'id', 'language', 'propertyId', 'timeZone',
+    ...(hasDirectoryOutboundClicks ? ['outboundClicks'] : []),
+    ...(hasDirectoryRecordedTotal ? ['recordedSince'] : [])
+  ].sort(), 'maintained directory Analytics selector must contain only its source, scope facts, and optional click opt-in and recorded-history date');
   assert.equal(sourceConfig.directoryAnalytics.id, 'donde-aprendo-aws', 'directory selector identity');
   assert.equal(sourceConfig.directoryAnalytics.propertyId, '424203315', 'directory selector uses the verified GA4 property');
   assert.equal(sourceConfig.directoryAnalytics.hostname, 'dondeaprendoaws.com', 'directory selector covers the production apex hostname');
   assert.equal(sourceConfig.directoryAnalytics.language, 'es', 'directory language follows the Spanish original content');
   assert.equal(sourceConfig.directoryAnalytics.timeZone, 'America/Buenos_Aires', 'directory selector uses the verified GA4 property timezone');
+  if (hasDirectoryRecordedTotal) {
+    const recordedSince = sourceConfig.directoryAnalytics.recordedSince;
+    assert.ok(typeof recordedSince === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(recordedSince), 'directory recorded total needs a configured start date');
+    const parsedRecordedSince = new Date(`${recordedSince}T00:00:00.000Z`);
+    assert.ok(Number.isFinite(parsedRecordedSince.getTime()) && parsedRecordedSince.toISOString().slice(0, 10) === recordedSince,
+      'directory recorded-total start must be a real date');
+  }
   assert.deepEqual(inputs.directoryAnalytics, sourceConfig.directoryAnalytics,
-    `protected input${hasDirectoryOutboundClicks ? '8' : '7'} projects the exact maintained selector`);
-  assert.equal(Object.hasOwn(inputs.directoryAnalytics, 'recordedSince'), false, 'directory Views do not add recorded-total configuration');
+    `protected input${hasDirectoryRecordedTotal ? '9' : hasDirectoryOutboundClicks ? '8' : '7'} projects the exact maintained selector`);
 } else {
   assert.ok(!Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'compatible generated input remains valid before directory enablement');
 }

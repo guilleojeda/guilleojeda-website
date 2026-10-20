@@ -22,7 +22,8 @@ const directoryViewPeriodFacts = {
   '30d': { views: 47, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31', qualifications: ['thresholding'] },
   '90d': { views: 147, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31', qualifications: ['other-row'] },
   '12m': { views: 1470, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'thresholding', 'other-row'] },
-  ytd: { views: 970, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: [] }
+  ytd: { views: 970, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: [] },
+  total: { views: 24378, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2024-01-21', endDate: '2026-08-31', qualifications: ['sampled'] }
 };
 
 const directoryOutboundClickPeriodFacts = {
@@ -30,7 +31,8 @@ const directoryOutboundClickPeriodFacts = {
   '30d': { clicks: 41, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31', qualifications: ['sampled'] },
   '90d': { clicks: 206, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31', qualifications: ['thresholding'] },
   '12m': { clicks: 3111, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'other-row'] },
-  ytd: { clicks: 1901, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: ['thresholding'] }
+  ytd: { clicks: 1901, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: ['thresholding'] },
+  total: { clicks: 2272, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2024-01-21', endDate: '2026-08-31', qualifications: ['other-row'] }
 };
 
 const articleViewPeriodFacts = {
@@ -125,9 +127,9 @@ function snapshotWithNewsletter(options = {}) {
 function directoryViewsRecord(period, overrides = {}) {
   const facts = directoryViewPeriodFacts[period];
   return {
-    basis: 'period',
+    basis: period === 'total' ? 'recorded-total' : 'period',
     collectedAt: facts.collectedAt,
-    scopeId: 'd'.repeat(64),
+    scopeId: (period === 'total' ? 'e' : 'd').repeat(64),
     publication: { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' },
     timeZone: 'America/Buenos_Aires',
     startDate: facts.startDate,
@@ -150,9 +152,9 @@ function snapshotWithDirectoryViews({ data = snapshotWithArticleSearchClicks(), 
 function directoryOutboundClicksRecord(period, overrides = {}) {
   const facts = directoryOutboundClickPeriodFacts[period];
   return {
-    basis: 'period',
+    basis: period === 'total' ? 'recorded-total' : 'period',
     collectedAt: facts.collectedAt,
-    scopeId: 'a'.repeat(64),
+    scopeId: (period === 'total' ? 'b' : 'a').repeat(64),
     publication: { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' },
     timeZone: 'America/Buenos_Aires',
     startDate: facts.startDate,
@@ -965,7 +967,7 @@ for (const locale of ['en', 'es']) {
     const cases = [
       ['unsupported definition version', (group) => { group.definitionVersion = 2; }],
       ['private property field', (group) => { group.propertyId = '424203315'; }],
-      ['unsupported total record', (group) => { group.records.total = directoryOutboundClicksRecord('12m'); }],
+      ['unknown record key', (group) => { group.records.lifetime = directoryOutboundClicksRecord('12m'); }],
       ['malformed record map', (group) => { group.records = []; }]
     ];
 
@@ -1138,8 +1140,8 @@ for (const locale of ['en', 'es']) {
       ['private provider field', (group) => {
         group.records['12m'].propertyId = '424203315';
       }, true],
-      ['unsupported Recorded total key', (group) => {
-        group.records.total = directoryViewsRecord('12m', { basis: 'recorded-total' });
+      ['unknown record key', (group) => {
+        group.records.lifetime = directoryViewsRecord('12m');
       }, false],
       ['unknown directory group field', (group) => {
         group.hostname = 'dondeaprendoaws.com';
@@ -1234,35 +1236,157 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.fetchCount, 1);
   });
 
-  test(`${locale} directory period metrics stay unavailable for Recorded total and Spanish restores 12 months`, async () => {
-    const page = createPage({ locale, data: snapshotWithDirectoryOutboundClicks() });
+  test(`${locale} directory recorded totals retain independent values and shared metadata`, async () => {
+    const viewsRecords = directoryViewsRecords();
+    viewsRecords.total = directoryViewsRecord('total', { views: 0, qualifications: ['sampled', 'other-row'] });
+    const clicksRecords = directoryOutboundClicksRecords();
+    clicksRecords.total = directoryOutboundClicksRecord('total');
+    const data = snapshotWithDirectoryOutboundClicks({ records: clicksRecords });
+    data.groups.directoryViews.records = viewsRecords;
+    delete data.groups.articleViews;
+    const page = createPage({ locale, data });
     await page.settle();
 
+    assert.equal(page.periodOptions.total.disabled, false, 'directory totals enable the shared option without article Views total');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assert.equal(page.cards.directoryViews.value.textContent, '0', 'an explicit zero is a valid recorded total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
+    assertViewsUnavailable(page, locale);
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'Spanish directory totals keep the shared selection available');
+    assert.equal(page.periodOptions.total.disabled, false);
+    assertViewsUnavailable(page, locale);
+    assertSearchUnavailable(page, locale);
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.newsletter.card.hidden, true);
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, '12m', 'English falls back when no English total remains applicable');
+    assert.equal(page.periodOptions.total.disabled, true);
+    assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
+    assert.equal(page.cards.articles.count.textContent, '7');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, '12m', 'restoring total availability does not silently reselect it');
+    assert.equal(page.periodOptions.total.disabled, false);
     assertDirectoryViewsVisible(page, locale, '12m');
     assertDirectoryOutboundClicksVisible(page, locale, '12m');
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'All also retains the selected directory total');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} article and directory totals stay selected as language applicability changes`, async () => {
+    const clicksRecords = directoryOutboundClicksRecords();
+    clicksRecords.total = directoryOutboundClicksRecord('total');
+    const data = snapshotWithDirectoryOutboundClicks({ records: clicksRecords });
+    data.groups.directoryViews.records.total = directoryViewsRecord('total');
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.periodOptions.total.disabled, false);
     page.periodSelector.value = 'total';
     page.periodSelector.dispatch('change');
     assertViewsVisible(page, locale, 'total');
     assertSearchUnavailable(page, locale);
-    assertDirectoryViewsUnavailable(page, locale);
-    assertDirectoryOutboundClicksUnavailable(page, locale);
-    assert.equal(page.cards.articles.count.textContent, '11');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
 
     page.selector.value = 'es';
     page.selector.dispatch('change');
-    assert.equal(page.periodSelector.value, '12m', 'the existing article Views fallback remains unchanged for Spanish');
+    assert.equal(page.periodSelector.value, 'total', 'All to Spanish retains the selected period because directory totals apply');
+    assert.equal(page.periodOptions.total.disabled, false);
     assertViewsUnavailable(page, locale);
     assertSearchUnavailable(page, locale);
-    assertDirectoryViewsVisible(page, locale, '12m');
-    assertDirectoryOutboundClicksVisible(page, locale, '12m');
-    assert.equal(page.cards.articles.count.textContent, '4');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
 
     page.selector.value = 'en';
     page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'Spanish to English retains the period because article Views total applies');
+    assert.equal(page.periodOptions.total.disabled, false);
+    assertViewsVisible(page, locale, 'total');
+    assertSearchUnavailable(page, locale);
     assertDirectoryViewsUnavailable(page, locale, { hidden: true });
     assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
-    assert.equal(page.cards.articles.count.textContent, '7');
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'English to All retains the selected period');
+    assert.equal(page.periodOptions.total.disabled, false);
+    assertViewsVisible(page, locale, 'total');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
     assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} each valid directory total remains usable when its sibling total is missing or invalid`, async () => {
+    const cases = [
+      ['clicks only', false, true],
+      ['Views only', true, false],
+      ['Views total with invalid clicks total', true, 'invalid-clicks'],
+      ['clicks total with invalid Views total', 'invalid-views', true]
+    ];
+
+    for (const [description, viewsState, clicksState] of cases) {
+      const viewsRecords = directoryViewsRecords();
+      const clicksRecords = directoryOutboundClicksRecords();
+      if (viewsState === true) viewsRecords.total = directoryViewsRecord('total');
+      if (viewsState === 'invalid-views') viewsRecords.total = directoryViewsRecord('total', { basis: 'period' });
+      if (clicksState === true) clicksRecords.total = directoryOutboundClicksRecord('total');
+      if (clicksState === 'invalid-clicks') clicksRecords.total = directoryOutboundClicksRecord('total', { basis: 'period' });
+      const data = snapshotWithDirectoryOutboundClicks({ records: clicksRecords });
+      data.groups.directoryViews.records = viewsRecords;
+      data.groups.articleViews.definitionVersion = 99;
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assert.equal(page.periodOptions.total.disabled, false, `${description}: one valid directory total enables the shared option`);
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      if (viewsState === true) assertDirectoryViewsVisible(page, locale, 'total');
+      else assertDirectoryViewsUnavailable(page, locale);
+      if (clicksState === true) assertDirectoryOutboundClicksVisible(page, locale, 'total');
+      else assertDirectoryOutboundClicksUnavailable(page, locale);
+      assertViewsUnavailable(page, locale);
+      assertSearchUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      page.selector.value = 'es';
+      page.selector.dispatch('change');
+      assert.equal(page.periodSelector.value, 'total', `${description}: a valid Spanish directory total keeps the shared selection`);
+      assert.equal(page.periodOptions.total.disabled, false);
+      if (viewsState === true) assertDirectoryViewsVisible(page, locale, 'total');
+      else assertDirectoryViewsUnavailable(page, locale);
+      if (clicksState === true) assertDirectoryOutboundClicksVisible(page, locale, 'total');
+      else assertDirectoryOutboundClicksUnavailable(page, locale);
+      page.periodSelector.value = '12m';
+      page.periodSelector.dispatch('change');
+      assertDirectoryViewsVisible(page, locale, '12m');
+      assertDirectoryOutboundClicksVisible(page, locale, '12m');
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      assert.equal(page.fetchCount, 1);
+    }
   });
 
   test(`${locale} directory page views finish loading and isolate unavailable data after fetch failure`, async () => {
@@ -1336,6 +1460,23 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.fetchCount, 1, 'language and period controls share one fetch');
     assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
     assert.equal(page.location.href, 'https://guilleojeda.com/', 'local controls must not navigate');
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, 'total');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, '12m', 'article-only total falls back when Spanish has no directory total');
+    assert.equal(page.periodOptions.total.disabled, true);
+    assertViewsUnavailable(page, locale);
+    assertDirectoryViewsUnavailable(page, locale);
+    assertDirectoryOutboundClicksUnavailable(page, locale);
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, '12m', 'All re-enables article total without silently reselecting it');
+    assert.equal(page.periodOptions.total.disabled, false);
+    assertViewsVisible(page, locale, '12m');
   });
 
   test(`${locale} missing total disables only Recorded total and keeps supported periods available`, async () => {

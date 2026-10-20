@@ -173,6 +173,13 @@ function phaseTenInput({ baseInput, directoryAnalytics, ...options } = {}) {
   return input;
 }
 
+function phaseTwelveInput({ baseInput, directoryAnalytics, recordedSince = "2024-01-21", ...options } = {}) {
+  const input = phaseNineInput({ baseInput, directoryAnalytics, ...options });
+  input.schemaVersion = 9;
+  input.directoryAnalytics.recordedSince = recordedSince;
+  return input;
+}
+
 function cloudyArticle({
   id = "cloudy-id",
   slug = id,
@@ -3619,10 +3626,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 8 are rejected as unsupported", async () => {
+test("schema versions newer than input 9 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseSixInput(), schemaVersion: 9 },
+    input: { ...phaseSixInput(), schemaVersion: 10 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");
@@ -5382,6 +5389,89 @@ test("input 7 supports directory-only traffic and sends five bounded, all-path a
     googleOAuthParameterArn, directoryGooglePropertyId, directoryHostname);
 });
 
+test("input 9 adds the Views recorded total to directory-only collection without a Newsletter dependency", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const recordedSince = "2024-01-21";
+  const harness = createHarness({
+    input: phaseNineInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => jsonResponse(ga4Report({
+        views: reportRange(request).startDate === recordedSince ? 24378 : 75,
+        timeZone: directoryTimeZone
+      }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const baseline = await readPut(harness.putCalls[0]);
+  assert.equal(googleRequests(requestLog, "google-report").length, 5);
+  assert.equal(Object.hasOwn(baseline.groups.directoryViews.records, "total"), false);
+
+  harness.setInput(phaseTwelveInput({ baseInput: phaseThreeInput() }));
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[1]);
+  const reports = googleRequests(requestLog, "google-report").slice(5);
+  assert.equal(reports.length, 6, "input9 adds one Views aggregate to the five existing period reports");
+  assert.deepEqual(reports.map((request) => reportRange(request)), [
+    { startDate: "2026-10-11", endDate: "2026-10-17" },
+    { startDate: "2026-09-18", endDate: "2026-10-17" },
+    { startDate: "2026-07-20", endDate: "2026-10-17" },
+    { startDate: "2025-10-18", endDate: "2026-10-17" },
+    { startDate: "2026-01-01", endDate: "2026-10-17" },
+    { startDate: recordedSince, endDate: "2026-10-17" }
+  ]);
+  const totalRequest = reports.at(-1);
+  assertGoogleRequest(totalRequest, "directory Views recorded-total request");
+  assert.equal(totalRequest.url, `https://analyticsdata.googleapis.com/v1beta/properties/${directoryGooglePropertyId}:runReport`);
+  assert.deepEqual(totalRequest.json.metrics, [{ name: "screenPageViews" }]);
+  assert.deepEqual(googleFilterLeaves(totalRequest.json.dimensionFilter), [{
+    fieldName: "hostName",
+    stringFilter: { matchType: "EXACT", value: directoryHostname, caseSensitive: true }
+  }]);
+  assert.deepEqual(Object.keys(totalRequest.json).sort(), ["dateRanges", "dimensionFilter", "metrics"]);
+  assert.equal(Object.hasOwn(totalRequest.json, "dimensions"), false);
+
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "directoryViews", "talks"]);
+  assert.deepEqual(output.groups.directoryViews.records.total, {
+    basis: "recorded-total",
+    collectedAt: "2026-10-20T16:45:46.000Z",
+    endDate: "2026-10-17",
+    publication: { id: "donde-aprendo-aws", label: "Dónde Aprendo AWS", language: "es" },
+    qualifications: [],
+    scopeId: output.groups.directoryViews.records.total.scopeId,
+    startDate: recordedSince,
+    timeZone: directoryTimeZone,
+    views: 24378
+  });
+  assert.match(output.groups.directoryViews.records.total.scopeId, /^[a-f0-9]{64}$/);
+  assert.deepEqual(Object.keys(output.groups.directoryViews.records).sort(), ["12m", "30d", "7d", "90d", "total", "ytd"]);
+  const { total: _total, ...periodRecords } = output.groups.directoryViews.records;
+  assert.deepEqual(periodRecords, baseline.groups.directoryViews.records,
+    "all five ordinary directory records and their scopes remain byte-identical");
+  assert.equal(Object.hasOwn(output.groups, "newsletter"), false);
+  assert.equal(Object.hasOwn(output.groups, "articleViews"), false);
+  assert.equal(Object.hasOwn(output.groups, "articleSearchClicks"), false);
+  assert.deepEqual(harness.secretCalls, [], "directory-only input9 has no Beehiiv dependency");
+  assert.equal(requestLog.some(({ kind }) => kind.startsWith("beehiiv")), false);
+  assert.equal(Object.hasOwn(output.groups, "directoryOutboundClicks"), false);
+
+  const earlyClock = createClock("2024-01-23T12:00:00.000Z");
+  const earlyLog = [];
+  const earlyHarness = createHarness({
+    input: phaseTwelveInput({ baseInput: phaseThreeInput() }),
+    clock: earlyClock,
+    fetchFn: phaseFiveApiFetch({ requestLog: earlyLog })
+  });
+  await earlyHarness.handler({}, {});
+  const early = await readPut(earlyHarness.putCalls[0]);
+  assert.equal(googleRequests(earlyLog, "google-report").length, 0,
+    "a recorded-history start after the three-closed-day end has no eligible total or shortened periods");
+  if (early.groups.directoryViews) assert.deepEqual(Object.keys(early.groups.directoryViews.records), []);
+});
+
 test("malformed directory selectors fail before any provider or credential work", async () => {
   const valid = phaseNineDirectoryAnalytics();
   const { timeZone: _timeZone, ...missingTimeZone } = valid;
@@ -5833,6 +5923,50 @@ test("invalid input-8 outbound-click selectors reject before provider, credentia
   }
 });
 
+test("input 9 requires its own valid directory history date while inputs 7 and 8 keep their old shapes", async () => {
+  const valid = phaseTwelveInput({ baseInput: phaseThreeInput() });
+  const missingDate = structuredClone(valid);
+  delete missingDate.directoryAnalytics.recordedSince;
+  const malformed = [
+    { name: "missing input9 date", input: missingDate },
+    { name: "malformed input9 date", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, recordedSince: "2024-2-21" } } },
+    { name: "non-real input9 date", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, recordedSince: "2024-02-30" } } },
+    { name: "false click flag", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, outboundClicks: false } } },
+    { name: "unknown input9 selector", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, privateNote: "selector-canary" } } },
+    {
+      name: "date on input7",
+      input: phaseNineInput({
+        baseInput: phaseThreeInput(),
+        directoryAnalytics: { ...phaseNineDirectoryAnalytics(), recordedSince: "2024-01-21" }
+      })
+    },
+    {
+      name: "date on input8",
+      input: phaseTenInput({
+        baseInput: phaseThreeInput(),
+        directoryAnalytics: { ...phaseNineDirectoryAnalytics(), outboundClicks: true, recordedSince: "2024-01-21" }
+      })
+    }
+  ];
+
+  for (const { name, input } of malformed) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseFiveApiFetch({ requestLog }) });
+    const previous = JSON.stringify(priorFullOutput());
+    harness.objects.set(outputKey, previous);
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      assert.notEqual(error.code, "INPUT_VERSION_UNSUPPORTED", `${name} must be rejected by supported-version or selector validation`);
+      return true;
+    });
+    assert.deepEqual(harness.getCalls.map(({ Key }) => Key), [inputKey], `${name} is rejected after reading only protected input`);
+    assert.deepEqual(requestLog, [], `${name} must not call providers`);
+    assert.deepEqual(harness.secretCalls, []);
+    assert.deepEqual(harness.parameterCalls, []);
+    assert.equal(harness.putCalls.length, 0);
+    assert.equal(harness.objects.get(outputKey), previous, `${name} leaves current.json byte-for-byte unchanged`);
+  }
+});
+
 test("input 8 adds outbound clicks to four-source collection with one shared Google credential refresh", async () => {
   const requestLog = [];
   const cloudy = cloudyArticle({ id: "phase-ten-cloudy-row", title: "Phase Ten four-source proof" });
@@ -5879,6 +6013,347 @@ test("input 8 adds outbound clicks to four-source collection with one shared Goo
   assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }],
     "all enabled Google families share one SSM read");
   assert.equal(harness.secretCalls.length, 2);
+});
+
+test("input 9 adds both directory totals to the current eight-family collection and preserves existing scopes", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T12:00:00.000Z");
+  const articleRecordedSince = "2023-05-02";
+  const directoryRecordedSince = "2024-01-21";
+  const articleTimeZone = googleTimeZone;
+  const directorySelection = { ...phaseNineDirectoryAnalytics(), outboundClicks: true };
+  const articleSelection = phaseFiveAnalytics({ recordedSince: articleRecordedSince });
+  const cloudy = cloudyArticle({ id: "phase-twelve-cloudy-row", title: "Phase Twelve four-source proof" });
+  const harness = createHarness({
+    input: phaseTenInput({ analytics: articleSelection, directoryAnalytics: directorySelection }),
+    clock,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const range = reportRange(request);
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+        if (isDirectory && range.startDate === directoryRecordedSince) {
+          return jsonResponse(ga4Report({
+            views: metricName === "eventCount" ? 2272 : 24378,
+            metricName,
+            timeZone: directoryTimeZone
+          }));
+        }
+        if (!isDirectory && range.startDate === articleRecordedSince) {
+          return jsonResponse(ga4Report({ views: 131598, metricName, timeZone: articleTimeZone }));
+        }
+        return jsonResponse(ga4Report({
+          views: metricName === "eventCount" ? 23 : isDirectory ? 31 : 41,
+          metricName,
+          timeZone: isDirectory ? directoryTimeZone : articleTimeZone
+        }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 51 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const input8 = await readPut(harness.putCalls[0]);
+  const previousReportCount = googleRequests(requestLog, "google-report").length;
+  assert.equal(previousReportCount, 16, "input8 retains its existing article total and five periods for each directory metric");
+  assert.equal(input8.groups.articleViews.records.total.views, 131598);
+  assert.deepEqual(Object.keys(input8.groups.directoryViews.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.deepEqual(Object.keys(input8.groups.directoryOutboundClicks.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+
+  const input9 = phaseTwelveInput({ analytics: articleSelection, directoryAnalytics: directorySelection });
+  harness.setInput(input9);
+  const oauthStart = googleRequests(requestLog, "google-oauth").length;
+  const parameterStart = harness.parameterCalls.length;
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[1]);
+  const reports = googleRequests(requestLog, "google-report").slice(previousReportCount);
+  assert.equal(reports.length, 18, "the two directory totals add exactly two aggregate requests");
+  const totals = reports.filter(({ url, json }) => url.includes(`/properties/${directoryGooglePropertyId}:`)
+    && reportRange({ json }).startDate === directoryRecordedSince);
+  assert.equal(totals.length, 2);
+  assert.equal(googleRequests(requestLog, "google-oauth").length - oauthStart, 1);
+  assert.equal(harness.parameterCalls.length - parameterStart, 1, "input9 still uses one shared Google credential refresh");
+  assert.deepEqual(output.groups.articles.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "simple-aws", label: "Simple AWS" },
+    { id: "cloudy-things", label: "Cloudy Things" }
+  ]);
+  assert.deepEqual(Object.keys(output.groups).sort(), [
+    "articleSearchClicks", "articleViews", "articles", "books", "directoryOutboundClicks", "directoryViews", "newsletter", "talks"
+  ]);
+  assert.equal(output.schemaVersion, 1);
+
+  const viewsRequest = totals.find(({ json }) => json.metrics[0].name === "screenPageViews");
+  const clicksRequest = totals.find(({ json }) => json.metrics[0].name === "eventCount");
+  assert.ok(viewsRequest);
+  assert.ok(clicksRequest);
+  assert.deepEqual(clicksRequest.json.dimensionFilter, {
+    andGroup: {
+      expressions: [
+        { filter: { fieldName: "hostName", stringFilter: { matchType: "EXACT", value: directoryHostname, caseSensitive: true } } },
+        { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "click", caseSensitive: true } } },
+        { filter: { fieldName: "outbound", stringFilter: { matchType: "EXACT", value: "true", caseSensitive: true } } }
+      ]
+    }
+  }, "the click total combines host, click event, and outbound selection with AND semantics");
+  for (const request of totals) {
+    assertGoogleRequest(request, "directory recorded-total request");
+    assert.deepEqual(reportRange(request), { startDate: directoryRecordedSince, endDate: "2026-10-17" });
+    assert.deepEqual(Object.keys(request.json).sort(), ["dateRanges", "dimensionFilter", "metrics"]);
+    assert.equal(Object.hasOwn(request.json, "dimensions"), false);
+  }
+  assert.deepEqual(viewsRequest.json.metrics, [{ name: "screenPageViews" }]);
+  assert.deepEqual(googleFilterLeaves(viewsRequest.json.dimensionFilter), [{
+    fieldName: "hostName",
+    stringFilter: { matchType: "EXACT", value: directoryHostname, caseSensitive: true }
+  }]);
+  assert.deepEqual(clicksRequest.json.metrics, [{ name: "eventCount" }]);
+  assert.deepEqual(googleFilterLeaves(clicksRequest.json.dimensionFilter).sort((left, right) => left.fieldName.localeCompare(right.fieldName)), [
+    { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "click", caseSensitive: true } },
+    { fieldName: "hostName", stringFilter: { matchType: "EXACT", value: directoryHostname, caseSensitive: true } },
+    { fieldName: "outbound", stringFilter: { matchType: "EXACT", value: "true", caseSensitive: true } }
+  ]);
+
+  for (const [groupName, valueKey, expected] of [
+    ["directoryViews", "views", 24378],
+    ["directoryOutboundClicks", "clicks", 2272]
+  ]) {
+    const record = output.groups[groupName].records.total;
+    assert.equal(record.basis, "recorded-total");
+    assert.equal(record.startDate, directoryRecordedSince);
+    assert.equal(record.endDate, "2026-10-17");
+    assert.equal(record.timeZone, directoryTimeZone);
+    assert.equal(record.collectedAt, "2026-10-20T12:00:00.000Z");
+    assert.deepEqual(record.publication, { id: "donde-aprendo-aws", label: "Dónde Aprendo AWS", language: "es" });
+    assert.equal(record[valueKey], expected);
+    assert.deepEqual(record.qualifications, []);
+    assert.match(record.scopeId, /^[a-f0-9]{64}$/);
+  }
+  assert.notEqual(output.groups.directoryViews.records.total.scopeId, output.groups.directoryOutboundClicks.records.total.scopeId,
+    "directory Views and clicks keep metric-specific total scopes");
+  assert.deepEqual(output.groups.articleViews, input8.groups.articleViews, "the existing article total and windows stay unchanged");
+  assert.deepEqual(output.groups.articles, input8.groups.articles);
+  assert.deepEqual(output.groups.newsletter, input8.groups.newsletter);
+  assert.deepEqual(output.groups.talks, input8.groups.talks);
+  assert.deepEqual(output.groups.books, input8.groups.books);
+  assert.deepEqual(output.groups.articleSearchClicks, input8.groups.articleSearchClicks);
+  for (const groupName of ["directoryViews", "directoryOutboundClicks"]) {
+    const periods = ({ total, ...records }) => records;
+    assert.deepEqual(periods(output.groups[groupName].records), input8.groups[groupName].records,
+      `${groupName} keeps all five ordinary records and scopes unchanged`);
+  }
+  assertNoGoogleCanaries(harness, directoryGooglePropertyId, directoryHostname, googleResponseCanary);
+});
+
+test("directory totals fail, retain, recover, and follow date or click-selector removal independently", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  let recordedSince = "2024-01-21";
+  let failViewsTotal = true;
+  let failClicksTotal = true;
+  let oauthFails = false;
+  let totalViews = 0;
+  let totalClicks = 0;
+  let periodViews = 50;
+  let periodClicks = 70;
+  const clickSelection = { ...phaseNineDirectoryAnalytics(), outboundClicks: true };
+  const harness = createHarness({
+    input: phaseTwelveInput({ baseInput: phaseThreeInput(), directoryAnalytics: clickSelection }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      tokenResponder: () => oauthFails
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" }),
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const range = reportRange(request);
+        const isTotal = range.startDate === recordedSince;
+        if (isTotal && metricName === "screenPageViews" && failViewsTotal) {
+          return jsonResponse({ error: googleResponseCanary }, 403);
+        }
+        if (isTotal && metricName === "eventCount" && failClicksTotal) {
+          return jsonResponse({ error: googleResponseCanary }, 403);
+        }
+        return jsonResponse(ga4Report({
+          views: isTotal
+            ? metricName === "eventCount" ? totalClicks : totalViews
+            : metricName === "eventCount" ? periodClicks : periodViews,
+          metricName,
+          timeZone: directoryTimeZone,
+          metadata: isTotal ? { subjectToThresholding: true } : {}
+        }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const withoutPriorTotals = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(withoutPriorTotals.groups.directoryViews.records).sort(), ["12m", "30d", "7d", "90d", "ytd"],
+    "failed totals without a prior value remain unavailable while ordinary Views publish");
+  assert.deepEqual(Object.keys(withoutPriorTotals.groups.directoryOutboundClicks.records).sort(), ["12m", "30d", "7d", "90d", "ytd"],
+    "failed click totals without a prior value remain unavailable while ordinary clicks publish");
+
+  failViewsTotal = false;
+  failClicksTotal = false;
+  clock.set("2026-10-21T16:45:46.000Z");
+  await harness.handler({}, {});
+  const zeroTotals = await readPut(harness.putCalls[1]);
+  const originalViewsTotal = zeroTotals.groups.directoryViews.records.total;
+  const originalClicksTotal = zeroTotals.groups.directoryOutboundClicks.records.total;
+  assert.equal(originalViewsTotal.views, 0, "an explicit integer-zero Views total is measured data");
+  assert.equal(originalClicksTotal.clicks, 0, "an explicit integer-zero clicks total is measured data");
+  assert.deepEqual(originalViewsTotal.qualifications, ["thresholding"]);
+  assert.deepEqual(originalClicksTotal.qualifications, ["thresholding"]);
+
+  failViewsTotal = true;
+  totalClicks = 1;
+  periodViews = 51;
+  periodClicks = 71;
+  clock.set("2026-10-22T16:45:46.000Z");
+  await harness.handler({}, {});
+  const viewsFailure = await readPut(harness.putCalls[2]);
+  assert.deepEqual(viewsFailure.groups.directoryViews.records.total, originalViewsTotal,
+    "a Views-total failure retains its exact successful value and provenance");
+  assert.equal(viewsFailure.groups.directoryOutboundClicks.records.total.clicks, 1,
+    "the click total refreshes independently when Views fails");
+  assert.equal(viewsFailure.groups.directoryViews.records["7d"].collectedAt, "2026-10-22T16:45:46.000Z");
+
+  failViewsTotal = false;
+  failClicksTotal = true;
+  totalViews = 2;
+  periodViews = 52;
+  periodClicks = 72;
+  clock.set("2026-10-23T16:45:46.000Z");
+  await harness.handler({}, {});
+  const clicksFailure = await readPut(harness.putCalls[3]);
+  assert.equal(clicksFailure.groups.directoryViews.records.total.views, 2,
+    "the Views total refreshes independently when clicks fail");
+  assert.deepEqual(clicksFailure.groups.directoryOutboundClicks.records.total,
+    viewsFailure.groups.directoryOutboundClicks.records.total,
+    "a click-total failure retains its own successful value and provenance");
+
+  failClicksTotal = false;
+  totalClicks = 3;
+  periodViews = 53;
+  periodClicks = 73;
+  clock.set("2026-10-24T16:45:46.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[4]);
+  assert.equal(recovered.groups.directoryViews.records.total.views, totalViews);
+  assert.equal(recovered.groups.directoryOutboundClicks.records.total.clicks, totalClicks);
+  assert.equal(recovered.groups.directoryViews.records.total.scopeId, originalViewsTotal.scopeId);
+  assert.equal(recovered.groups.directoryOutboundClicks.records.total.scopeId, originalClicksTotal.scopeId);
+
+  recordedSince = "2024-01-22";
+  harness.setInput(phaseTwelveInput({
+    baseInput: phaseThreeInput(),
+    directoryAnalytics: clickSelection,
+    recordedSince
+  }));
+  await harness.handler({}, {});
+  const changedStart = await readPut(harness.putCalls[5]);
+  assert.equal(changedStart.groups.directoryViews.records.total.startDate, recordedSince);
+  assert.equal(changedStart.groups.directoryOutboundClicks.records.total.startDate, recordedSince);
+  assert.notEqual(changedStart.groups.directoryViews.records.total.scopeId, recovered.groups.directoryViews.records.total.scopeId);
+  assert.notEqual(changedStart.groups.directoryOutboundClicks.records.total.scopeId, recovered.groups.directoryOutboundClicks.records.total.scopeId);
+  for (const groupName of ["directoryViews", "directoryOutboundClicks"]) {
+    assert.deepEqual(changedStart.groups[groupName].records["30d"], recovered.groups[groupName].records["30d"],
+      "changing the recorded-history start changes total scope but leaves ordinary period records unchanged");
+  }
+
+  oauthFails = true;
+  recordedSince = "2024-01-23";
+  harness.setInput(phaseTwelveInput({
+    baseInput: phaseThreeInput(),
+    directoryAnalytics: clickSelection,
+    recordedSince
+  }));
+  clock.set("2026-10-26T16:45:46.000Z");
+  await harness.handler({}, {});
+  const oauthFailure = await readPut(harness.putCalls[6]);
+  for (const groupName of ["directoryViews", "directoryOutboundClicks"]) {
+    assert.deepEqual(oauthFailure.groups[groupName], changedStart.groups[groupName],
+      `${groupName} eligible totals and ordinary records retain verbatim on shared credential failure`);
+  }
+
+  harness.setInput(phaseTenInput({
+    baseInput: phaseThreeInput(),
+    directoryAnalytics: clickSelection
+  }));
+  clock.set("2026-10-27T16:45:46.000Z");
+  await harness.handler({}, {});
+  const removedDate = await readPut(harness.putCalls[7]);
+  for (const groupName of ["directoryViews", "directoryOutboundClicks"]) {
+    assert.deepEqual(Object.keys(removedDate.groups[groupName].records).sort(), ["12m", "30d", "7d", "90d", "ytd"],
+      `${groupName} drops an ineligible old total even when credential failure invokes prior retention`);
+  }
+
+  oauthFails = false;
+  recordedSince = "2024-01-21";
+  harness.setInput(phaseTwelveInput({
+    baseInput: phaseThreeInput(),
+    directoryAnalytics: phaseNineDirectoryAnalytics(),
+    recordedSince
+  }));
+  clock.set("2026-10-28T16:45:46.000Z");
+  await harness.handler({}, {});
+  const clicksRemoved = await readPut(harness.putCalls[8]);
+  assert.equal(clicksRemoved.groups.directoryViews.records.total.startDate, recordedSince);
+  assert.equal(Object.hasOwn(clicksRemoved.groups, "directoryOutboundClicks"), false,
+    "removing only the outbound-click selection removes that family but retains the Views total");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("a prior directory total with a period basis is discarded without losing valid periods or its healthy sibling", async () => {
+  const requestLog = [];
+  let viewsUnavailable = false;
+  const harness = createHarness({
+    input: phaseTwelveInput({
+      baseInput: phaseThreeInput(),
+      directoryAnalytics: { ...phaseNineDirectoryAnalytics(), outboundClicks: true }
+    }),
+    clock: createClock("2026-10-20T16:45:46.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        if (viewsUnavailable && metricName === "screenPageViews") {
+          return jsonResponse({ error: googleResponseCanary }, 403);
+        }
+        return jsonResponse(ga4Report({
+          views: metricName === "eventCount" ? 70 : 40,
+          metricName,
+          timeZone: directoryTimeZone
+        }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const malformedPrior = structuredClone(first);
+  malformedPrior.groups.directoryViews.records.total.basis = "period";
+  harness.objects.set(outputKey, JSON.stringify(malformedPrior));
+
+  viewsUnavailable = true;
+  harness.clock.set("2026-10-21T16:45:46.000Z");
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+  const viewRecords = second.groups.directoryViews.records;
+  const previousPeriods = ({ total, ...periods }) => periods;
+  assert.equal(Object.hasOwn(viewRecords, "total"), false,
+    "a malformed failed total is sanitized instead of retained from prior output");
+  assert.deepEqual(viewRecords, previousPeriods(first.groups.directoryViews.records),
+    "valid failed Views periods remain available with their exact prior values and metadata");
+  assert.equal(second.groups.directoryOutboundClicks.records.total.clicks, 70,
+    "the independent click total still refreshes successfully");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
 });
 
 test("input 8 adds the Simple AWS available-history total without changing other families and retains then recovers it", async () => {
