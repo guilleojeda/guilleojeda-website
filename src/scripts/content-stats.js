@@ -2,8 +2,8 @@ const endpointPath = '/content-stats/v1/current.json';
 const knownKinds = ['articles', 'talks', 'books', 'newsletter'];
 const knownViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const knownSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
-const knownDirectoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
-const knownDirectoryOutboundClickPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
+const knownDirectoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
+const knownDirectoryOutboundClickPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
@@ -210,9 +210,10 @@ function validateArticleSearchClicks(value) {
   ]));
 }
 
-function validateDirectoryViewsRecord(value) {
+function validateDirectoryViewsRecord(value, period) {
+  const expectedBasis = period === 'total' ? 'recorded-total' : 'period';
   if (!hasOnlyKeys(value, allowedKeys.directoryViewsRecord)
-    || value.basis !== 'period'
+    || value.basis !== expectedBasis
     || !isSupportedTimestamp(value.collectedAt)
     || !isSha256(value.scopeId)
     || !hasOnlyKeys(value.publication, allowedKeys.publication)
@@ -239,13 +240,14 @@ function validateDirectoryViews(value) {
 
   return Object.fromEntries(knownDirectoryViewPeriods.map((period) => [
     period,
-    Object.hasOwn(value.records, period) ? validateDirectoryViewsRecord(value.records[period]) : null
+    Object.hasOwn(value.records, period) ? validateDirectoryViewsRecord(value.records[period], period) : null
   ]));
 }
 
-function validateDirectoryOutboundClicksRecord(value) {
+function validateDirectoryOutboundClicksRecord(value, period) {
+  const expectedBasis = period === 'total' ? 'recorded-total' : 'period';
   if (!hasOnlyKeys(value, allowedKeys.directoryOutboundClicksRecord)
-    || value.basis !== 'period'
+    || value.basis !== expectedBasis
     || !isSupportedTimestamp(value.collectedAt)
     || !isSha256(value.scopeId)
     || !hasOnlyKeys(value.publication, allowedKeys.publication)
@@ -272,7 +274,7 @@ function validateDirectoryOutboundClicks(value) {
 
   return Object.fromEntries(knownDirectoryOutboundClickPeriods.map((period) => [
     period,
-    Object.hasOwn(value.records, period) ? validateDirectoryOutboundClicksRecord(value.records[period]) : null
+    Object.hasOwn(value.records, period) ? validateDirectoryOutboundClicksRecord(value.records[period], period) : null
   ]));
 }
 
@@ -492,14 +494,23 @@ function renderViewsLoading(views) {
   views.status.hidden = false;
 }
 
+function updateRecordedTotalAvailability(snapshot, language, elements) {
+  const { periodSelector, totalOption } = elements;
+  if (!periodSelector || !totalOption) return;
+
+  const articleTotalSupported = language !== 'es' && Boolean(snapshot?.articleViews?.total);
+  const directoryTotalSupported = language !== 'en'
+    && Boolean(snapshot?.directoryViews?.total || snapshot?.directoryOutboundClicks?.total);
+  const totalSupported = articleTotalSupported || directoryTotalSupported;
+  totalOption.disabled = !totalSupported;
+  if (!totalSupported && periodSelector.value === 'total') periodSelector.value = '12m';
+}
+
 function renderViews(snapshot, locale, language, elements) {
   if (!viewsElementsReady(elements)) return;
 
-  const { periodSelector, totalOption, views } = elements;
+  const { periodSelector, views } = elements;
   const records = snapshot?.articleViews;
-  const totalSupported = language !== 'es' && Boolean(records?.total);
-  totalOption.disabled = !totalSupported;
-  if (!totalSupported && periodSelector.value === 'total') periodSelector.value = '12m';
 
   if (language === 'es') {
     renderViewsUnavailable(elements, locale);
@@ -632,11 +643,6 @@ function renderDirectoryViews(snapshot, locale, language, elements) {
     return;
   }
 
-  if (periodSelector.value === 'total') {
-    renderDirectoryViewsUnavailable(elements, locale);
-    return;
-  }
-
   const period = knownDirectoryViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
   const record = snapshot?.directoryViews?.[period];
   if (!record) {
@@ -703,11 +709,6 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
     return;
   }
 
-  if (periodSelector.value === 'total') {
-    renderDirectoryOutboundClicksUnavailable(elements, locale);
-    return;
-  }
-
   const period = knownDirectoryOutboundClickPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
   const record = snapshot?.directoryOutboundClicks?.[period];
   if (!record) {
@@ -728,6 +729,14 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
   clicks.results.hidden = false;
   clicks.status.hidden = true;
   clicks.status.textContent = '';
+}
+
+function renderActivity(snapshot, locale, language, elements) {
+  updateRecordedTotalAvailability(snapshot, language, elements);
+  renderViews(snapshot, locale, language, elements);
+  renderSearch(snapshot, locale, language, elements);
+  renderDirectoryViews(snapshot, locale, language, elements);
+  renderDirectoryOutboundClicks(snapshot, locale, language, elements);
 }
 
 async function loadContentStats(section) {
@@ -774,23 +783,16 @@ async function loadContentStats(section) {
     elements.periodSelector.disabled = false;
   }
   else if (elements.totalOption) elements.totalOption.disabled = true;
-  renderViews(snapshot, locale, elements.selector.value, elements);
-  renderSearch(snapshot, locale, elements.selector.value, elements);
-  renderDirectoryViews(snapshot, locale, elements.selector.value, elements);
-  renderDirectoryOutboundClicks(snapshot, locale, elements.selector.value, elements);
+  renderActivity(snapshot, locale, elements.selector.value, elements);
   elements.selector.addEventListener('change', () => {
     renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
-    renderViews(snapshot, locale, elements.selector.value, elements);
-    renderSearch(snapshot, locale, elements.selector.value, elements);
-    renderDirectoryViews(snapshot, locale, elements.selector.value, elements);
-    renderDirectoryOutboundClicks(snapshot, locale, elements.selector.value, elements);
+    renderActivity(snapshot, locale, elements.selector.value, elements);
   });
   if (viewsElementsReady(elements) || searchElementsReady(elements)
     || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements)) {
-    elements.periodSelector.addEventListener('change', () => renderViews(snapshot, locale, elements.selector.value, elements));
-    elements.periodSelector.addEventListener('change', () => renderSearch(snapshot, locale, elements.selector.value, elements));
-    elements.periodSelector.addEventListener('change', () => renderDirectoryViews(snapshot, locale, elements.selector.value, elements));
-    elements.periodSelector.addEventListener('change', () => renderDirectoryOutboundClicks(snapshot, locale, elements.selector.value, elements));
+    elements.periodSelector.addEventListener('change', () => {
+      renderActivity(snapshot, locale, elements.selector.value, elements);
+    });
   }
 }
 
