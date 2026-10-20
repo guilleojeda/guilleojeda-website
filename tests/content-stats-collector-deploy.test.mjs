@@ -64,6 +64,22 @@ function changeSetResponse() {
   };
 }
 
+function dynamicReferencePreview({ logicalId, resourceType, targetName, causingEntities }) {
+  return { ResourceChange: {
+    LogicalResourceId: logicalId,
+    ResourceType: resourceType,
+    Action: "Modify",
+    Replacement: "False",
+    Scope: ["Properties"],
+    Details: causingEntities.map((CausingEntity) => ({
+      Evaluation: "Dynamic",
+      ChangeSource: "ResourceAttribute",
+      Target: { Attribute: "Properties", Name: targetName },
+      CausingEntity
+    }))
+  } };
+}
+
 function awsRun({
   originalTemplate,
   remoteSha = commitSha,
@@ -192,6 +208,78 @@ test("a changed collector is updated once through CloudFormation and verified fr
   assert.ok(calls.some(({ command, args, options }) => command === "aws" && args[1] === "wait" && options.timeoutMs === 20 * 60 * 1000));
 });
 
+test("a code-only template accepts only the known dynamic Scheduler dependency previews", async () => {
+  const originalTemplate = structuredClone(targetTemplate);
+  originalTemplate.Resources.ContentStatsCollector.Properties.Code.ZipFile = "older collector source\n";
+  const changeSet = changeSetResponse();
+  changeSet.Changes.push(
+    dynamicReferencePreview({
+      logicalId: "ContentStatsSchedulerRole",
+      resourceType: "AWS::IAM::Role",
+      targetName: "Policies",
+      causingEntities: ["ContentStatsCollector.Arn"]
+    }),
+    dynamicReferencePreview({
+      logicalId: "ContentStatsDailySchedule",
+      resourceType: "AWS::Scheduler::Schedule",
+      targetName: "Target",
+      causingEntities: ["ContentStatsCollector.Arn", "ContentStatsSchedulerRole.Arn"]
+    })
+  );
+  const { calls, run } = awsRun({ originalTemplate, changeSetResponses: [changeSet] });
+  const result = await runCollectorDeployment({ env: env(), run, fetchFn: fetchArchive(targetSource) });
+
+  assert.equal(result.status, "updated");
+  assert.equal(calls.filter(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "execute-change-set").length, 1);
+});
+
+test("direct or static Scheduler dependency changes are rejected before execution", async (t) => {
+  const invalidPreviews = [
+    {
+      name: "direct IAM role edit",
+      preview: dynamicReferencePreview({
+        logicalId: "ContentStatsSchedulerRole",
+        resourceType: "AWS::IAM::Role",
+        targetName: "Policies",
+        causingEntities: ["ContentStatsCollector.Arn"]
+      }),
+      mutate(preview) {
+        preview.ResourceChange.Details[0].ChangeSource = "DirectModification";
+      }
+    },
+    {
+      name: "static schedule edit",
+      preview: dynamicReferencePreview({
+        logicalId: "ContentStatsDailySchedule",
+        resourceType: "AWS::Scheduler::Schedule",
+        targetName: "Target",
+        causingEntities: ["ContentStatsCollector.Arn"]
+      }),
+      mutate(preview) {
+        preview.ResourceChange.Details[0].Evaluation = "Static";
+      }
+    }
+  ];
+
+  for (const { name, preview, mutate } of invalidPreviews) {
+    await t.test(name, async () => {
+      const originalTemplate = structuredClone(targetTemplate);
+      originalTemplate.Resources.ContentStatsCollector.Properties.Code.ZipFile = "older collector source\n";
+      mutate(preview);
+      const changeSet = changeSetResponse();
+      changeSet.Changes.push(preview);
+      const { calls, run } = awsRun({ originalTemplate, changeSetResponses: [changeSet] });
+
+      await assert.rejects(
+        () => runCollectorDeployment({ env: env(), run }),
+        /unexpected or non-dynamic resource change/
+      );
+      assert.equal(calls.some(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "execute-change-set"), false);
+      assert.equal(calls.some(({ command, args }) => command === "aws" && args[0] === "lambda" && args[1] === "get-function"), false);
+    });
+  }
+});
+
 test("an unchanged deployed template is idempotent and still verifies the live Lambda source", async () => {
   const { calls, run } = awsRun();
   const result = await runCollectorDeployment({ env: env(), run, fetchFn: fetchArchive(targetSource) });
@@ -249,7 +337,7 @@ test("CREATE_IN_PROGRESS waits and re-describes before rejecting an out-of-scope
     ]
   });
 
-  await assert.rejects(() => runCollectorDeployment({ env: env(), run }), /2 resource changes/);
+  await assert.rejects(() => runCollectorDeployment({ env: env(), run }), /unexpected or non-dynamic resource change \(SiteBucket\)/);
   assert.equal(calls.filter(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "describe-change-set").length, 2);
   assert.equal(calls.filter(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "wait" && args[2] === "change-set-create-complete").length, 1);
   assert.equal(calls.some(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "execute-change-set"), false);
@@ -331,7 +419,7 @@ test("CI IAM permits only template reads and scoped collector code change sets",
   const inspectChangeSet = statements.find(({ Sid }) => Sid === "InspectAndExecuteCollectorCodeChangeSet");
   assert.deepEqual(inspectChangeSet.Action.sort(), ["cloudformation:DescribeChangeSet", "cloudformation:ExecuteChangeSet"].sort());
   assert.match(JSON.stringify(inspectChangeSet.Resource), /stack\/\$\{AWS::StackName\}\/\*/);
-  assert.equal(inspectChangeSet.Condition.StringLike["cloudformation:ChangeSetName"], "content-stats-collector-*");
+  assert.equal(inspectChangeSet.Condition, undefined);
   const lambda = statements.find(({ Sid }) => Sid === "ReadAndUpdateCollectorFunction");
   assert.deepEqual(lambda.Action.sort(), [
     "lambda:GetFunction",

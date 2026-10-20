@@ -684,11 +684,6 @@
                   ],
                   "Resource": {
                     "Fn::Sub": "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
-                  },
-                  "Condition": {
-                    "StringLike": {
-                      "cloudformation:ChangeSetName": "content-stats-collector-*"
-                    }
                   }
                 },
                 {
