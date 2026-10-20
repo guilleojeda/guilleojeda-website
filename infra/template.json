@@ -660,6 +660,22 @@
                   }
                 },
                 {
+                  "Sid": "ReadSiteHostedZoneMetadata",
+                  "Effect": "Allow",
+                  "Action": "route53:GetHostedZone",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:route53:::hostedzone/${SiteHostedZone}"
+                  }
+                },
+                {
+                  "Sid": "ReadSiteDistributionMetadata",
+                  "Effect": "Allow",
+                  "Action": "cloudfront:GetDistribution",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${SiteDistribution}"
+                  }
+                },
+                {
                   "Sid": "CreateCollectorCodeChangeSet",
                   "Effect": "Allow",
                   "Action": "cloudformation:CreateChangeSet",
