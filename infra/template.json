@@ -706,6 +706,25 @@
                   }
                 },
                 {
+                  "Sid": "ReadCollectorRelatedRoles",
+                  "Effect": "Allow",
+                  "Action": "iam:GetRole",
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": [
+                        "ContentStatsCollectorExecutionRole",
+                        "Arn"
+                      ]
+                    },
+                    {
+                      "Fn::GetAtt": [
+                        "ContentStatsSchedulerRole",
+                        "Arn"
+                      ]
+                    }
+                  ]
+                },
+                {
                   "Sid": "PassCollectorExecutionRoleToLambda",
                   "Effect": "Allow",
                   "Action": "iam:PassRole",

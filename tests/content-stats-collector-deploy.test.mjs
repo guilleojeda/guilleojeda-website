@@ -208,7 +208,7 @@ test("a changed collector is updated once through CloudFormation and verified fr
   assert.ok(calls.some(({ command, args, options }) => command === "aws" && args[1] === "wait" && options.timeoutMs === 20 * 60 * 1000));
 });
 
-test("a code-only template accepts only the known dynamic Scheduler dependency previews", async () => {
+test("a code-only template accepts the known dynamic collector and Scheduler dependency previews", async () => {
   const originalTemplate = structuredClone(targetTemplate);
   originalTemplate.Resources.ContentStatsCollector.Properties.Code.ZipFile = "older collector source\n";
   const changeSet = changeSetResponse();
@@ -224,6 +224,37 @@ test("a code-only template accepts only the known dynamic Scheduler dependency p
       resourceType: "AWS::Scheduler::Schedule",
       targetName: "Target",
       causingEntities: ["ContentStatsCollector.Arn", "ContentStatsSchedulerRole.Arn"]
+    })
+  );
+  const { calls, run } = awsRun({ originalTemplate, changeSetResponses: [changeSet] });
+  const result = await runCollectorDeployment({ env: env(), run, fetchFn: fetchArchive(targetSource) });
+
+  assert.equal(result.status, "updated");
+  assert.equal(calls.filter(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "execute-change-set").length, 1);
+});
+
+test("a code-only template accepts the exact four-resource dynamic GetAtt preview", async () => {
+  const originalTemplate = structuredClone(targetTemplate);
+  originalTemplate.Resources.ContentStatsCollector.Properties.Code.ZipFile = "older collector source\n";
+  const changeSet = changeSetResponse();
+  changeSet.Changes.push(
+    dynamicReferencePreview({
+      logicalId: "ContentStatsSchedulerRole",
+      resourceType: "AWS::IAM::Role",
+      targetName: "Policies",
+      causingEntities: ["ContentStatsCollector.Arn"]
+    }),
+    dynamicReferencePreview({
+      logicalId: "ContentStatsDailySchedule",
+      resourceType: "AWS::Scheduler::Schedule",
+      targetName: "Target",
+      causingEntities: ["ContentStatsCollector.Arn", "ContentStatsSchedulerRole.Arn"]
+    }),
+    dynamicReferencePreview({
+      logicalId: "SiteDeploymentRole",
+      resourceType: "AWS::IAM::Role",
+      targetName: "Policies",
+      causingEntities: ["ContentStatsSchedulerRole.Arn"]
     })
   );
   const { calls, run } = awsRun({ originalTemplate, changeSetResponses: [changeSet] });
@@ -278,6 +309,48 @@ test("direct or static Scheduler dependency changes are rejected before executio
       assert.equal(calls.some(({ command, args }) => command === "aws" && args[0] === "lambda" && args[1] === "get-function"), false);
     });
   }
+});
+
+test("a direct CI deployment policy edit is rejected before execution", async () => {
+  const originalTemplate = structuredClone(targetTemplate);
+  originalTemplate.Resources.ContentStatsCollector.Properties.Code.ZipFile = "older collector source\n";
+  const ciRolePreview = dynamicReferencePreview({
+    logicalId: "SiteDeploymentRole",
+    resourceType: "AWS::IAM::Role",
+    targetName: "Policies",
+    causingEntities: ["ContentStatsSchedulerRole.Arn"]
+  });
+  ciRolePreview.ResourceChange.Details[0].ChangeSource = "DirectModification";
+  const changeSet = changeSetResponse();
+  changeSet.Changes.push(ciRolePreview);
+  const { calls, run } = awsRun({ originalTemplate, changeSetResponses: [changeSet] });
+
+  await assert.rejects(
+    () => runCollectorDeployment({ env: env(), run }),
+    /unexpected or non-dynamic resource change \(SiteDeploymentRole\)/
+  );
+  assert.equal(calls.some(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "execute-change-set"), false);
+});
+
+test("a replacement CI role preview is rejected before execution", async () => {
+  const originalTemplate = structuredClone(targetTemplate);
+  originalTemplate.Resources.ContentStatsCollector.Properties.Code.ZipFile = "older collector source\n";
+  const ciRolePreview = dynamicReferencePreview({
+    logicalId: "SiteDeploymentRole",
+    resourceType: "AWS::IAM::Role",
+    targetName: "Policies",
+    causingEntities: ["ContentStatsSchedulerRole.Arn"]
+  });
+  ciRolePreview.ResourceChange.Replacement = "True";
+  const changeSet = changeSetResponse();
+  changeSet.Changes.push(ciRolePreview);
+  const { calls, run } = awsRun({ originalTemplate, changeSetResponses: [changeSet] });
+
+  await assert.rejects(
+    () => runCollectorDeployment({ env: env(), run }),
+    /unexpected or non-dynamic resource change \(SiteDeploymentRole\)/
+  );
+  assert.equal(calls.some(({ command, args }) => command === "aws" && args[0] === "cloudformation" && args[1] === "execute-change-set"), false);
 });
 
 test("an unchanged deployed template is idempotent and still verifies the live Lambda source", async () => {
@@ -438,9 +511,15 @@ test("CI IAM permits only template reads and scoped collector code change sets",
   assert.equal(passRole.Action, "iam:PassRole");
   assert.deepEqual(passRole.Resource, { "Fn::GetAtt": ["ContentStatsCollectorExecutionRole", "Arn"] });
   assert.deepEqual(passRole.Condition.StringEquals["iam:PassedToService"], "lambda.amazonaws.com");
+  const roleRead = statements.find(({ Sid }) => Sid === "ReadCollectorRelatedRoles");
+  assert.equal(roleRead.Action, "iam:GetRole");
+  assert.deepEqual(roleRead.Resource, [
+    { "Fn::GetAtt": ["ContentStatsCollectorExecutionRole", "Arn"] },
+    { "Fn::GetAtt": ["ContentStatsSchedulerRole", "Arn"] }
+  ]);
   const actionNames = statements.flatMap(({ Action }) => Array.isArray(Action) ? Action : [Action]);
   assert.equal(actionNames.some((action) => /(?:InvokeFunction|scheduler:|secretsmanager:|ssm:|logs:|GetFunctionConfiguration)/i.test(action)), false);
-  assert.deepEqual(actionNames.filter((action) => action.startsWith("iam:")), ["iam:PassRole"]);
+  assert.deepEqual(actionNames.filter((action) => action.startsWith("iam:")).sort(), ["iam:GetRole", "iam:PassRole"].sort());
   assert.ok(actionNames.includes("s3:ListBucket"));
   assert.ok(actionNames.includes("s3:PutObject"));
   const outputDeny = statements.find(({ Sid }) => Sid === "DenyCollectorOutputWrites");

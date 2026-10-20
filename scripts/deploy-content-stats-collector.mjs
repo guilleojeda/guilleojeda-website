@@ -247,6 +247,12 @@ function ensureCodeOnlyChangeSet(changeSet) {
       causingEntities: ["ContentStatsCollector.Arn", "ContentStatsSchedulerRole.Arn"]
     })) continue;
 
+    if (logicalId === "SiteDeploymentRole" && isDynamicReferencePreview(resourceChange, {
+      resourceType: "AWS::IAM::Role",
+      targetName: "Policies",
+      causingEntities: ["ContentStatsSchedulerRole.Arn"]
+    })) continue;
+
     throw new Error(`Refusing CloudFormation change set with an unexpected or non-dynamic resource change (${logicalId})`);
   }
 
