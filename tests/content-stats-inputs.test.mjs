@@ -326,6 +326,10 @@ function directoryAnalyticsSelection() {
   };
 }
 
+function directoryAnalyticsClickSelection() {
+  return { ...directoryAnalyticsSelection(), outboundClicks: true };
+}
+
 function addInputFiveSelections(source) {
   source.articleConfig.newsletter = newsletterSelection();
   source.articleConfig.analytics = analyticsSelection();
@@ -556,6 +560,40 @@ test('a directory Analytics selector generates protected input7 without changing
   assert.equal(source.articleConfig.directoryAnalytics.timeZone, 'America/Buenos_Aires', 'result mutation cannot change maintained configuration');
 });
 
+test('outbound clicks are an explicit optional directory selector that alone advances input7 to input8', async () => {
+  const build = await inputBuilder();
+  const legacySource = addInputSixSelections(fixture());
+  legacySource.articleConfig.directoryAnalytics = directoryAnalyticsSelection();
+  const input7 = build(legacySource);
+  assert.equal(input7.schemaVersion, 7);
+  assert.deepEqual(Object.keys(input7.directoryAnalytics).sort(), ['hostname', 'id', 'language', 'propertyId', 'timeZone']);
+
+  const source = addInputSixSelections(fixture());
+  const previous = build(source);
+  source.articleConfig.directoryAnalytics = directoryAnalyticsClickSelection();
+  freeze(source);
+
+  const result = build(source);
+  const { schemaVersion, directoryAnalytics, ...input8Base } = result;
+  const { schemaVersion: previousVersion, ...previousBase } = previous;
+
+  assert.equal(previousVersion, 6);
+  assert.equal(schemaVersion, 8, 'only selecting outbound clicks advances protected input to schema 8');
+  assert.deepEqual(input8Base, previousBase, 'the click selector preserves every existing input6 source and curated fact');
+  assert.deepEqual(directoryAnalytics, directoryAnalyticsClickSelection());
+  assert.notEqual(directoryAnalytics, source.articleConfig.directoryAnalytics, 'the generated click selector is copied from maintained configuration');
+  assert.deepEqual(Object.keys(directoryAnalytics).sort(), ['hostname', 'id', 'language', 'outboundClicks', 'propertyId', 'timeZone']);
+  assert.equal(JSON.stringify(result).includes('clientSecret'), false);
+  assert.equal(JSON.stringify(result).includes('refreshToken'), false);
+  assert.equal(JSON.stringify(result).includes('accessToken'), false);
+  assert.equal(Object.hasOwn(result, 'counts'), false, 'the protected input carries selectors and never computes metrics');
+
+  result.directoryAnalytics.outboundClicks = false;
+  result.directoryAnalytics.timeZone = 'Etc/UTC';
+  assert.equal(source.articleConfig.directoryAnalytics.outboundClicks, true, 'mutating output cannot change the maintained click opt-in');
+  assert.equal(source.articleConfig.directoryAnalytics.timeZone, 'America/Buenos_Aires', 'mutating output cannot change the maintained source scope');
+});
+
 test('directory Analytics works with base input3 alone and preserves each existing input4 through input6 combination', async () => {
   const build = await inputBuilder();
   const variants = [
@@ -588,6 +626,43 @@ test('directory Analytics works with base input3 alone and preserves each existi
   }
 });
 
+test('directory outbound clicks preserve base input3 through input7 and the current four-source combination', async () => {
+  const build = await inputBuilder();
+  const variants = [
+    ['input3', (source) => {}, 3],
+    ['input4', (source) => { source.articleConfig.newsletter = newsletterSelection(); }, 4],
+    ['input5', (source) => { addInputFiveSelections(source); }, 5],
+    ['input6', (source) => { addInputSixSelections(source); }, 6],
+    ['input6 with all four current article sources', (source) => {
+      addInputSixSelections(source);
+      source.articleConfig.sources.push({ id: 'simple-aws' }, cloudyThingsSelection());
+    }, 6],
+    ['input7', (source) => {
+      addInputSixSelections(source);
+      source.articleConfig.directoryAnalytics = directoryAnalyticsSelection();
+    }, 7]
+  ];
+
+  for (const [description, configure, priorVersion] of variants) {
+    const source = fixture();
+    configure(source);
+    const prior = build(source);
+    const { schemaVersion: actualPriorVersion, directoryAnalytics: priorDirectoryAnalytics, ...previousFacts } = prior;
+    if (priorVersion === 7) assert.deepEqual(priorDirectoryAnalytics, directoryAnalyticsSelection());
+    source.articleConfig.directoryAnalytics = directoryAnalyticsClickSelection();
+    freeze(source);
+
+    const expanded = build(source);
+    const { schemaVersion, directoryAnalytics, ...expandedFacts } = expanded;
+    assert.equal(actualPriorVersion, priorVersion, `${description} prior schema remains supported`);
+    assert.equal(schemaVersion, 8, `${description} plus directory outbound clicks uses input8`);
+    assert.deepEqual(expandedFacts, previousFacts, `${description} preserves every pre-existing root fact`);
+    assert.deepEqual(directoryAnalytics, directoryAnalyticsClickSelection());
+    assert.notEqual(directoryAnalytics, source.articleConfig.directoryAnalytics, `${description} selector is independently projected`);
+    assert.equal(Object.hasOwn(expanded, 'counts'), false, `${description} does not add computed traffic`);
+  }
+});
+
 test('directory Analytics rejects missing, malformed, unknown, private, and credential-bearing selectors', async () => {
   const build = await inputBuilder();
   const valid = directoryAnalyticsSelection();
@@ -608,10 +683,16 @@ test('directory Analytics rejects missing, malformed, unknown, private, and cred
     { ...valid, language: 'en' },
     { ...valid, timeZone: 'Not/A_Timezone' },
     { ...valid, timeZone: '-03:00' },
+    { ...valid, outboundClicks: false },
+    { ...valid, outboundClicks: null },
+    { ...valid, outboundClicks: 'true' },
+    { ...valid, outboundClicks: 1 },
+    { ...valid, outboundClicks: undefined },
     { ...valid, recordedSince: '2024-01-01' },
     { ...valid, clientSecret: 'synthetic-client-secret' },
     { ...valid, refreshToken: 'synthetic-refresh-token' },
     { ...valid, accessToken: 'synthetic-access-token' },
+    { ...valid, secretArn: 'arn:aws:ssm:us-east-1:123456789012:parameter/google' },
     { ...valid, unknownField: 'unexpected' }
   ];
 

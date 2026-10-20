@@ -164,6 +164,15 @@ function phaseNineInput({ baseInput, directoryAnalytics, ...options } = {}) {
   };
 }
 
+function phaseTenInput({ baseInput, directoryAnalytics, ...options } = {}) {
+  const input = phaseNineInput({ baseInput, directoryAnalytics, ...options });
+  input.schemaVersion = 8;
+  if (!Object.hasOwn(input.directoryAnalytics, "outboundClicks")) {
+    input.directoryAnalytics.outboundClicks = true;
+  }
+  return input;
+}
+
 function cloudyArticle({
   id = "cloudy-id",
   slug = id,
@@ -283,6 +292,37 @@ function priorArticleSearchClicksGroup(records = {
   "90d": priorArticleSearchRecord({ scopeId: "c".repeat(64), startDate: "2026-07-15", endDate: "2026-10-12", clicks: 90 }),
   "12m": priorArticleSearchRecord({ scopeId: "d".repeat(64), startDate: "2025-10-13", endDate: "2026-10-12", clicks: 120 }),
   ytd: priorArticleSearchRecord({ scopeId: "e".repeat(64), startDate: "2026-01-01", endDate: "2026-10-12", clicks: 200 })
+}) {
+  return { definitionVersion: 1, records };
+}
+
+function priorDirectoryOutboundClickRecord({
+  collectedAt = "2026-10-10T12:00:00.000Z",
+  scopeId = "f".repeat(64),
+  startDate = "2026-10-11",
+  endDate = "2026-10-17",
+  clicks = 17,
+  qualifications = []
+} = {}) {
+  return {
+    basis: "period",
+    collectedAt,
+    scopeId,
+    publication: { id: "donde-aprendo-aws", label: "Dónde Aprendo AWS", language: "es" },
+    timeZone: directoryTimeZone,
+    startDate,
+    endDate,
+    clicks,
+    qualifications
+  };
+}
+
+function priorDirectoryOutboundClicksGroup(records = {
+  "7d": priorDirectoryOutboundClickRecord({ scopeId: "a".repeat(64), clicks: 17 }),
+  "30d": priorDirectoryOutboundClickRecord({ scopeId: "b".repeat(64), startDate: "2026-09-18", clicks: 30 }),
+  "90d": priorDirectoryOutboundClickRecord({ scopeId: "c".repeat(64), startDate: "2026-07-20", clicks: 90 }),
+  "12m": priorDirectoryOutboundClickRecord({ scopeId: "d".repeat(64), startDate: "2025-10-18", clicks: 120 }),
+  ytd: priorDirectoryOutboundClickRecord({ scopeId: "e".repeat(64), startDate: "2026-01-01", clicks: 200 })
 }) {
   return { definitionVersion: 1, records };
 }
@@ -871,9 +911,9 @@ function phaseFourApiFetch({ requestLog = [], newsletterResponder, postsResponde
   };
 }
 
-function ga4Report({ views = 42, timeZone = googleTimeZone, metadata = {} } = {}) {
+function ga4Report({ views = 42, metricName = "screenPageViews", timeZone = googleTimeZone, metadata = {} } = {}) {
   return {
-    metricHeaders: [{ name: "screenPageViews", type: "TYPE_INTEGER" }],
+    metricHeaders: [{ name: metricName, type: "TYPE_INTEGER" }],
     dimensionHeaders: [],
     rowCount: 1,
     rows: [{ metricValues: [{ value: String(views) }] }],
@@ -916,7 +956,7 @@ function phaseFiveApiFetch({
       json: kind === "google-report" || kind === "google-search" ? JSON.parse(bodyTextValue) : undefined
     };
     const key = kind === "google-report"
-      ? `${kind}:${url.origin}${url.pathname}:${request.json.dateRanges?.[0]?.startDate}:${request.json.dateRanges?.[0]?.endDate}`
+      ? `${kind}:${url.origin}${url.pathname}:${request.json.metrics?.map(({ name }) => name).join(",")}:${request.json.dateRanges?.[0]?.startDate}:${request.json.dateRanges?.[0]?.endDate}`
       : kind === "google-search"
         ? `${kind}:${url.origin}${url.pathname}:${request.json.startDate}:${request.json.endDate}`
       : kind;
@@ -3579,10 +3619,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 7 are rejected as unsupported", async () => {
+test("schema versions newer than input 8 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseSixInput(), schemaVersion: 8 },
+    input: { ...phaseSixInput(), schemaVersion: 9 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");
@@ -5671,4 +5711,542 @@ test("directory YTD is not retained across the year boundary when the lag ends i
     "the prior year's YTD record is not relabeled when the three-day lag has not reached January 1");
   const currentReports = googleRequests(requestLog.slice(secondInvocationStart), "google-report");
   assert.equal(currentReports.some((request) => reportRange(request).startDate === "2026-01-01" && reportRange(request).endDate === "2025-12-31"), false);
+});
+
+test("input 8 collects only safe aggregate outbound clicks for the exact directory host across five periods", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const harness = createHarness({
+    input: phaseTenInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        return jsonResponse(ga4Report({
+          views: metricName === "eventCount" ? 0 : 19,
+          metricName,
+          timeZone: directoryTimeZone
+        }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "directoryOutboundClicks", "directoryViews", "talks"]);
+  const reports = googleRequests(requestLog, "google-report");
+  const clickReports = reports.filter((request) => request.json.metrics?.[0]?.name === "eventCount");
+  assert.equal(reports.length, 10, "directory page views and outbound clicks each request the five supported periods");
+  assert.equal(clickReports.length, 5);
+  assert.deepEqual(clickReports.map((request) => reportRange(request)), [
+    { startDate: "2026-10-11", endDate: "2026-10-17" },
+    { startDate: "2026-09-18", endDate: "2026-10-17" },
+    { startDate: "2026-07-20", endDate: "2026-10-17" },
+    { startDate: "2025-10-18", endDate: "2026-10-17" },
+    { startDate: "2026-01-01", endDate: "2026-10-17" }
+  ], "click reports use the existing timezone, five windows, and three-closed-day lag");
+
+  const expectedFilters = [
+    { fieldName: "hostName", stringFilter: { matchType: "EXACT", value: directoryHostname, caseSensitive: true } },
+    { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "click", caseSensitive: true } },
+    { fieldName: "outbound", stringFilter: { matchType: "EXACT", value: "true", caseSensitive: true } }
+  ];
+  for (const request of clickReports) {
+    assertGoogleRequest(request, "Dónde Aprendo AWS outbound-click Analytics request");
+    assert.equal(request.url, `https://analyticsdata.googleapis.com/v1beta/properties/${directoryGooglePropertyId}:runReport`);
+    assert.equal(newsletterRequestHeader(request, "authorization"), `Bearer ${googleAccessToken}`);
+    assert.deepEqual(request.json.metrics, [{ name: "eventCount" }]);
+    assert.deepEqual(googleFilterLeaves(request.json.dimensionFilter).sort((left, right) => left.fieldName.localeCompare(right.fieldName)),
+      expectedFilters.sort((left, right) => left.fieldName.localeCompare(right.fieldName)),
+      "only exact case-sensitive host, click event, and outbound=true filters define the aggregate");
+    assert.equal(request.json.dimensionFilter.andGroup.expressions.length, 3);
+    assert.deepEqual(Object.keys(request.json).sort(), ["dateRanges", "dimensionFilter", "metrics"]);
+    assert.equal(Object.hasOwn(request.json, "dimensions"), false, "the request returns no path or destination rows");
+    assert.equal(JSON.stringify(request.json).includes("pagePath"), false);
+    assert.equal(JSON.stringify(request.json).includes("destination"), false);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
+  }
+
+  const group = output.groups.directoryOutboundClicks;
+  assert.deepEqual(Object.keys(group).sort(), ["definitionVersion", "records"]);
+  assert.equal(group.definitionVersion, 1);
+  assert.deepEqual(Object.keys(group.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+  assert.equal(Object.hasOwn(group.records, "total"), false);
+  assert.equal(new Set(Object.values(group.records).map((record) => record.scopeId)).size, 1,
+    "periods share one click-scope fingerprint independent of dates and values");
+  for (const record of Object.values(group.records)) {
+    assert.deepEqual(Object.keys(record).sort(), ["basis", "clicks", "collectedAt", "endDate", "publication", "qualifications", "scopeId", "startDate", "timeZone"]);
+    assert.equal(record.basis, "period");
+    assert.equal(record.collectedAt, "2026-10-20T16:45:46.000Z");
+    assert.equal(record.timeZone, directoryTimeZone);
+    assert.deepEqual(record.publication, { id: "donde-aprendo-aws", label: "Dónde Aprendo AWS", language: "es" });
+    assert.equal(record.clicks, 0, "an explicit integer zero is measured data");
+    assert.ok(Number.isSafeInteger(record.clicks) && record.clicks >= 0);
+    assert.deepEqual(record.qualifications, []);
+    assert.match(record.scopeId, /^[a-f0-9]{64}$/);
+  }
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 1);
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
+  assert.deepEqual(harness.secretCalls, [], "directory-only input 8 has no Beehiiv dependency");
+  assert.equal(requestLog.some(({ kind }) => kind.startsWith("beehiiv")), false);
+  assert.equal(Object.hasOwn(output.groups, "newsletter"), false);
+  assert.equal(Object.hasOwn(output.groups, "articleViews"), false);
+  assert.equal(Object.hasOwn(output.groups, "articleSearchClicks"), false);
+  assertNoGoogleCanaries(harness, googleClientId, googleClientSecret, googleRefreshToken, googleAccessToken,
+    googleOAuthParameterArn, directoryGooglePropertyId, directoryHostname);
+  const publicJson = JSON.stringify(output);
+  for (const providerDetail of ["eventCount", "hostName", "outbound", "pagePath", "browserLanguage", "destination"]) {
+    assert.equal(publicJson.includes(providerDetail), false, `the aggregate must omit provider detail ${providerDetail}`);
+  }
+});
+
+test("invalid input-8 outbound-click selectors reject before provider, credentials, or output work", async () => {
+  const valid = phaseTenInput({ baseInput: phaseThreeInput() });
+  const missingFlag = structuredClone(valid);
+  delete missingFlag.directoryAnalytics.outboundClicks;
+  const malformed = [
+    { name: "missing selection", input: missingFlag },
+    { name: "false selection", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, outboundClicks: false } } },
+    { name: "null selection", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, outboundClicks: null } } },
+    { name: "string selection", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, outboundClicks: "true" } } },
+    { name: "unknown selector field", input: { ...structuredClone(valid), directoryAnalytics: { ...valid.directoryAnalytics, privateNote: "selector-canary" } } },
+    { name: "unknown root field", input: { ...structuredClone(valid), privateNote: "root-canary" } }
+  ];
+
+  for (const { name, input } of malformed) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseFiveApiFetch({ requestLog }) });
+    const previous = JSON.stringify(priorFullOutput());
+    harness.objects.set(outputKey, previous);
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      assert.notEqual(error.code, "INPUT_VERSION_UNSUPPORTED", `${name} must reach input-8 schema validation`);
+      return true;
+    });
+    assert.deepEqual(harness.getCalls.map(({ Key }) => Key), [inputKey], `${name} must not read the current aggregate`);
+    assert.deepEqual(requestLog, [], `${name} must not make provider calls`);
+    assert.deepEqual(harness.secretCalls, []);
+    assert.deepEqual(harness.parameterCalls, []);
+    assert.equal(harness.putCalls.length, 0);
+    assert.equal(harness.objects.get(outputKey), previous, `${name} must leave current.json byte-for-byte unchanged`);
+  }
+});
+
+test("input 8 adds outbound clicks to four-source collection with one shared Google credential refresh", async () => {
+  const requestLog = [];
+  const cloudy = cloudyArticle({ id: "phase-ten-cloudy-row", title: "Phase Ten four-source proof" });
+  const harness = createHarness({
+    input: phaseTenInput(),
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+        return jsonResponse(ga4Report({
+          views: metricName === "eventCount" ? 23 : isDirectory ? 31 : 41,
+          metricName,
+          timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+        }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 51 }))
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(output.groups.articles.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "simple-aws", label: "Simple AWS" },
+    { id: "cloudy-things", label: "Cloudy Things" }
+  ]);
+  assert.deepEqual(output.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(output.groups.newsletter.subscribers, 20);
+  assert.equal(output.groups.articleViews.records["7d"].views, 41);
+  assert.equal(output.groups.directoryViews.records["7d"].views, 31);
+  assert.equal(output.groups.directoryOutboundClicks.records["7d"].clicks, 23);
+  assert.equal(output.groups.articleSearchClicks.records["7d"].clicks, 51);
+  assert.equal(googleRequests(requestLog, "google-report").length, 15,
+    "Simple AWS views, directory views, and directory clicks each request five periods");
+  assert.equal(googleRequests(requestLog, "google-report").filter(({ json }) => json.metrics?.[0]?.name === "eventCount").length, 5);
+  assert.equal(googleRequests(requestLog, "google-search").length, 5);
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 1);
+  assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }],
+    "all enabled Google families share one SSM read");
+  assert.equal(harness.secretCalls.length, 2);
+});
+
+test("outbound-click failures retain and recover per period independently from directory views", async () => {
+  let failClicks30d = false;
+  let failViews30d = false;
+  let clickCount = 100;
+  let viewCount = 50;
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const harness = createHarness({
+    input: phaseTenInput(),
+    clock,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+        const range = reportRange(request);
+        const days = (Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)) / 86_400_000;
+        if (isDirectory && days === 29 && metricName === "eventCount" && failClicks30d) {
+          return jsonResponse({ error: googleResponseCanary }, 403);
+        }
+        if (isDirectory && days === 29 && metricName === "screenPageViews" && failViews30d) {
+          return jsonResponse({ error: googleResponseCanary }, 403);
+        }
+        return jsonResponse(ga4Report({
+          views: metricName === "eventCount" ? clickCount : viewCount,
+          metricName,
+          timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+        }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 75 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+
+  failClicks30d = true;
+  clickCount = 101;
+  viewCount = 51;
+  clock.set("2026-10-21T16:45:46.000Z");
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls[1]);
+  assert.deepEqual(retained.groups.directoryOutboundClicks.records["30d"], first.groups.directoryOutboundClicks.records["30d"],
+    "a click report failure retains only the exact prior click record for its period");
+  assert.equal(retained.groups.directoryOutboundClicks.records["7d"].clicks, 101);
+  assert.equal(retained.groups.directoryOutboundClicks.records["7d"].collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(retained.groups.directoryViews.records["30d"].views, 51,
+    "a click failure does not prevent healthy Views from refreshing");
+  assert.equal(retained.groups.articleViews.records["30d"].collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(retained.groups.articleSearchClicks.records["30d"].clicks, 75);
+  assert.equal(retained.groups.newsletter.collectedAt, "2026-10-21T16:45:46.000Z");
+
+  failClicks30d = false;
+  failViews30d = true;
+  clickCount = 102;
+  viewCount = 52;
+  clock.set("2026-10-22T16:45:46.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.equal(recovered.groups.directoryOutboundClicks.records["30d"].clicks, 102,
+    "a recovered click period replaces its retained value instead of accumulating it");
+  assert.equal(recovered.groups.directoryOutboundClicks.records["30d"].collectedAt, "2026-10-22T16:45:46.000Z");
+  assert.equal(recovered.groups.directoryOutboundClicks.records["30d"].scopeId,
+    first.groups.directoryOutboundClicks.records["30d"].scopeId,
+    "new counts and collection dates do not change the stable metric scope");
+  assert.deepEqual(recovered.groups.directoryViews.records["30d"], retained.groups.directoryViews.records["30d"],
+    "a Views failure retains its own prior interval while healthy clicks publish");
+  assert.equal(recovered.groups.directoryOutboundClicks.records["7d"].clicks, 102);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("outbound clicks can be the only fresh family and total failure never replaces published bytes", async () => {
+  let clicksAvailable = true;
+  const requestLog = [];
+  const input = phaseTenInput();
+  input.curated = {
+    talks: [{ id: "", kind: "talk", status: "delivered", language: "en" }],
+    books: [{ id: "", status: "published", language: "en" }]
+  };
+  const harness = createHarness({
+    input,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      caylentPages: new Map([[0, () => jsonResponse({ error: googleResponseCanary }, 503)]]),
+      builderPages: new Map([["", () => jsonResponse({ error: googleResponseCanary }, 503)]]),
+      cloudyResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
+      postsResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
+      newsletterResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
+      reportResponder: ({ request }) => request.json.metrics?.[0]?.name === "eventCount" && clicksAvailable
+        ? jsonResponse(ga4Report({ views: 66, metricName: "eventCount", timeZone: directoryTimeZone }))
+        : jsonResponse({ error: googleResponseCanary }, 503),
+      searchResponder: () => jsonResponse({ error: googleResponseCanary }, 503)
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(first.groups), ["directoryOutboundClicks"],
+    "healthy clicks are sufficient for publication when article, curated, subscriber, Views, and Search families fail");
+  assert.equal(first.groups.directoryOutboundClicks.records["7d"].clicks, 66);
+  const publishedBytes = harness.objects.get(outputKey);
+
+  clicksAvailable = false;
+  harness.clock.set("2026-10-21T16:45:46.000Z");
+  await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "NO_SUCCESSFUL_GROUPS");
+  assert.equal(harness.putCalls.length, 1, "no fresh family causes no replacement write");
+  assert.equal(harness.objects.get(outputKey), publishedBytes, "complete failure preserves current.json byte-for-byte");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("outbound-click reports validate their header, timezone, integers, truncation, qualifications, and prior records", async () => {
+  let invalidCurrentReports = false;
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const harness = createHarness({
+    input: phaseTenInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const range = reportRange(request);
+        const days = (Date.parse(`${range.endDate}T00:00:00Z`) - Date.parse(`${range.startDate}T00:00:00Z`)) / 86_400_000;
+        if (!invalidCurrentReports) {
+          const qualifications = days === 6 ? {
+            samplingMetadatas: [{ samplesReadCount: "10", samplingSpaceSize: "20" }],
+            subjectToThresholding: true,
+            dataLossFromOtherRow: true
+          } : {};
+          return jsonResponse(ga4Report({
+            views: metricName === "eventCount" ? 70 : 40,
+            metricName,
+            timeZone: directoryTimeZone,
+            metadata: qualifications
+          }));
+        }
+        if (metricName === "eventCount") {
+          if (days === 6) return jsonResponse(ga4Report({ views: 71, metricName: "screenPageViews", timeZone: directoryTimeZone }));
+          if (days === 29) return jsonResponse(ga4Report({ views: 72, metricName, timeZone: "UTC" }));
+          if (days === 89) return jsonResponse(ga4Report({ views: "9007199254740992", metricName, timeZone: directoryTimeZone }));
+          if (days === 364) return jsonResponse(ga4Report({
+            views: 74,
+            metricName,
+            timeZone: directoryTimeZone,
+            metadata: { dataTruncationReasons: ["DATE_RANGE"] }
+          }));
+          return jsonResponse({ metricHeaders: [{ name: metricName, type: "TYPE_INTEGER" }], dimensionHeaders: [], rowCount: 0, rows: [], metadata: { timeZone: directoryTimeZone } });
+        }
+        return jsonResponse(ga4Report({ views: 40, metricName, timeZone: directoryTimeZone }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.deepEqual(first.groups.directoryOutboundClicks.records["7d"].qualifications, ["sampled", "thresholding", "other-row"],
+    "valid source qualifications are preserved on the click record");
+  const previous = structuredClone(first);
+  previous.groups.directoryOutboundClicks.records["30d"].providerPropertyId = directoryGooglePropertyId;
+  previous.groups.directoryOutboundClicks.records["90d"].clicks = -1;
+  delete previous.groups.directoryOutboundClicks.records["12m"];
+  delete previous.groups.directoryOutboundClicks.records.ytd;
+  harness.objects.set(outputKey, JSON.stringify(previous));
+
+  invalidCurrentReports = true;
+  clock.set("2026-10-21T16:45:46.000Z");
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+  const clickRecords = second.groups.directoryOutboundClicks.records;
+  assert.deepEqual(Object.keys(clickRecords).sort(), ["7d"],
+    "invalid prior periods are discarded, and malformed current reports stay unavailable instead of becoming zero");
+  assert.deepEqual(clickRecords["7d"], first.groups.directoryOutboundClicks.records["7d"],
+    "a wrong metric header retains the exact valid prior value, scope, interval, qualifications, and fetch time");
+  assert.equal(Object.hasOwn(clickRecords, "30d"), false, "wrong timezone plus malformed prior cannot publish a record");
+  assert.equal(Object.hasOwn(clickRecords, "90d"), false, "an unsafe integer plus malformed prior cannot publish a record");
+  assert.equal(Object.hasOwn(clickRecords, "12m"), false, "a truncated response with no prior remains unavailable");
+  assert.equal(Object.hasOwn(clickRecords, "ytd"), false, "an empty report is unavailable, never inferred to be zero");
+  assert.equal(second.groups.directoryViews.records["7d"].views, 40, "invalid clicks do not prevent healthy directory Views");
+
+  const noPriorLog = [];
+  const noPriorHarness = createHarness({
+    input: phaseTenInput({ baseInput: phaseThreeInput() }),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: noPriorLog,
+      reportResponder: ({ request }) => request.json.metrics[0]?.name === "eventCount"
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(ga4Report({ views: 43, timeZone: directoryTimeZone }))
+    })
+  });
+  await noPriorHarness.handler({}, {});
+  const withoutPrior = await readPut(noPriorHarness.putCalls[0]);
+  assert.equal(Object.hasOwn(withoutPrior.groups, "directoryOutboundClicks"), false,
+    "failed click reports without a valid prior remain unavailable instead of publishing zero");
+  assert.equal(withoutPrior.groups.directoryViews.records["7d"].views, 43);
+  assertNoGoogleCanaries(harness, googleResponseCanary, directoryGooglePropertyId);
+  assertNoGoogleCanaries(noPriorHarness, googleResponseCanary, directoryGooglePropertyId);
+});
+
+test("shared Google credential failure retains outbound clicks with other Google families while non-Google families refresh", async () => {
+  let tokenFails = false;
+  const requestLog = [];
+  const clock = createClock("2026-10-20T16:45:46.000Z");
+  const harness = createHarness({
+    input: phaseTenInput(),
+    clock,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
+      tokenResponder: () => tokenFails
+        ? jsonResponse({ error: googleResponseCanary }, 503)
+        : jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" }),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      reportResponder: ({ request }) => {
+        const metricName = request.json.metrics[0]?.name;
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+        return jsonResponse(ga4Report({ views: metricName === "eventCount" ? 17 : 27, metricName,
+          timeZone: isDirectory ? directoryTimeZone : googleTimeZone }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 37 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  tokenFails = true;
+  clock.set("2026-10-21T16:45:46.000Z");
+  const failedStart = requestLog.length;
+  const parameterStart = harness.parameterCalls.length;
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+
+  for (const family of ["articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks"]) {
+    assert.deepEqual(second.groups[family], first.groups[family], `${family} retains its exact prior group on shared token failure`);
+  }
+  assert.equal(second.groups.articles.collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(second.groups.newsletter.collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(second.groups.talks.collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(second.groups.books.collectedAt, "2026-10-21T16:45:46.000Z");
+  assert.equal(harness.parameterCalls.length - parameterStart, 1, "one failed shared refresh uses one SSM read");
+  assert.equal(googleRequests(requestLog.slice(failedStart), "google-report").length, 0);
+  assert.equal(googleRequests(requestLog.slice(failedStart), "google-search").length, 0);
+  assert.equal(googleRequests(requestLog.slice(failedStart), "google-oauth").length, 2, "the shared token request gets its existing one retry");
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("outbound-click scope is independent from Views, and removing selection removes only clicks", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseTenInput(),
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: ({ request }) => {
+        const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(publicationId, 12));
+      },
+      reportResponder: ({ request }) => {
+        const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`) || request.url.includes("/properties/987654321:");
+        return jsonResponse(ga4Report({
+          views: request.json.metrics[0]?.name === "eventCount" ? 18 : 28,
+          metricName: request.json.metrics[0]?.name,
+          timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+        }));
+      },
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 32 }))
+    })
+  });
+
+  await harness.handler({}, {});
+  const enabled = await readPut(harness.putCalls[0]);
+  const scopes = (records) => Object.fromEntries(Object.entries(records).map(([period, record]) => [period, record.scopeId]));
+  const enabledViewScopes = scopes(enabled.groups.directoryViews.records);
+  const enabledClickScopes = scopes(enabled.groups.directoryOutboundClicks.records);
+  const enabledArticleViewScopes = scopes(enabled.groups.articleViews.records);
+  const enabledSearchScopes = scopes(enabled.groups.articleSearchClicks.records);
+
+  const reorderedSources = [simpleAwsArticleSource(), builderCenterSource(), sourceInput().source, cloudyThingsSource()];
+  const alternateBase = phaseEightInput({
+    sources: reorderedSources,
+    analytics: phaseFiveAnalytics({ propertyId: "555555555" }),
+    newsletter: { id: "simple-aws", publicationId: "synthetic-second-newsletter-publication", language: "en" }
+  });
+  harness.setInput(phaseTenInput({ baseInput: alternateBase }));
+  await harness.handler({}, {});
+  const unrelatedSelectorsChanged = await readPut(harness.putCalls[1]);
+  assert.deepEqual(scopes(unrelatedSelectorsChanged.groups.directoryViews.records), enabledViewScopes,
+    "article selectors and source order do not change directory Views scope");
+  assert.deepEqual(scopes(unrelatedSelectorsChanged.groups.directoryOutboundClicks.records), enabledClickScopes,
+    "article selectors and source order do not change the independent click scope");
+  assert.deepEqual(scopes(unrelatedSelectorsChanged.groups.articleSearchClicks.records), enabledSearchScopes);
+  assert.notDeepEqual(scopes(unrelatedSelectorsChanged.groups.articleViews.records), enabledArticleViewScopes);
+
+  harness.setInput(phaseTenInput({
+    baseInput: alternateBase,
+    directoryAnalytics: phaseNineDirectoryAnalytics({ propertyId: "987654321", outboundClicks: true })
+  }));
+  await harness.handler({}, {});
+  const directorySelectorChanged = await readPut(harness.putCalls[2]);
+  for (const period of Object.keys(enabledClickScopes)) {
+    assert.notEqual(directorySelectorChanged.groups.directoryOutboundClicks.records[period].scopeId, enabledClickScopes[period],
+      "changing the selected directory property changes click scope");
+    assert.notEqual(directorySelectorChanged.groups.directoryViews.records[period].scopeId, enabledViewScopes[period]);
+    assert.equal(directorySelectorChanged.groups.articleViews.records[period].scopeId,
+      unrelatedSelectorsChanged.groups.articleViews.records[period].scopeId);
+    assert.equal(directorySelectorChanged.groups.articleSearchClicks.records[period].scopeId, enabledSearchScopes[period]);
+  }
+
+  const disabledStart = requestLog.length;
+  harness.setInput(phaseNineInput({
+    baseInput: alternateBase,
+    directoryAnalytics: phaseNineDirectoryAnalytics({ propertyId: "987654321" })
+  }));
+  await harness.handler({}, {});
+  const disabled = await readPut(harness.putCalls[3]);
+  assert.equal(Object.hasOwn(disabled.groups, "directoryOutboundClicks"), false,
+    "omitting the permanent click selection removes only the click family");
+  assert.ok(Object.hasOwn(disabled.groups, "directoryViews"));
+  assert.ok(Object.hasOwn(disabled.groups, "articles"));
+  assert.ok(Object.hasOwn(disabled.groups, "talks"));
+  assert.ok(Object.hasOwn(disabled.groups, "books"));
+  assert.deepEqual(scopes(disabled.groups.directoryViews.records), scopes(directorySelectorChanged.groups.directoryViews.records));
+  assert.deepEqual(scopes(disabled.groups.articleViews.records), scopes(directorySelectorChanged.groups.articleViews.records));
+  assert.deepEqual(scopes(disabled.groups.articleSearchClicks.records), scopes(directorySelectorChanged.groups.articleSearchClicks.records));
+  assert.equal(googleRequests(requestLog.slice(disabledStart), "google-report").length, 10,
+    "input 7 still refreshes the selected article Views and directory Views periods");
+  assert.equal(googleRequests(requestLog.slice(disabledStart), "google-report")
+    .some(({ json }) => json.metrics?.[0]?.name === "eventCount"), false,
+    "input 7 after selection removal sends no click report");
+  assert.equal(Object.keys(enabledClickScopes).length, 5);
+  assertNoGoogleCanaries(harness);
+});
+
+test("outbound-click YTD is omitted when the closed-day lag still ends in the prior year", async () => {
+  const requestLog = [];
+  const clock = createClock("2025-12-30T16:00:00.000Z");
+  const harness = createHarness({
+    input: phaseTenInput({ baseInput: phaseThreeInput() }),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      reportResponder: ({ request }) => jsonResponse(ga4Report({
+        views: 7,
+        metricName: request.json.metrics[0]?.name,
+        timeZone: directoryTimeZone
+      }))
+    })
+  });
+  await harness.handler({}, {});
+  const prior = await readPut(harness.putCalls[0]);
+  assert.equal(prior.groups.directoryOutboundClicks.records.ytd.startDate, "2025-01-01");
+  assert.equal(prior.groups.directoryViews.records.ytd.startDate, "2025-01-01");
+
+  clock.set("2026-01-03T16:00:00.000Z");
+  const secondStart = requestLog.length;
+  await harness.handler({}, {});
+  const current = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(current.groups.directoryOutboundClicks.records, "ytd"), false,
+    "the prior year's click YTD is not relabeled as the new year");
+  assert.equal(Object.hasOwn(current.groups.directoryViews.records, "ytd"), false);
+  const currentReports = googleRequests(requestLog.slice(secondStart), "google-report");
+  assert.equal(currentReports.length, 8, "only four eligible periods are requested for each metric");
+  assert.equal(currentReports.some((request) => reportRange(request).startDate === "2026-01-01"), false,
+    "no YTD request is made before the lag reaches January 1");
 });
