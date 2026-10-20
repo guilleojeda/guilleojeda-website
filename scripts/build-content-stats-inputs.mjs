@@ -17,7 +17,7 @@ const TALK_KINDS = new Set([
 const TALK_STATUSES = new Set(['delivered', 'scheduled', 'unknown']);
 const BOOK_STATUSES = new Set(['published', 'in-progress', 'unknown']);
 const LANGUAGES = new Set(['en', 'es', null]);
-const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws']);
+const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws', 'cloudy-things']);
 const REQUIRED_ARTICLE_SOURCE_IDS = ['caylent', 'builder-center'];
 
 function invalid(message) {
@@ -51,6 +51,14 @@ function validateArticleConfig(articleConfig) {
     if (source.id === 'simple-aws'
       && (Object.keys(source).length !== 1 || !Object.hasOwn(source, 'id'))) {
       invalid('Simple AWS article source must contain only its id');
+    }
+    if (source.id === 'cloudy-things') {
+      const keys = Object.keys(source).sort();
+      if (keys.join(',') !== 'authorName,id,language') {
+        invalid('Cloudy Things article source must contain only its author and language selectors');
+      }
+      assertNonEmptyString(source.authorName, `article source ${index} authorName`);
+      if (source.language !== 'en') invalid('Cloudy Things article source requires English language');
     }
     sourceIds.add(source.id);
   }

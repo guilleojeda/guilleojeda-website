@@ -17,12 +17,15 @@ const allowedKeys = {
 const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
   ['builder-center', 'AWS Builder Center'],
-  ['simple-aws', 'Simple AWS']
+  ['simple-aws', 'Simple AWS'],
+  ['cloudy-things', 'Cloudy Things']
 ]);
 const supportedArticleSourceSets = new Set([
   'caylent',
   'caylent,builder-center',
-  'caylent,builder-center,simple-aws'
+  'caylent,builder-center,simple-aws',
+  'caylent,builder-center,cloudy-things',
+  'caylent,builder-center,simple-aws,cloudy-things'
 ]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };

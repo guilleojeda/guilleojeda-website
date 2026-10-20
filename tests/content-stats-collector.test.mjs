@@ -5150,3 +5150,90 @@ test("Cloudy Things failure and recovery recompute the complete family without b
   assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length, 3);
   assertNoCloudyCanaries(harness, "synthetic Cloudy recovery outage", "recovery-cloudy-one", "recovery-simple-one", beehiivApiKey);
 });
+
+test("Cloudy Things rejects boundary-lookalike metadata while retaining the whole article family", async () => {
+  const sources = [sourceInput().source, builderCenterSource(), simpleAwsArticleSource(), cloudyThingsSource()];
+  const previousArticles = priorGroup({
+    sources: [
+      { id: "caylent", label: "Caylent" },
+      { id: "builder-center", label: "AWS Builder Center" },
+      { id: "simple-aws", label: "Simple AWS" },
+      { id: "cloudy-things", label: "Cloudy Things" }
+    ],
+    counts: { all: 18, en: 15, es: 3 },
+    scopeId: "f".repeat(64),
+    collectedAt: "2026-10-13T10:00:00.000Z"
+  });
+  const valid = cloudyArticle({ id: "boundary-valid-row", slug: "boundary-valid-row", title: "Boundary valid row" });
+  const cases = [
+    {
+      name: "non-default article port",
+      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, url: "https://blog.guilleojeda.com:8443/boundary-port" })] }),
+      canaries: [valid.title, "8443"]
+    },
+    {
+      name: "nested article path",
+      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, url: "https://blog.guilleojeda.com/author/boundary-nested" })] }),
+      canaries: [valid.title, "author/boundary-nested"]
+    },
+    {
+      name: "impossible ISO datetime",
+      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, publishedAt: "2025-02-30T00:00:00.000Z" })] }),
+      canaries: [valid.title, valid.url]
+    },
+    {
+      name: "numeric datetime",
+      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, publishedAt: "999" })] }),
+      canaries: [valid.title, valid.url]
+    },
+    {
+      name: "data-href attribute",
+      page: cloudyArchiveMarkup({ rows: [valid] }).replace(' href="/boundary-valid-row"', ' data-href="/boundary-valid-row"'),
+      canaries: [valid.title, valid.url]
+    },
+    {
+      name: "aria-disabled attribute",
+      page: cloudyArchiveMarkup({ rows: [valid] }).replace('<button disabled="">Next</button>', '<button aria-disabled="true">Next</button>'),
+      canaries: [valid.title, valid.url]
+    },
+    {
+      name: "data-type script attribute",
+      page: cloudyArchiveMarkup({ rows: [valid] }).replace('<script type="application/ld+json">', '<script data-type="application/ld+json">'),
+      canaries: [valid.title, valid.url]
+    },
+    {
+      name: "data-aria-labelledby section attribute",
+      page: cloudyArchiveMarkup({ rows: [valid] }).replace('aria-labelledby="archive-heading"', 'data-aria-labelledby="archive-heading"'),
+      canaries: [valid.title, valid.url]
+    },
+    {
+      name: "data-aria-label nav attribute",
+      page: cloudyArchiveMarkup({ rows: [valid] }).replace('aria-label="Pagination"', 'data-aria-label="Pagination"'),
+      canaries: [valid.title, valid.url]
+    }
+  ];
+
+  for (const scenario of cases) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput({ sources, curated: { talks: [talkFact(`boundary-talk-${scenario.name}`)], books: [bookFact(`boundary-book-${scenario.name}`)] } }),
+      fetchFn: phaseEightApiFetch({
+        requestLog,
+        cloudyPages: new Map([[1, scenario.page]])
+      })
+    });
+    const previous = priorFullOutput({ articleViews: null });
+    previous.groups.articles = previousArticles;
+    harness.objects.set(outputKey, JSON.stringify(previous));
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(output.groups.articles, previousArticles, `${scenario.name} retains the complete prior article family`);
+    assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 }, `${scenario.name} refreshes healthy talks`);
+    assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 }, `${scenario.name} refreshes healthy books`);
+    assert.ok(output.groups.newsletter, `${scenario.name} refreshes the healthy subscriber family`);
+    assert.ok(requestLog.some(({ kind }) => kind === "cloudy-archive"), `${scenario.name} reaches the Cloudy provider`);
+    assertNoCloudyCanaries(harness, ...scenario.canaries, beehiivApiKey);
+  }
+});
