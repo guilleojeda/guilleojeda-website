@@ -49,6 +49,7 @@
     "hostname": "dondeaprendoaws.com",
     "language": "es",
     "timeZone": "America/Buenos_Aires",
-    "outboundClicks": true
+    "outboundClicks": true,
+    "recordedSince": "2024-01-21"
   }
 }
