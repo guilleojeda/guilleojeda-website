@@ -8,12 +8,16 @@ const secretsManager = new SecretsManagerClient({});
 const ssm = new SSMClient({});
 const CONTENT_API_ENDPOINT = "https://cdn.builder.io/api/v3/content/blog-post";
 const BUILDER_API_ENDPOINT = "https://api.builder.aws.com/cs/v2/articles/user/";
+const CLOUDY_ARCHIVE_ORIGIN = "https://blog.guilleojeda.com";
+const CLOUDY_ARCHIVE_PATH = "/archive";
 const PAGE_SIZE = 10;
 const MAX_CAYLENT_PAGES = 100;
 const BUILDER_PAGE_SIZE = 50;
 const MAX_BUILDER_PAGES = 20;
 const BEEHIIV_POST_PAGE_SIZE = 100;
 const MAX_BEEHIIV_POST_PAGES = 5;
+const MAX_CLOUDY_PAGES = 10;
+const MAX_CLOUDY_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_TRANSIENT_RETRIES = 1;
 const OUTPUT_CACHE_CONTROL = "public,max-age=0,must-revalidate";
@@ -51,7 +55,8 @@ const GOOGLE_SEARCH_TIME_ZONE = "America/Los_Angeles";
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center",
-  "simple-aws": "Simple AWS"
+  "simple-aws": "Simple AWS",
+  "cloudy-things": "Cloudy Things"
 });
 
 class CollectorError extends Error {
@@ -154,6 +159,15 @@ function validateBuilderSource(source) {
   };
 }
 
+function validateCloudySource(source) {
+  if (!isObject(source)) throw fail("INPUT_SCHEMA_INVALID");
+  if (source.id !== "cloudy-things") throw fail("SOURCE_UNSUPPORTED");
+  if (!exactKeys(source, ["id", "authorName", "language"])) throw fail("INPUT_SCHEMA_INVALID");
+  const authorName = requireString(source.authorName, "INPUT_SCHEMA_INVALID");
+  if (source.language !== "en") throw fail("LANGUAGE_UNSUPPORTED");
+  return { id: "cloudy-things", authorName, language: "en" };
+}
+
 function isValidIanaTimeZone(value) {
   if (typeof value !== "string" || value.trim() === "") return false;
   try {
@@ -226,8 +240,8 @@ function validateInput(input) {
   }
 
   const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6;
-  if (!Array.isArray(input.sources) ||
-      (simpleAwsAllowed ? ![2, 3].includes(input.sources.length) : input.sources.length !== 2)) {
+  const allowedSourceCounts = simpleAwsAllowed ? [2, 3, 4] : [2, 3];
+  if (!Array.isArray(input.sources) || !allowedSourceCounts.includes(input.sources.length)) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
   const sourcesById = new Map();
@@ -236,6 +250,7 @@ function validateInput(input) {
     if (sourcesById.has(source.id)) throw fail("SOURCE_SET_INVALID");
     if (source.id === "caylent") sourcesById.set(source.id, validateCaylentSource(source));
     else if (source.id === "builder-center") sourcesById.set(source.id, validateBuilderSource(source));
+    else if (source.id === "cloudy-things") sourcesById.set(source.id, validateCloudySource(source));
     else if (source.id === "simple-aws") {
       if (!simpleAwsAllowed || !exactKeys(source, ["id"])) throw fail("INPUT_SCHEMA_INVALID");
       sourcesById.set(source.id, { id: "simple-aws" });
@@ -243,13 +258,18 @@ function validateInput(input) {
     else throw fail("SOURCE_UNSUPPORTED");
   }
   const hasSimpleAws = sourcesById.has("simple-aws");
-  if (sourcesById.size !== 2 + Number(hasSimpleAws) || !sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
+  const hasCloudyThings = sourcesById.has("cloudy-things");
+  if (sourcesById.size !== 2 + Number(hasSimpleAws) + Number(hasCloudyThings) ||
+      !sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
     throw fail("SOURCE_SET_INVALID");
   }
 
   const configuredSources = (newsletterValue) => {
     const sources = [sourcesById.get("caylent"), sourcesById.get("builder-center")];
-    if (!hasSimpleAws) return { sources, newsletter: newsletterValue };
+    if (!hasSimpleAws) {
+      if (hasCloudyThings) sources.push(sourcesById.get("cloudy-things"));
+      return { sources, newsletter: newsletterValue };
+    }
     const newsletter = validateNewsletterSelection(newsletterValue);
     if (newsletter.language !== "en") throw fail("NEWSLETTER_CONFIGURATION_INVALID");
     sources.push({
@@ -257,6 +277,7 @@ function validateInput(input) {
       publicationId: newsletter.publicationId,
       language: newsletter.language
     });
+    if (hasCloudyThings) sources.push(sourcesById.get("cloudy-things"));
     return { sources, newsletter };
   };
 
@@ -311,7 +332,11 @@ function validateInput(input) {
   // Always use a stable source order for public output and semantic scope.
   return {
     schemaVersion: 2,
-    sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")]
+    sources: [
+      sourcesById.get("caylent"),
+      sourcesById.get("builder-center"),
+      ...(hasCloudyThings ? [sourcesById.get("cloudy-things")] : [])
+    ]
   };
 }
 
@@ -459,6 +484,9 @@ function scopeFingerprint(sources) {
     if (source.id === "caylent") return { id: source.id, authorId: source.authorId, language: source.language };
     if (source.id === "simple-aws") {
       return { id: source.id, publicationId: source.publicationId, language: source.language };
+    }
+    if (source.id === "cloudy-things") {
+      return { id: source.id, authorName: source.authorName, language: source.language };
     }
     return { id: source.id, authorId: source.authorId };
   })
@@ -1090,6 +1118,381 @@ async function collectSimpleAws(source, now, env) {
   return { publications, pages: totalPages === 0 ? 1 : totalPages };
 }
 
+function cloudyArchiveUrl(page) {
+  return page === 1
+    ? `${CLOUDY_ARCHIVE_ORIGIN}${CLOUDY_ARCHIVE_PATH}`
+    : `${CLOUDY_ARCHIVE_ORIGIN}${CLOUDY_ARCHIVE_PATH}?page=${page}`;
+}
+
+function cloudyElementMatches(html, tagName) {
+  const pattern = new RegExp(`<${tagName}(?=\\s|>)[^>]*>[\\s\\S]*?<\\/${tagName}\\s*>`, "gi");
+  return [...html.matchAll(pattern)].map((match) => match[0]);
+}
+
+function cloudyOpeningTag(element, tagName) {
+  const match = element.match(new RegExp(`^<${tagName}(?=\\s|>)[^>]*>`, "i"));
+  return match?.[0] ?? "";
+}
+
+function cloudyInnerHtml(element, tagName) {
+  const opening = cloudyOpeningTag(element, tagName);
+  if (opening === "") return "";
+  return element.slice(opening.length).replace(new RegExp(`</${tagName}\\s*>$`, "i"), "");
+}
+
+function cloudyAttribute(element, name) {
+  const match = cloudyOpeningTag(element, "[a-z][a-z0-9-]*")
+    .match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
+  return match?.[2];
+}
+
+function cloudyHasAttribute(element, name) {
+  return new RegExp(`(?:^|\\s)${name}(?:\\s*=|\\s|>)`, "i").test(cloudyOpeningTag(element, "[a-z][a-z0-9-]*"));
+}
+
+function decodeCloudyHtmlText(value) {
+  return value
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "";
+    })
+    .replace(/&#(\d+);/g, (_, decimal) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "";
+    })
+    .replace(/&(?:amp|#38);/gi, "&")
+    .replace(/&(?:quot|#34);/gi, '"')
+    .replace(/&(?:apos|#39);/gi, "'")
+    .replace(/&(?:lt|#60);/gi, "<")
+    .replace(/&(?:gt|#62);/gi, ">")
+    .replace(/&nbsp;/gi, " ");
+}
+
+function cloudyText(value) {
+  return decodeCloudyHtmlText(value).replace(/[\s\p{White_Space}]+/gu, " ").trim();
+}
+
+function cloudyTypeIs(value, expected) {
+  return value === expected || (Array.isArray(value) && value.includes(expected));
+}
+
+function cloudyArticleType(value) {
+  return cloudyTypeIs(value, "Article") || cloudyTypeIs(value, "BlogPosting");
+}
+
+function normalizedCloudyArticleUrl(value) {
+  if (typeof value !== "string" || value.trim() === "") throw fail("CLOUDY_RECORD_INVALID");
+  let parsed;
+  try {
+    parsed = new URL(value.trim(), CLOUDY_ARCHIVE_ORIGIN);
+  } catch {
+    throw fail("CLOUDY_RECORD_INVALID");
+  }
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  const reserved = new Set(["/archive", "/rss.xml", "/sitemap.xml", "/recommendations"]);
+  if (parsed.origin !== CLOUDY_ARCHIVE_ORIGIN ||
+      parsed.username !== "" || parsed.password !== "" || parsed.search !== "" || parsed.hash !== "" ||
+      pathname === "" || pathname === "/" || reserved.has(pathname) || pathname.includes("//") ||
+      pathname.slice(1).includes("/") || /%2f/i.test(pathname)) {
+    throw fail("CLOUDY_RECORD_INVALID");
+  }
+  return `${CLOUDY_ARCHIVE_ORIGIN}${pathname}`;
+}
+
+function normalizedCloudyArchiveUrl(value, page) {
+  if (typeof value !== "string" || value.trim() === "") throw fail("CLOUDY_PAGINATION_INVALID");
+  let parsed;
+  try {
+    parsed = new URL(value.trim(), CLOUDY_ARCHIVE_ORIGIN);
+  } catch {
+    throw fail("CLOUDY_PAGINATION_INVALID");
+  }
+  const expected = new URL(cloudyArchiveUrl(page));
+  if (parsed.origin !== CLOUDY_ARCHIVE_ORIGIN || parsed.protocol !== expected.protocol || parsed.hostname !== expected.hostname ||
+      parsed.username !== "" || parsed.password !== "" || parsed.pathname !== expected.pathname ||
+      parsed.search !== expected.search || parsed.hash !== "") {
+    throw fail("CLOUDY_PAGINATION_INVALID");
+  }
+  return parsed.toString();
+}
+
+function cloudyJsonLdRecords(body, expectedUrl) {
+  const scripts = [...body.matchAll(/<script(?=\s|>)[^>]*\s+type\s*=\s*(["'])application\/ld\+json\1[^>]*>([\s\S]*?)<\/script\s*>/gi)];
+  const collections = [];
+  for (const match of scripts) {
+    let value;
+    try {
+      value = JSON.parse(match[2]);
+    } catch {
+      // An unrelated JSON-LD block must not make the selected CollectionPage
+      // unavailable. A missing or malformed selected block still fails below.
+      continue;
+    }
+    if (isObject(value) && cloudyTypeIs(value["@type"], "CollectionPage") && typeof value.url === "string") {
+      try {
+        if (normalizedCloudyArchiveUrl(value.url, expectedUrl.page) === expectedUrl.value) collections.push(value);
+      } catch {
+        // An unrelated CollectionPage does not affect the selected archive page.
+      }
+    }
+  }
+  if (collections.length !== 1) throw fail("CLOUDY_JSONLD_INVALID");
+  const collection = collections[0];
+  if (!Array.isArray(collection.hasPart) || collection.hasPart.length === 0) {
+    throw fail("CLOUDY_JSONLD_INVALID");
+  }
+
+  const records = [];
+  const urls = new Set();
+  for (const item of collection.hasPart) {
+    if (!isObject(item) || !cloudyArticleType(item["@type"]) ||
+        typeof item.headline !== "string" || item.headline.trim() === "" || typeof item.url !== "string") {
+      throw fail("CLOUDY_JSONLD_INVALID");
+    }
+    const url = normalizedCloudyArticleUrl(item.url);
+    if (urls.has(url)) throw fail("CLOUDY_URL_REPEATED");
+    urls.add(url);
+    records.push({ title: normalizedTitle(item.headline), url });
+  }
+  return records;
+}
+
+function parseCloudyPublishedDate(value) {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/);
+  if (!match) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isSafeInteger(parsed)) return null;
+  const date = new Date(parsed);
+  const [, year, month, day, hours, minutes, seconds] = match;
+  if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() + 1 !== Number(month) ||
+      date.getUTCDate() !== Number(day) || date.getUTCHours() !== Number(hours) ||
+      date.getUTCMinutes() !== Number(minutes) || date.getUTCSeconds() !== Number(seconds)) {
+    return null;
+  }
+  return parsed;
+}
+
+function cloudyRenderedRecords(body) {
+  const sections = [...body.matchAll(/<section(?=\s|>)[^>]*\s+aria-labelledby\s*=\s*(["'])archive-heading\1[^>]*>[\s\S]*?<\/section\s*>/gi)];
+  if (sections.length !== 1) throw fail("CLOUDY_MARKUP_INVALID");
+  const section = sections[0][0];
+  const articles = cloudyElementMatches(section, "article");
+  if (articles.length === 0) throw fail("CLOUDY_MARKUP_INVALID");
+
+  const records = [];
+  const urls = new Set();
+  for (const article of articles) {
+    const anchors = cloudyElementMatches(article, "a");
+    const times = cloudyElementMatches(article, "time");
+    const paragraphs = cloudyElementMatches(article, "p");
+    if (anchors.length !== 1 || times.length !== 1 || paragraphs.length !== 1) {
+      throw fail("CLOUDY_MARKUP_INVALID");
+    }
+    const href = cloudyAttribute(anchors[0], "href");
+    const dateTime = cloudyAttribute(times[0], "datetime");
+    const author = cloudyText(cloudyInnerHtml(paragraphs[0], "p"));
+    if (href === undefined || dateTime === undefined || author === "") throw fail("CLOUDY_MARKUP_INVALID");
+    const url = normalizedCloudyArticleUrl(href);
+    if (urls.has(url)) throw fail("CLOUDY_URL_REPEATED");
+    const publishedAt = parseCloudyPublishedDate(dateTime);
+    if (publishedAt === null) throw fail("CLOUDY_DATE_INVALID");
+    urls.add(url);
+    records.push({ url, author, publishedAt });
+  }
+  return records;
+}
+
+function cloudyPagination(body, page) {
+  const headers = cloudyElementMatches(body, "header");
+  const headerTotals = headers.flatMap((header) => cloudyElementMatches(header, "p"))
+    .map((paragraph) => cloudyText(cloudyInnerHtml(paragraph, "p")))
+    .filter((text) => /^\d+\s+posts\s+published\s+so\s+far$/i.test(text));
+  if (headerTotals.length !== 1) throw fail("CLOUDY_PAGINATION_INVALID");
+  const totalMatch = headerTotals[0].match(/^(\d+)\s+posts\s+published\s+so\s+far$/i);
+  const totalPosts = Number(totalMatch[1]);
+  if (!Number.isSafeInteger(totalPosts) || totalPosts < 1) throw fail("CLOUDY_PAGINATION_INVALID");
+
+  const navs = [...body.matchAll(/<nav(?=\s|>)[^>]*\s+aria-label\s*=\s*(["'])Pagination\1[^>]*>[\s\S]*?<\/nav\s*>/gi)];
+  if (navs.length !== 1) throw fail("CLOUDY_PAGINATION_INVALID");
+  const nav = navs[0][0];
+  const navText = cloudyText(nav);
+  const pageMatch = navText.match(/Page\s+(\d+)\s+of\s+(\d+)/i);
+  if (!pageMatch) throw fail("CLOUDY_PAGINATION_INVALID");
+  const currentPage = Number(pageMatch[1]);
+  const totalPages = Number(pageMatch[2]);
+  if (!Number.isSafeInteger(currentPage) || !Number.isSafeInteger(totalPages) ||
+      currentPage !== page || currentPage < 1 || totalPages < 1 || currentPage > totalPages) {
+    throw fail("CLOUDY_PAGINATION_INVALID");
+  }
+
+  const controls = [...nav.matchAll(/<(a|button)\b[^>]*>[\s\S]*?<\/\1\s*>/gi)]
+    .map((match) => match[0])
+    .filter((control) => cloudyText(control).toLowerCase() === "next");
+  if (controls.length !== 1) throw fail("CLOUDY_PAGINATION_INVALID");
+  const control = controls[0];
+  const isAnchor = /^<a\b/i.test(control);
+  const isDisabled = cloudyHasAttribute(control, "disabled");
+  if (currentPage < totalPages) {
+    if (!isAnchor || isDisabled) throw fail("CLOUDY_PAGINATION_INVALID");
+    const href = cloudyAttribute(control, "href");
+    if (href === undefined) throw fail("CLOUDY_PAGINATION_INVALID");
+    return {
+      totalPosts,
+      totalPages,
+      currentPage,
+      nextUrl: normalizedCloudyArchiveUrl(href, currentPage + 1)
+    };
+  }
+  if (isAnchor || !isDisabled) throw fail("CLOUDY_PAGINATION_INVALID");
+  return { totalPosts, totalPages, currentPage, nextUrl: null };
+}
+
+function parseCloudyArchive(body, page) {
+  const expectedUrl = { page, value: cloudyArchiveUrl(page) };
+  const jsonLd = cloudyJsonLdRecords(body, expectedUrl);
+  const rendered = cloudyRenderedRecords(body);
+  const pagination = cloudyPagination(body, page);
+  if (jsonLd.length !== rendered.length) throw fail("CLOUDY_RECORD_JOIN_INVALID");
+  const renderedByUrl = new Map(rendered.map((record) => [record.url, record]));
+  if (renderedByUrl.size !== rendered.length) throw fail("CLOUDY_URL_REPEATED");
+  const publications = [];
+  for (const record of jsonLd) {
+    const renderedRecord = renderedByUrl.get(record.url);
+    if (!renderedRecord) throw fail("CLOUDY_RECORD_JOIN_INVALID");
+    publications.push({
+      title: record.title,
+      url: record.url,
+      author: renderedRecord.author,
+      publishedAt: renderedRecord.publishedAt
+    });
+  }
+  return { ...pagination, publications };
+}
+
+async function readCloudyBody(response) {
+  if (response?.body && typeof response.body.getReader === "function") {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const chunks = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        const result = await reader.read();
+        if (result.done) break;
+        const text = decoder.decode(result.value, { stream: true });
+        bytes += Buffer.byteLength(text, "utf8");
+        if (bytes > MAX_CLOUDY_BODY_BYTES) {
+          await reader.cancel();
+          throw fail("CLOUDY_BODY_TOO_LARGE");
+        }
+        chunks.push(text);
+      }
+      const tail = decoder.decode();
+      bytes += Buffer.byteLength(tail, "utf8");
+      if (bytes > MAX_CLOUDY_BODY_BYTES) throw fail("CLOUDY_BODY_TOO_LARGE");
+      chunks.push(tail);
+      return chunks.join("");
+    } catch (error) {
+      if (error instanceof CollectorError) throw error;
+      try { await reader.cancel(); } catch { /* best effort */ }
+      throw fail("CLOUDY_BODY_READ_FAILED");
+    }
+  }
+  throw fail("CLOUDY_BODY_READ_FAILED");
+}
+
+async function fetchCloudyArchive(url, page) {
+  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: { accept: "text/html" },
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      });
+    } catch {
+      if (attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, reason: "network" });
+        continue;
+      }
+      throw fail("SOURCE_NETWORK_FAILED");
+    }
+    if (!response || typeof response.ok !== "boolean" || !Number.isInteger(response.status)) {
+      throw fail("SOURCE_RESPONSE_INVALID");
+    }
+    if (!response.ok) {
+      if (isTransientStatus(response.status) && attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, status: response.status });
+        continue;
+      }
+      throw fail(`SOURCE_HTTP_${response.status}`);
+    }
+    const contentType = response.headers?.get?.("content-type");
+    if (typeof contentType !== "string" || !/^text\/html(?:\s*;|$)/i.test(contentType.trim())) {
+      throw fail("CLOUDY_CONTENT_TYPE_INVALID");
+    }
+    try {
+      return await readCloudyBody(response);
+    } catch (error) {
+      if (error instanceof CollectorError && error.code === "CLOUDY_BODY_READ_FAILED" && attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, reason: "body" });
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw fail("SOURCE_NETWORK_FAILED");
+}
+
+async function collectCloudyThings(source, now) {
+  const publications = [];
+  const seenPages = new Set();
+  const seenUrls = new Set();
+  let page = 1;
+  let declaredTotal = null;
+  let declaredPages = null;
+  while (true) {
+    if (page > MAX_CLOUDY_PAGES || seenPages.has(page)) throw fail("CLOUDY_PAGE_CAP_REACHED");
+    seenPages.add(page);
+    const body = await fetchCloudyArchive(cloudyArchiveUrl(page), page);
+    const parsed = parseCloudyArchive(body, page);
+    if (declaredTotal === null) {
+      declaredTotal = parsed.totalPosts;
+      declaredPages = parsed.totalPages;
+    } else if (parsed.totalPosts !== declaredTotal || parsed.totalPages !== declaredPages) {
+      throw fail("CLOUDY_PAGINATION_INVALID");
+    }
+    for (const record of parsed.publications) {
+      if (seenUrls.has(record.url)) throw fail("CLOUDY_URL_REPEATED");
+      seenUrls.add(record.url);
+      if (record.author !== source.authorName) continue;
+      if (record.publishedAt > now) continue;
+      publications.push({
+        sourceId: source.id,
+        providerId: record.url,
+        title: record.title,
+        language: source.language,
+        url: record.url
+      });
+    }
+    if (parsed.nextUrl === null) {
+      if (parsed.currentPage !== declaredPages || seenUrls.size !== declaredTotal || publications.length > seenUrls.size) {
+        throw fail("CLOUDY_PAGINATION_INVALID");
+      }
+      return { publications, pages: seenPages.size };
+    }
+    if (parsed.currentPage >= declaredPages || seenPages.size >= MAX_CLOUDY_PAGES) {
+      throw fail("CLOUDY_PAGE_CAP_REACHED");
+    }
+    const expectedNext = cloudyArchiveUrl(parsed.currentPage + 1);
+    if (parsed.nextUrl !== expectedNext) throw fail("CLOUDY_PAGINATION_INVALID");
+    page = parsed.currentPage + 1;
+  }
+}
+
 function parseDate(value, { optional = false } = {}) {
   if (optional && (value === undefined || value === null)) return null;
   if (typeof value === "number") return isValidDateTimestamp(value) ? value : null;
@@ -1266,6 +1669,7 @@ async function collectPublications(sources, now, env) {
     if (source.id === "caylent") result = await collectCaylent(source, now);
     else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
     else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
+    else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
     else throw fail("SOURCE_UNSUPPORTED");
     pagesBySource[source.id] = result.pages;
     publications.push(...result.publications);
@@ -1317,15 +1721,15 @@ function makeOutput(groups) {
 function validSourceList(sources, family) {
   if (!Array.isArray(sources)) return false;
   if (family === "articles") {
-    const expected = sources.length === 1
-      ? [["caylent", "Caylent"]]
-      : sources.length === 2
-        ? [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]]
-        : sources.length === 3
-          ? [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["simple-aws", "Simple AWS"]]
-          : null;
-    return expected !== null && sources.every((source, index) =>
-      exactKeys(source, ["id", "label"]) && source.id === expected[index][0] && source.label === expected[index][1]);
+    const expected = [
+      [["caylent", "Caylent"]],
+      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]],
+      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["simple-aws", "Simple AWS"]],
+      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["cloudy-things", "Cloudy Things"]],
+      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["simple-aws", "Simple AWS"], ["cloudy-things", "Cloudy Things"]]
+    ].find((candidate) => candidate.length === sources.length && candidate.every(([id, label], index) =>
+      exactKeys(sources[index], ["id", "label"]) && sources[index].id === id && sources[index].label === label));
+    return expected !== undefined;
   }
   return sources.length === 1 && exactKeys(sources[0], ["id", "label"]) &&
     sources[0].id === CURATED_SOURCE.id && sources[0].label === CURATED_SOURCE.label;

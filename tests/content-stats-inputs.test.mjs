@@ -595,3 +595,93 @@ test('adding Simple AWS preserves root input4, input5, and input6 projections an
     assert.equal(Object.hasOwn(expanded, 'counts'), false, `${description} does not add computed counts`);
   }
 });
+
+function cloudyThingsSelection() {
+  return { id: 'cloudy-things', authorName: 'Guillermo Ojeda', language: 'en' };
+}
+
+test('Cloudy Things can generate input3 without newsletter access or a Simple AWS source', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  source.articleConfig.sources.push(cloudyThingsSelection());
+  const result = build(source);
+
+  assert.equal(result.schemaVersion, 3);
+  assert.deepEqual(result.sources, source.articleConfig.sources);
+  assert.equal(Object.hasOwn(result, 'newsletter'), false);
+  assert.equal(Object.hasOwn(result, 'analytics'), false);
+  assert.equal(Object.hasOwn(result, 'searchConsole'), false);
+  assert.equal(Object.hasOwn(result, 'counts'), false);
+});
+
+test('Cloudy Things preserves input3 through input6 facts and clones both supported expanded source combinations', async () => {
+  const build = await inputBuilder();
+  const variants = [
+    [3, () => {}],
+    [4, (source) => { source.articleConfig.newsletter = newsletterSelection(); }],
+    [5, (source) => { addInputFiveSelections(source); }],
+    [6, (source) => {
+      addInputFiveSelections(source);
+      source.articleConfig.searchConsole = searchConsoleSelection();
+    }]
+  ];
+  for (const [version, configure] of variants) {
+    for (const includeSimpleAws of version === 3 ? [false] : [false, true]) {
+      const source = fixture();
+      configure(source);
+      if (includeSimpleAws) source.articleConfig.sources.push({ id: 'simple-aws' });
+      const before = build(source);
+      source.articleConfig.sources.push(cloudyThingsSelection());
+      const expanded = build(freeze(source));
+      const { sources: beforeSources, ...beforeFacts } = before;
+      const { sources: expandedSources, ...expandedFacts } = expanded;
+
+      assert.equal(expanded.schemaVersion, version);
+      assert.deepEqual(expandedFacts, beforeFacts, 'article coverage must not alter other family selectors or curated facts');
+      assert.deepEqual(expandedSources, [...beforeSources, cloudyThingsSelection()]);
+      assert.notEqual(expandedSources.at(-1), source.articleConfig.sources.at(-1));
+      assert.deepEqual(Object.keys(expandedSources.at(-1)).sort(), ['authorName', 'id', 'language']);
+      expandedSources.at(-1).authorName = 'Changed result only';
+      assert.equal(source.articleConfig.sources.at(-1).authorName, 'Guillermo Ojeda');
+    }
+  }
+});
+
+test('Cloudy Things rejects incomplete, unsupported, duplicate, or credential-bearing maintained selectors', async () => {
+  const build = await inputBuilder();
+  const valid = cloudyThingsSelection();
+  const invalid = [
+    { id: 'cloudy-things' },
+    { ...valid, authorName: '' },
+    { ...valid, authorName: '  ' },
+    { ...valid, authorName: null },
+    { id: 'cloudy-things', authorName: valid.authorName },
+    { ...valid, language: 'es' },
+    { ...valid, language: null },
+    { ...valid, apiKey: 'synthetic-private-key' },
+    { ...valid, archiveUrl: 'https://another-publication.test/archive' },
+    { ...valid, publicationId: 'unused-provider-selector' }
+  ];
+  for (const selection of invalid) {
+    const source = fixture();
+    source.articleConfig.sources.push(selection);
+    assert.throws(() => build(source), /cloudy|source|author|language|credential|input/i);
+  }
+  const duplicate = fixture();
+  duplicate.articleConfig.sources.push(valid, structuredClone(valid));
+  assert.throws(() => build(duplicate), /cloudy|source|duplicate|input/i);
+});
+
+test('Cloudy Things keeps the base article sources and existing Simple AWS prerequisites mandatory', async () => {
+  const build = await inputBuilder();
+  for (const missingId of ['caylent', 'builder-center']) {
+    const source = fixture();
+    source.articleConfig.sources = source.articleConfig.sources.filter(({ id }) => id !== missingId);
+    source.articleConfig.sources.push(cloudyThingsSelection());
+    assert.throws(() => build(source), /source|caylent|builder|input/i);
+  }
+  const source = fixture();
+  source.articleConfig.sources.push({ id: 'simple-aws' }, cloudyThingsSelection());
+  assert.throws(() => build(source), /source|simple|newsletter|input/i,
+    'Cloudy Things needs no credential, but cannot bypass the separate Simple AWS newsletter prerequisite');
+});
