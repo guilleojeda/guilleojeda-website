@@ -17,6 +17,8 @@ const TALK_KINDS = new Set([
 const TALK_STATUSES = new Set(['delivered', 'scheduled', 'unknown']);
 const BOOK_STATUSES = new Set(['published', 'in-progress', 'unknown']);
 const LANGUAGES = new Set(['en', 'es', null]);
+const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws']);
+const REQUIRED_ARTICLE_SOURCE_IDS = ['caylent', 'builder-center'];
 
 function invalid(message) {
   throw new Error(`Invalid content statistics input: ${message}`);
@@ -44,9 +46,19 @@ function validateArticleConfig(articleConfig) {
   for (const [index, source] of articleConfig.sources.entries()) {
     assertObject(source, `article source ${index}`);
     assertNonEmptyString(source.id, `article source ${index} id`);
+    if (!ARTICLE_SOURCE_IDS.has(source.id)) invalid(`unsupported article source ID ${source.id}`);
     if (sourceIds.has(source.id)) invalid(`duplicate article source ID ${source.id}`);
+    if (source.id === 'simple-aws'
+      && (Object.keys(source).length !== 1 || !Object.hasOwn(source, 'id'))) {
+      invalid('Simple AWS article source must contain only its id');
+    }
     sourceIds.add(source.id);
   }
+
+  for (const requiredId of REQUIRED_ARTICLE_SOURCE_IDS) {
+    if (!sourceIds.has(requiredId)) invalid(`article sources must include ${requiredId}`);
+  }
+  return sourceIds;
 }
 
 function projectTalks(talks) {
@@ -187,7 +199,7 @@ function projectSearchConsole(searchConsole) {
 }
 
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
-  validateArticleConfig(articleConfig);
+  const sourceIds = validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
   const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
   const hasSearchConsole = Object.hasOwn(articleConfig, 'searchConsole');
@@ -195,6 +207,15 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   if (hasSearchConsole && (!hasNewsletter || !hasAnalytics)) {
     invalid('searchConsole requires the existing newsletter and analytics selections');
   }
+  if (sourceIds.has('simple-aws') && !hasNewsletter) {
+    invalid('Simple AWS article source requires the existing newsletter selection');
+  }
+
+  const newsletter = hasNewsletter ? projectNewsletter(articleConfig.newsletter) : null;
+  if (sourceIds.has('simple-aws') && newsletter.language !== 'en') {
+    invalid('Simple AWS article source requires an English newsletter selection');
+  }
+
   return {
     schemaVersion: hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
     definitionVersion: 1,
@@ -203,7 +224,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
       talks: projectTalks(talks),
       books: projectBooks(books)
     },
-    ...(hasNewsletter ? { newsletter: projectNewsletter(articleConfig.newsletter) } : {}),
+    ...(newsletter ? { newsletter } : {}),
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
     ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {})
   };

@@ -16,7 +16,13 @@ const allowedKeys = {
 };
 const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
-  ['builder-center', 'AWS Builder Center']
+  ['builder-center', 'AWS Builder Center'],
+  ['simple-aws', 'Simple AWS']
+]);
+const supportedArticleSourceSets = new Set([
+  'caylent',
+  'caylent,builder-center',
+  'caylent,builder-center,simple-aws'
 ]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
@@ -92,7 +98,7 @@ function hasSources(group, kind) {
   }
 
   if (kind === 'articles') {
-    return ids.has('caylent') && (sources.length === 1 || (sources.length === 2 && ids.has('builder-center')));
+    return supportedArticleSourceSets.has(sources.map((source) => source.id).join(','));
   }
   return sources.length === 1 && ids.has(supportedCuratedSource.id);
 }
