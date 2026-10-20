@@ -41,5 +41,12 @@
     "language": "en",
     "articleUrlPattern": "(?-i)^https://newsletter\\.simpleaws\\.dev/p/[^/?#]+/?$",
     "availableSince": "2025-06-19"
+  },
+  "directoryAnalytics": {
+    "id": "donde-aprendo-aws",
+    "propertyId": "424203315",
+    "hostname": "dondeaprendoaws.com",
+    "language": "es",
+    "timeZone": "America/Buenos_Aires"
   }
 }
