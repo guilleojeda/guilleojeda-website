@@ -46,6 +46,12 @@ The browser fetches once and applies both native selectors locally. Views and ar
 
 Cloudy Things rollout keeps the existing input and public schemas, credentials and infrastructure: publish compatible collector and client code first, then enable the optional selector through a separate normal CI publication. Rollback removes the selector through CI, publishes and verifies the reduced-coverage snapshot, and only then restores older incompatible code.
 
+The optional Dónde Aprendo AWS selector is exactly `{ "id": "donde-aprendo-aws", "propertyId": "424203315", "hostname": "dondeaprendoaws.com", "language": "es", "timeZone": "America/Buenos_Aires" }`. It generates protected input 7 independently of newsletter, existing Analytics and Search Console selectors, and works with directory-only input 3 or any existing input 4–6 and current four-source article selection. The build deep-copies these five scope fields; it contains no credential or computed traffic.
+
+The public `directoryViews` family reports page views for the full Dónde Aprendo AWS directory over 7 days, 30 days, 90 days, 12 months and year to date. Each period retains its own source, interval, timezone, qualifications and successful collection date. Page views can repeat and remain separate from article views and readership; there is no directory recorded total. A failed period is unavailable or retains its exact valid prior record while healthy families refresh; shared Google credential failures affect enabled Google families, and removing the selector stops directory queries and removes this family.
+
+Compatible collector and client code is published while the selector is absent, then the selector is enabled through a separate normal main-branch CI publication. Rollback removes the selector through CI, publishes and verifies the actual no-directory snapshot, and only then restores older incompatible code. This extension uses existing credentials, public schema and infrastructure.
+
 ## Rendering and routing
 
 Ordinary content and language links work without JavaScript; statistics show a localized enable-JavaScript message. English and Spanish are separate HTML documents. Interface language selection is explicit and opens the corresponding page in the other language; it is not inferred from browser settings or persisted in cookies. The statistics privacy pages are `/content-statistics/privacy/` and `/es/content-statistics/privacy/`, with their own canonical/alternate metadata and ordinary navigation back to the home-page sections.

@@ -1991,3 +1991,34 @@ test('views reject numeric-offset timezones while preserving fixed IANA zones an
   assert.match(page.cards.articles.views.interval.textContent, /Etc\/GMT\+1/);
   assert.equal(page.fetchCount, 1);
 });
+
+test('directory views accept a valid IANA timezone and render that source metadata', async () => {
+  const records = directoryViewsRecords();
+  records['12m'].timeZone = 'Etc/GMT+1';
+  const page = createPage({ locale: 'en', data: snapshotWithDirectoryViews({ records }) });
+  await page.settle();
+
+  assertDirectoryViewsVisible(page, 'en', '12m');
+  assert.match(page.cards.directoryViews.interval.textContent, /Etc\/GMT\+1/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('invalid directory timezone metadata isolates its periods and preserves healthy siblings', async () => {
+  const records = directoryViewsRecords();
+  records['12m'].timeZone = '+01:00';
+  records['30d'].timeZone = 'Not/A_Timezone';
+  records['90d'].timeZone = 'Etc/GMT+2';
+  const page = createPage({ locale: 'en', data: snapshotWithDirectoryViews({ records }) });
+  await page.settle();
+
+  assertDirectoryViewsUnavailable(page, 'en');
+  page.periodSelector.value = '30d';
+  page.periodSelector.dispatch('change');
+  assertDirectoryViewsUnavailable(page, 'en');
+  page.periodSelector.value = '90d';
+  page.periodSelector.dispatch('change');
+  assertDirectoryViewsVisible(page, 'en', '90d');
+  assert.match(page.cards.directoryViews.interval.textContent, /Etc\/GMT\+2/);
+  assert.equal(page.cards.articles.count.textContent, '11');
+  assert.equal(page.fetchCount, 1);
+});

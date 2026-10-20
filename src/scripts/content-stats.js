@@ -2,6 +2,7 @@ const endpointPath = '/content-stats/v1/current.json';
 const knownKinds = ['articles', 'talks', 'books', 'newsletter'];
 const knownViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const knownSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
+const knownDirectoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
@@ -12,7 +13,9 @@ const allowedKeys = {
   articleViewsGroup: ['definitionVersion', 'records'],
   articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications'],
   articleSearchClicksGroup: ['definitionVersion', 'records'],
-  articleSearchClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks']
+  articleSearchClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks'],
+  directoryViewsGroup: ['definitionVersion', 'records'],
+  directoryViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications']
 };
 const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
@@ -29,6 +32,7 @@ const supportedArticleSourceSets = new Set([
 ]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
+const supportedDirectoryPublication = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' };
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -203,12 +207,45 @@ function validateArticleSearchClicks(value) {
   ]));
 }
 
+function validateDirectoryViewsRecord(value) {
+  if (!hasOnlyKeys(value, allowedKeys.directoryViewsRecord)
+    || value.basis !== 'period'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSha256(value.scopeId)
+    || !hasOnlyKeys(value.publication, allowedKeys.publication)
+    || value.publication.id !== supportedDirectoryPublication.id
+    || value.publication.label !== supportedDirectoryPublication.label
+    || value.publication.language !== supportedDirectoryPublication.language
+    || !isSupportedTimeZone(value.timeZone)
+    || !isRealDateOnly(value.startDate)
+    || !isRealDateOnly(value.endDate)
+    || value.startDate > value.endDate
+    || !isNonnegativeCount(value.views)
+    || !Array.isArray(value.qualifications)
+    || value.qualifications.some((qualification) => !['sampled', 'thresholding', 'other-row'].includes(qualification))
+    || new Set(value.qualifications).size !== value.qualifications.length) return null;
+
+  return value;
+}
+
+function validateDirectoryViews(value) {
+  if (!hasOnlyKeys(value, allowedKeys.directoryViewsGroup)
+    || value.definitionVersion !== 1
+    || !isRecord(value.records)
+    || !hasAllowedKeys(value.records, knownDirectoryViewPeriods)) return null;
+
+  return Object.fromEntries(knownDirectoryViewPeriods.map((period) => [
+    period,
+    Object.hasOwn(value.records, period) ? validateDirectoryViewsRecord(value.records[period]) : null
+  ]));
+}
+
 function validateSnapshot(value) {
   if (!isRecord(value)
     || !hasOnlyKeys(value, allowedKeys.document)
     || value.schemaVersion !== 1
     || !isRecord(value.groups)
-    || !hasAllowedKeys(value.groups, [...knownKinds, 'articleViews', 'articleSearchClicks'])) return null;
+    || !hasAllowedKeys(value.groups, [...knownKinds, 'articleViews', 'articleSearchClicks', 'directoryViews'])) return null;
 
   return {
     groups: Object.fromEntries(knownKinds.map((kind) => [
@@ -218,6 +255,9 @@ function validateSnapshot(value) {
     articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null,
     articleSearchClicks: Object.hasOwn(value.groups, 'articleSearchClicks')
       ? validateArticleSearchClicks(value.groups.articleSearchClicks)
+      : null,
+    directoryViews: Object.hasOwn(value.groups, 'directoryViews')
+      ? validateDirectoryViews(value.groups.directoryViews)
       : null
   };
 }
@@ -260,13 +300,26 @@ function getElements(section) {
     collectedDate: searchRegion.querySelector('[data-stats-search-collected-date]')
   } : null;
 
+  const directoryViewsRegion = section.querySelector('[data-stats-directory-views]');
+  const directoryViews = directoryViewsRegion ? {
+    region: directoryViewsRegion,
+    status: directoryViewsRegion.querySelector('[data-stats-directory-views-status]'),
+    results: directoryViewsRegion.querySelector('[data-stats-directory-views-results]'),
+    value: directoryViewsRegion.querySelector('[data-stats-directory-views-value]'),
+    coverage: directoryViewsRegion.querySelector('[data-stats-directory-views-coverage]'),
+    interval: directoryViewsRegion.querySelector('[data-stats-directory-views-interval]'),
+    collectedDate: directoryViewsRegion.querySelector('[data-stats-directory-views-collected-date]'),
+    qualifications: directoryViewsRegion.querySelector('[data-stats-directory-views-qualifications]')
+  } : null;
+
   return {
     cards,
     selector: section.querySelector('[data-stats-language]'),
     periodSelector: section.querySelector('[data-stats-period]'),
     totalOption: section.querySelector('[data-stats-period]')?.querySelector('[value="total"]') ?? null,
     views,
-    search
+    search,
+    directoryViews
   };
 }
 
@@ -480,6 +533,80 @@ function renderSearch(snapshot, locale, language, elements) {
   search.status.textContent = '';
 }
 
+function directoryViewsElementsReady(elements) {
+  const directoryViews = elements.directoryViews;
+  return Boolean(elements.periodSelector && directoryViews?.region && directoryViews.status && directoryViews.results
+    && directoryViews.value && directoryViews.coverage && directoryViews.interval
+    && directoryViews.collectedDate && directoryViews.qualifications);
+}
+
+function clearDirectoryViewsResult(directoryViews) {
+  directoryViews.value.textContent = '';
+  directoryViews.coverage.textContent = '';
+  directoryViews.interval.textContent = '';
+  directoryViews.collectedDate.textContent = '';
+  directoryViews.qualifications.textContent = '';
+  directoryViews.qualifications.hidden = true;
+}
+
+function renderDirectoryViewsUnavailable(elements, locale, hidden = false) {
+  const { directoryViews } = elements;
+  directoryViews.region.hidden = hidden;
+  directoryViews.results.hidden = true;
+  clearDirectoryViewsResult(directoryViews);
+  directoryViews.status.textContent = directoryViews.region.dataset.statsDirectoryViewsUnavailable?.trim()
+    || (locale === 'es'
+      ? 'Las vistas de página de Dónde Aprendo AWS no están disponibles para este período.'
+      : 'Dónde Aprendo AWS page views are unavailable for this period.');
+  directoryViews.status.hidden = hidden;
+  directoryViews.region.setAttribute('aria-busy', 'false');
+}
+
+function renderDirectoryViewsLoading(directoryViews) {
+  directoryViews.region.hidden = false;
+  directoryViews.results.hidden = true;
+  clearDirectoryViewsResult(directoryViews);
+  directoryViews.status.hidden = false;
+  directoryViews.region.setAttribute('aria-busy', 'true');
+}
+
+function renderDirectoryViews(snapshot, locale, language, elements) {
+  if (!directoryViewsElementsReady(elements)) return;
+
+  const { directoryViews, periodSelector } = elements;
+  if (language === 'en') {
+    renderDirectoryViewsUnavailable(elements, locale, true);
+    return;
+  }
+
+  if (periodSelector.value === 'total') {
+    renderDirectoryViewsUnavailable(elements, locale);
+    return;
+  }
+
+  const period = knownDirectoryViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
+  const record = snapshot?.directoryViews?.[period];
+  if (!record) {
+    renderDirectoryViewsUnavailable(elements, locale);
+    return;
+  }
+
+  const startDate = formatDateOnly(record.startDate, locale);
+  const endDate = formatDateOnly(record.endDate, locale);
+  const qualifications = record.qualifications.map((qualification) => qualificationCopy[locale][qualification]);
+  directoryViews.region.hidden = false;
+  directoryViews.value.textContent = new Intl.NumberFormat(locale).format(record.views);
+  directoryViews.coverage.textContent = record.publication.label;
+  directoryViews.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
+  directoryViews.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
+  directoryViews.qualifications.textContent = qualifications.join(' · ');
+  directoryViews.qualifications.hidden = qualifications.length === 0;
+  directoryViews.results.hidden = false;
+  directoryViews.status.hidden = true;
+  directoryViews.status.textContent = '';
+  directoryViews.region.setAttribute('aria-busy', 'false');
+}
+
 async function loadContentStats(section) {
   const elements = getElements(section);
   const cardsReady = knownKinds.every((kind) => {
@@ -498,6 +625,7 @@ async function loadContentStats(section) {
   }
   if (viewsElementsReady(elements)) renderViewsLoading(elements.views);
   if (searchElementsReady(elements)) renderSearchLoading(elements.search);
+  if (directoryViewsElementsReady(elements)) renderDirectoryViewsLoading(elements.directoryViews);
 
   let snapshot = null;
   try {
@@ -517,18 +645,23 @@ async function loadContentStats(section) {
   }
 
   renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
-  if (snapshot && (viewsElementsReady(elements) || searchElementsReady(elements))) elements.periodSelector.disabled = false;
+  if (snapshot && (viewsElementsReady(elements) || searchElementsReady(elements) || directoryViewsElementsReady(elements))) {
+    elements.periodSelector.disabled = false;
+  }
   else if (elements.totalOption) elements.totalOption.disabled = true;
   renderViews(snapshot, locale, elements.selector.value, elements);
   renderSearch(snapshot, locale, elements.selector.value, elements);
+  renderDirectoryViews(snapshot, locale, elements.selector.value, elements);
   elements.selector.addEventListener('change', () => {
     renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
     renderViews(snapshot, locale, elements.selector.value, elements);
     renderSearch(snapshot, locale, elements.selector.value, elements);
+    renderDirectoryViews(snapshot, locale, elements.selector.value, elements);
   });
-  if (viewsElementsReady(elements) || searchElementsReady(elements)) {
+  if (viewsElementsReady(elements) || searchElementsReady(elements) || directoryViewsElementsReady(elements)) {
     elements.periodSelector.addEventListener('change', () => renderViews(snapshot, locale, elements.selector.value, elements));
     elements.periodSelector.addEventListener('change', () => renderSearch(snapshot, locale, elements.selector.value, elements));
+    elements.periodSelector.addEventListener('change', () => renderDirectoryViews(snapshot, locale, elements.selector.value, elements));
   }
 }
 

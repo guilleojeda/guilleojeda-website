@@ -599,6 +599,9 @@ a:hover {
 .content-stats-views-results[hidden],
 .content-stats-views-status[hidden],
 .content-stats-views-qualifications[hidden],
+.content-stats-directory-views-results[hidden],
+.content-stats-directory-views-status[hidden],
+.content-stats-directory-views-qualifications[hidden],
 .content-stats-search-results[hidden],
 .content-stats-search-status[hidden] {
   display: none;
@@ -681,7 +684,8 @@ a:hover {
   font-size: 0.9rem;
 }
 
-.content-stats-views-count {
+.content-stats-views-count,
+.content-stats-directory-views-count {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -692,7 +696,8 @@ a:hover {
   font-size: 1.05rem;
 }
 
-.content-stats-views-count [data-stats-views-value] {
+.content-stats-views-count [data-stats-views-value],
+.content-stats-directory-views-count [data-stats-directory-views-value] {
   color: var(--forest-deep);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 700;
@@ -719,7 +724,8 @@ a:hover {
   line-height: 1;
 }
 
-.content-stats-views-meta {
+.content-stats-views-meta,
+.content-stats-directory-views-meta {
   gap: 1rem 2rem;
   padding-top: 0.8rem;
 }
@@ -729,7 +735,8 @@ a:hover {
   padding-top: 0.8rem;
 }
 
-.content-stats-views-qualifications {
+.content-stats-views-qualifications,
+.content-stats-directory-views-qualifications {
   margin: 0.75rem 0 0;
   color: var(--muted);
   font-size: 0.78rem;
