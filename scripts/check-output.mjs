@@ -148,6 +148,13 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosure, /ingl[eé]s/i, 'Spanish source disclosure identifies the supported content language');
   }
   const disclosureText = normalizedText(disclosure);
+  const articleCountDisclosure = disclosureText.split(/[.!?]/).find((sentence) =>
+    /Simple AWS/i.test(sentence)
+      && (locale === 'en' ? /article\s+counts?|counts?\s+(?:of\s+)?articles/i : /conteo\s+de\s+art[ií]culos|art[ií]culos\s+(?:contados|incluyen)/i).test(sentence));
+  assert.ok(articleCountDisclosure, `${locale} disclosure connects Simple AWS to article-count coverage`);
+  assert.match(articleCountDisclosure, /\bweb\b/i, `${locale} Simple AWS count disclosure includes web posts`);
+  assert.match(articleCountDisclosure, locale === 'en' ? /\bemail\b|e-mail/i : /correo(?:\s+electr[oó]nico)?|email/i,
+    `${locale} Simple AWS count disclosure includes email posts`);
   const searchDisclosureParagraph = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
     .map((match) => normalizedText(match[1]))
     .find((paragraph) => /search console/i.test(paragraph));
@@ -440,7 +447,17 @@ if (hasSearchConsoleSelection) {
 } else {
   assert.ok(!Object.hasOwn(sourceConfig, 'searchConsole'), 'schema-v3/v4/v5 output must match a source configuration without Search Console');
 }
-assert.deepEqual(inputs.sources.map((source) => source?.id).sort(), ['builder-center', 'caylent'], 'protected build input must contain exactly the approved article sources');
+const simpleAwsArticleSource = sourceConfig.sources.find((source) => source?.id === 'simple-aws');
+assert.deepEqual(inputs.sources.map((source) => source?.id).sort(),
+  simpleAwsArticleSource ? ['builder-center', 'caylent', 'simple-aws'] : ['builder-center', 'caylent'],
+  'protected build input must contain exactly the selected approved article sources');
+assert.deepEqual(inputs.sources, sourceConfig.sources, 'protected article selection must match the maintained configuration');
+if (simpleAwsArticleSource) {
+  assert.deepEqual(simpleAwsArticleSource, { id: 'simple-aws' }, 'Simple AWS article selection reuses existing publication facts without credentials or duplicated fields');
+  assert.ok(sourceConfig.newsletter, 'Simple AWS article counts require the existing publication selection');
+  assert.equal(sourceConfig.newsletter.id, 'simple-aws');
+  assert.equal(sourceConfig.newsletter.language, 'en', 'Simple AWS article content language is owner-confirmed English');
+}
 const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
 assert.deepEqual(Object.keys(caylentSource).sort(), ['apiKey', 'authorId', 'id', 'language', 'originality'], 'Caylent input must contain only its public delivery key and counting configuration');
 assert.equal(caylentSource.authorId, 'b5b5065ade8c42a6919ca40d1239b37c', 'protected input must keep the configured Caylent author');

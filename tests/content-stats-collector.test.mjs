@@ -117,6 +117,18 @@ function phaseSixInput({ sources, curated, newsletter, analytics, searchConsole 
   };
 }
 
+function simpleAwsArticleSource() {
+  return { id: "simple-aws" };
+}
+
+function phaseSevenInput({ sources, ...options } = {}) {
+  const input = phaseSixInput(options);
+  return {
+    ...input,
+    sources: sources ?? [...input.sources, simpleAwsArticleSource()]
+  };
+}
+
 function talkFact(id, kind = "talk", status = "delivered", language = "en") {
   return { id, kind, status, language };
 }
@@ -564,12 +576,31 @@ function builderApiFetch({
   };
 }
 
-function phaseFourApiFetch({ requestLog = [], newsletterResponder, articleFetcher } = {}) {
+function phaseFourApiFetch({ requestLog = [], newsletterResponder, postsResponder, articleFetcher } = {}) {
   const articleFetch = articleFetcher ?? builderApiFetch({ requestLog });
   let newsletterAttempts = 0;
+  const postAttempts = new Map();
   return async (input, init) => {
     const url = new URL(String(input));
     if (url.hostname === "api.beehiiv.com") {
+      if (url.pathname.endsWith("/posts")) {
+        const page = Number(url.searchParams.get("page"));
+        const request = {
+          kind: "beehiiv-posts",
+          url: url.toString(),
+          method: init?.method,
+          headers: init?.headers ?? {},
+          redirect: init?.redirect,
+          signal: init?.signal,
+          page
+        };
+        const attempt = (postAttempts.get(url.toString()) ?? 0) + 1;
+        postAttempts.set(url.toString(), attempt);
+        requestLog.push(request);
+        if (typeof postsResponder === "function") return postsResponder({ request, attempt });
+        if (postsResponder !== undefined) return responseFromFixture(postsResponder);
+        return jsonResponse(beehiivPostsEnvelope([]));
+      }
       newsletterAttempts += 1;
       const request = {
         kind: "beehiiv",
@@ -611,10 +642,11 @@ function phaseFiveApiFetch({
   reportResponder,
   searchResponder,
   newsletterResponder,
+  postsResponder,
   articleFetcher,
   timeZone = googleTimeZone
 } = {}) {
-  const fallback = phaseFourApiFetch({ requestLog, newsletterResponder, articleFetcher });
+  const fallback = phaseFourApiFetch({ requestLog, newsletterResponder, postsResponder, articleFetcher });
   const attempts = new Map();
   return async (input, init = {}) => {
     const url = new URL(String(input));
@@ -1970,6 +2002,63 @@ test("an unexpected curated scope process error aborts without fallback, write, 
 
 function newsletterEnvelope(publicationId = beehiivPublicationId, subscribers = 0) {
   return { data: { id: publicationId, stats: { active_subscriptions: subscribers } } };
+}
+
+function beehiivPostsEnvelope(data, {
+  limit = 100,
+  page = 1,
+  totalResults = data.length,
+  totalPages = totalResults === 0 ? 0 : Math.ceil(totalResults / limit)
+} = {}) {
+  return { data, limit, page, total_results: totalResults, total_pages: totalPages };
+}
+
+function beehiivPost({
+  id,
+  title,
+  status = "confirmed",
+  publishDate = "2026-10-15T12:00:00.000Z",
+  platform = "both",
+  ...providerFields
+}) {
+  const publishDateSeconds = typeof publishDate === "number"
+    ? publishDate
+    : Math.floor(Date.parse(publishDate) / 1000);
+  return { id, title, status, publish_date: publishDateSeconds, platform, ...providerFields };
+}
+
+function assertBeehiivPostRequests(harness, requestLog, publicationId, expectedPages) {
+  const requests = requestLog.filter(({ kind }) => kind === "beehiiv-posts");
+  assert.deepEqual(requests.map(({ page }) => page), expectedPages);
+  for (const request of requests) {
+    const url = new URL(request.url);
+    assert.equal(url.origin, "https://api.beehiiv.com");
+    assert.equal(url.pathname, `/v2/publications/${encodeURIComponent(publicationId)}/posts`);
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      status: "confirmed",
+      platform: "all",
+      hidden_from_feed: "all",
+      limit: "100",
+      page: String(request.page),
+      order_by: "publish_date",
+      direction: "asc"
+    });
+    assert.equal(request.method, "GET");
+    assert.equal(newsletterRequestHeader(request, "authorization"), `Bearer ${beehiivApiKey}`);
+    assert.equal(request.redirect, "error");
+    assert.ok(request.signal);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
+  }
+  return requests;
+}
+
+function assertNoBeehiivPostCanaries(harness, ...values) {
+  const published = harness.putCalls.map((call) => bodyText(call.Body)).join("\n");
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(published.includes(value), false, `public aggregate must omit ${value}`);
+    assert.equal(logs.includes(value), false, `collector logs must omit ${value}`);
+  }
 }
 
 function newsletterRequestHeader(request, name) {
@@ -3785,4 +3874,572 @@ test("a failed January YTD report does not retain the prior calendar year's YTD 
   assert.deepEqual(records["7d"] && [records["7d"].startDate, records["7d"].endDate], ["2025-12-26", "2026-01-01"]);
   assert.equal(googleRequests(requestLog, "google-report").length, 5);
   assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("input 6 can opt into the complete Simple AWS catalog without exposing post records", async () => {
+  const requestLog = [];
+  const titles = [];
+  const posts = Array.from({ length: 162 }, (_, index) => {
+    const title = index < 10 ? `Generated Simple AWS title ${Math.floor(index / 2)}` : `Generated Simple AWS title ${index - 5}`;
+    titles.push(title);
+    const platform = ["web", "email", "both"][index % 3];
+    return beehiivPost({
+      id: `synthetic-post-${index}`,
+      title,
+      platform,
+      displayed_date: null,
+      audience: index % 2 === 0 ? "free" : "both",
+      hidden_from_feed: index === 0,
+      providerPrivateField: "synthetic-post-metadata-canary",
+      ...(platform === "email" ? {} : { web_url: `https://private.example/posts/${index}` })
+    });
+  });
+  const articleFetcher = builderApiFetch({
+    caylentPages: new Map([[0, { results: [article({ id: "caylent-copy", title: "Generated Simple AWS title 0" })] }]]),
+    builderPages: new Map([["", {
+      articles: [builderArticle({ id: "builder-translation", title: "Generated Simple AWS title 0", locale: "es" })],
+      resultsSize: 1
+    }]]),
+    requestLog
+  });
+  const publicationId = "synthetic/publication+id";
+  const pages = new Map([[1, posts.slice(0, 100)], [2, posts.slice(100)]]);
+  const harness = createHarness({
+    input: phaseSevenInput({ newsletter: { id: "simple-aws", publicationId, language: "en" } }),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      articleFetcher,
+      postsResponder: ({ request }) => jsonResponse(beehiivPostsEnvelope(pages.get(request.page), {
+        page: request.page,
+        totalResults: posts.length,
+        totalPages: 2
+      })),
+      newsletterResponder: ({ request }) => {
+        const requestedId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(requestedId, 41));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  const group = output.groups.articles;
+  assert.equal(output.schemaVersion, 1, "the public aggregate schema remains version 1");
+  assert.deepEqual(group.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "simple-aws", label: "Simple AWS" }
+  ]);
+  assert.deepEqual(group.counts, { all: 158, en: 157, es: 1 },
+    "five same-language title pairs merge within Simple AWS, its English copy merges with Caylent, and the Builder Spanish translation remains separate");
+  assert.deepEqual(output.groups.newsletter.publication, { id: "simple-aws", label: "Simple AWS", language: "en" });
+  assert.equal(output.groups.newsletter.subscribers, 41, "the existing subscriber metric remains independent");
+
+  const requests = assertBeehiivPostRequests(harness, requestLog, publicationId, [1, 2]);
+  assert.deepEqual(requests.map(({ page }) => page), [1, 2]);
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 1, "the existing subscriber lookup remains a separate request");
+  assert.equal(requestLog.filter(({ kind }) => kind.startsWith("beehiiv")).length, 3,
+    "the catalog is read only through two list pages; no post detail or expanded-stat request is needed");
+  assertNoBeehiivPostCanaries(
+    harness,
+    beehiivApiKey,
+    publicationId,
+    "synthetic-post-metadata-canary",
+    "synthetic-post-0",
+    "https://private.example/posts/0",
+    ...new Set(titles)
+  );
+});
+
+test("the optional Simple AWS source works with maintained input versions 4 through 6", async () => {
+  const sources = [sourceInput().source, builderCenterSource(), simpleAwsArticleSource()];
+  const cases = [
+    { name: "input 4", input: phaseFourInput({ sources }), useGoogle: false, groups: ["articles", "books", "newsletter", "talks"] },
+    { name: "input 5", input: phaseFiveInput({ sources }), useGoogle: true, groups: ["articleViews", "articles", "books", "newsletter", "talks"] },
+    { name: "input 6", input: phaseSixInput({ sources }), useGoogle: true, groups: ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "talks"] }
+  ];
+
+  for (const { name, input, useGoogle, groups } of cases) {
+    const requestLog = [];
+    const apiFetch = useGoogle
+      ? phaseFiveApiFetch({
+        requestLog,
+        articleFetcher: builderApiFetch({ requestLog }),
+        postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+      })
+      : phaseFourApiFetch({
+        requestLog,
+        articleFetcher: builderApiFetch({ requestLog }),
+        postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+      });
+    const harness = createHarness({ input, fetchFn: apiFetch });
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(output.schemaVersion, 1, `${name} keeps the public aggregate schema version`);
+    assert.deepEqual(Object.keys(output.groups).sort(), groups);
+    assert.deepEqual(output.groups.articles.sources, [
+      { id: "caylent", label: "Caylent" },
+      { id: "builder-center", label: "AWS Builder Center" },
+      { id: "simple-aws", label: "Simple AWS" }
+    ]);
+    assert.deepEqual(output.groups.articles.counts, { all: 0, en: 0, es: 0 });
+    assertBeehiivPostRequests(harness, requestLog, beehiivPublicationId, [1]);
+  }
+});
+
+test("Simple AWS counts confirmed posts by publish_date across platforms and deduplicates normalized title-language editions", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const currentSecond = Math.floor(Date.parse("2026-10-16T12:00:00.000Z") / 1000);
+  const rows = [
+    beehiivPost({ id: "web-title", title: "  Café   Guide ", platform: "web", hidden_from_feed: true, audience: "free", displayed_date: "2026-12-01" }),
+    beehiivPost({ id: "email-copy", title: "CAFE\u0301 guide", platform: "email", audience: "premium", displayed_date: null }),
+    beehiivPost({ id: "both-copy", title: "Café Guide", platform: "both", audience: "both", displayed_date: null }),
+    beehiivPost({ id: "boundary-post", title: "Published on the boundary", publishDate: currentSecond, platform: "web", displayed_date: null }),
+    beehiivPost({ id: "future-schedule", title: "Future confirmed schedule", publishDate: currentSecond + 1 }),
+    beehiivPost({ id: "draft-post", title: "Draft excluded", status: "draft" }),
+    beehiivPost({ id: "archived-post", title: "Archived excluded", status: "archived" }),
+    beehiivPost({ id: "punctuation-title", title: "Café, Guide!" }),
+    beehiivPost({ id: "accent-title", title: "Cafe Guide" }),
+    beehiivPost({ id: "cross-source-copy", title: "Cross-source edition" })
+  ];
+  const requestLog = [];
+  const articleFetcher = builderApiFetch({
+    caylentPages: new Map([[0, { results: [article({ id: "caylent-cross-source", title: "Cross-source edition" })] }]]),
+    builderPages: new Map([["", {
+      articles: [builderArticle({ id: "builder-spanish-translation", title: "Cross-source edition", locale: "es" })],
+      resultsSize: 1
+    }]]),
+    requestLog
+  });
+  const harness = createHarness({
+    input: phaseSevenInput(),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      articleFetcher,
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope(rows))
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(output.groups.articles.counts, { all: 6, en: 5, es: 1 },
+    "web, email, both, hidden and paid/free posts count; future schedules and inactive statuses do not");
+  assert.equal(output.groups.articles.sources[2].label, "Simple AWS");
+  assert.equal(output.groups.articles.scopeId.length, 64);
+  assertBeehiivPostRequests(harness, requestLog, beehiivPublicationId, [1]);
+  assert.equal(requestLog.find(({ kind }) => kind === "beehiiv-posts").url.includes("expand="), false);
+  assertNoBeehiivPostCanaries(harness, "web-title", "email-copy", "both-copy", "Future confirmed schedule", "Cross-source edition");
+
+  const emptyLog = [];
+  const emptyHarness = createHarness({
+    input: phaseSevenInput(),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: emptyLog,
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([], { limit: 100, page: 1, totalResults: 0, totalPages: 0 }))
+    })
+  });
+  await emptyHarness.handler({}, {});
+  const emptyOutput = await readPut(emptyHarness.putCalls[0]);
+  assert.deepEqual(emptyOutput.groups.articles.counts, { all: 0, en: 0, es: 0 });
+  assertBeehiivPostRequests(emptyHarness, emptyLog, beehiivPublicationId, [1]);
+});
+
+test("the optional Simple AWS selector and its newsletter prerequisite validate before provider work", async () => {
+  const caylent = sourceInput().source;
+  const builder = builderCenterSource();
+  const selector = simpleAwsArticleSource();
+  const invalidInputs = [
+    phaseSevenInput({ sources: [caylent, selector] }),
+    phaseSevenInput({ sources: [caylent, builder, { ...selector, publicationId: beehiivPublicationId, language: "en" }] }),
+    phaseSevenInput({ sources: [caylent, builder, { ...selector, extra: "private selector canary" }] }),
+    phaseSevenInput({ sources: [caylent, builder, { id: "another-publication" }] }),
+    phaseSevenInput({ sources: [caylent, builder, selector, selector] }),
+    phaseSevenInput({ newsletter: null }),
+    phaseSevenInput({ newsletter: { id: "another-publication", publicationId: beehiivPublicationId, language: "en" } }),
+    phaseSevenInput({ newsletter: { id: "simple-aws", publicationId: " \t ", language: "en" } }),
+    phaseSevenInput({ newsletter: { id: "simple-aws", publicationId: beehiivPublicationId, language: "fr" } }),
+    phaseSevenInput({ newsletter: { id: "simple-aws", publicationId: beehiivPublicationId, language: "es" } })
+  ];
+
+  for (const input of invalidInputs) {
+    const requestLog = [];
+    const harness = createHarness({
+      input,
+      fetchFn: phaseFiveApiFetch({
+        requestLog,
+        postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+      })
+    });
+    await assertFailedWithoutReplacing(harness);
+    assert.deepEqual(requestLog, [], "invalid source selections fail before all external providers");
+    assert.deepEqual(harness.secretCalls, [], "invalid source selections fail before Secrets Manager");
+    assert.deepEqual(harness.parameterCalls, [], "invalid source selections fail before Google credentials");
+  }
+
+  const disabledInput = phaseSevenInput({ sources: [caylent, builder] });
+  const disabledLog = [];
+  const disabled = createHarness({
+    input: disabledInput,
+    secretArn: null,
+    fetchFn: phaseFiveApiFetch({ requestLog: disabledLog })
+  });
+  await disabled.handler({}, {});
+  const disabledOutput = await readPut(disabled.putCalls[0]);
+  assert.deepEqual(disabledOutput.groups.articles.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" }
+  ]);
+  assert.equal(disabledLog.some(({ kind }) => kind === "beehiiv-posts"), false,
+    "the disabled article source does not try to read its catalog without credentials");
+  assert.equal(disabledLog.some(({ kind }) => kind === "beehiiv"), false);
+  assert.deepEqual(disabled.secretCalls, []);
+
+  const enabledLog = [];
+  const enabled = createHarness({
+    input: phaseSevenInput(),
+    secretArn: null,
+    fetchFn: phaseFiveApiFetch({ requestLog: enabledLog })
+  });
+  await enabled.handler({}, {});
+  const enabledOutput = await readPut(enabled.putCalls[0]);
+  assert.equal(Object.hasOwn(enabledOutput.groups, "articles"), false,
+    "a selected catalog with no key is unavailable rather than published as a zero or a partial count");
+  assert.equal(Object.hasOwn(enabledOutput.groups, "newsletter"), false);
+  assert.equal(enabledLog.some(({ kind }) => kind.startsWith("beehiiv")), false,
+    "the enabled source never sends a request without the key");
+  assert.deepEqual(enabled.secretCalls, []);
+});
+
+test("Simple AWS article scope follows its selector while source order and key rotation leave other metrics alone", async () => {
+  const requestLog = [];
+  const articleFetcher = builderApiFetch({ requestLog });
+  let remotePosts = [beehiivPost({ id: "scope-post-id", title: "Scope Fingerprint Article" })];
+  const postsResponder = () => jsonResponse(beehiivPostsEnvelope(remotePosts));
+  const newsletterResponder = ({ request }) => {
+    const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    return jsonResponse(newsletterEnvelope(publicationId, 12));
+  };
+  const harness = createHarness({
+    input: phaseSevenInput(),
+    fetchFn: phaseFiveApiFetch({ requestLog, articleFetcher, postsResponder, newsletterResponder })
+  });
+  const metricScopes = (output) => ({
+    views: output.groups.articleViews.records["7d"].scopeId,
+    search: output.groups.articleSearchClicks.records["7d"].scopeId
+  });
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  const initialArticleScope = initial.groups.articles.scopeId;
+  const initialNewsletterScope = initial.groups.newsletter.scopeId;
+  const initialMetricScopes = metricScopes(initial);
+
+  const rotatedArn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:synthetic-rotated-beehiiv-key";
+  const rotatedKey = "synthetic-rotated-beehiiv-api-key-canary";
+  harness.setSecretResponse(rotatedArn, { SecretString: JSON.stringify({ apiKey: rotatedKey }) });
+  harness.env.BEEHIIV_API_KEY_SECRET_ARN = rotatedArn;
+  remotePosts = [
+    ...remotePosts,
+    beehiivPost({ id: "new-remote-post-id", title: "Discovered After the Prior Run" })
+  ];
+  harness.setInput(phaseSevenInput({ sources: [
+    simpleAwsArticleSource(),
+    builderCenterSource(),
+    { ...sourceInput().source, apiKey: "rotated-synthetic-caylent-key" }
+  ] }));
+  await harness.handler({}, {});
+  const reordered = await readPut(harness.putCalls[1]);
+  assert.equal(reordered.groups.articles.scopeId, initialArticleScope,
+    "source order and secret/key rotation do not change article scope");
+  assert.deepEqual(reordered.groups.articles.counts, { all: 2, en: 2, es: 0 },
+    "newly published remote posts are discovered without changing semantic scope");
+  assert.equal(reordered.groups.newsletter.scopeId, initialNewsletterScope);
+  assert.deepEqual(metricScopes(reordered), initialMetricScopes,
+    "the article source does not change Analytics or Search Console scope");
+  assert.equal(newsletterRequestHeader(requestLog.filter(({ kind }) => kind === "beehiiv-posts")[1], "authorization"), `Bearer ${rotatedKey}`);
+
+  const changedPublication = "synthetic-second-publication-id";
+  harness.setInput(phaseSevenInput({ newsletter: { id: "simple-aws", publicationId: changedPublication, language: "en" } }));
+  await harness.handler({}, {});
+  const publicationChanged = await readPut(harness.putCalls[2]);
+  assert.notEqual(publicationChanged.groups.articles.scopeId, initialArticleScope,
+    "the resolved Beehiiv publication ID belongs to article scope");
+  assert.notEqual(publicationChanged.groups.newsletter.scopeId, initialNewsletterScope);
+  assert.deepEqual(metricScopes(publicationChanged), initialMetricScopes);
+
+  harness.setInput(phaseSevenInput({ sources: [sourceInput().source, builderCenterSource()] }));
+  await harness.handler({}, {});
+  const disabled = await readPut(harness.putCalls[3]);
+  assert.notEqual(disabled.groups.articles.scopeId, publicationChanged.groups.articles.scopeId,
+    "disabling the optional source changes article scope");
+  assert.equal(disabled.groups.articles.sources.some(({ id }) => id === "simple-aws"), false);
+  assert.deepEqual(metricScopes(disabled), initialMetricScopes);
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length, 3,
+    "the disabled source makes no posts request");
+  assert.equal(harness.putCalls.length, 4);
+});
+
+test("an incomplete Simple AWS catalog retains the whole previous article group, including both supported source sets", async () => {
+  const makePages = (offset, count, prefix = "catalog") => Array.from({ length: count }, (_, index) =>
+    beehiivPost({ id: `${prefix}-${offset + index}`, title: `${prefix} title ${offset + index}` }));
+  const legacyArticles = priorGroup({
+    sources: [
+      { id: "caylent", label: "Caylent" },
+      { id: "builder-center", label: "AWS Builder Center" }
+    ],
+    counts: { all: 8, en: 6, es: 2 },
+    scopeId: "8".repeat(64),
+    collectedAt: "2026-10-11T10:00:00.000Z"
+  });
+  const expandedArticles = priorGroup({
+    sources: [
+      { id: "caylent", label: "Caylent" },
+      { id: "builder-center", label: "AWS Builder Center" },
+      { id: "simple-aws", label: "Simple AWS" }
+    ],
+    counts: { all: 13, en: 11, es: 2 },
+    scopeId: "9".repeat(64),
+    collectedAt: "2026-10-12T10:00:00.000Z"
+  });
+  const malformedRows = [
+    ["missing title", (row) => { delete row.title; }],
+    ["null title", (row) => { row.title = null; }],
+    ["missing post ID", (row) => { delete row.id; }],
+    ["blank post ID", (row) => { row.id = " \t "; }],
+    ["missing status", (row) => { delete row.status; }],
+    ["unsupported status", (row) => { row.status = "scheduled"; }],
+    ["missing publish date", (row) => { delete row.publish_date; }],
+    ["null publish date", (row) => { row.publish_date = null; }],
+    ["noninteger publish date", (row) => { row.publish_date = 1.5; }],
+    ["non-numeric publish date", (row) => { row.publish_date = "not-a-date"; }],
+    ["missing platform", (row) => { delete row.platform; }],
+    ["null platform", (row) => { row.platform = null; }],
+    ["unsupported platform", (row) => { row.platform = "rss"; }]
+  ].map(([name, mutate], index) => {
+    const row = beehiivPost({ id: `malformed-required-field-${index}`, title: "Valid row before corruption" });
+    mutate(row);
+    return {
+      name,
+      previousArticles: expandedArticles,
+      responder: () => jsonResponse(beehiivPostsEnvelope([row]))
+    };
+  });
+  const scenarios = [
+    {
+      name: "malformed eligible row",
+      previousArticles: legacyArticles,
+      responder: () => jsonResponse(beehiivPostsEnvelope([
+        beehiivPost({ id: "malformed-post", title: " \t ", platform: "email" })
+      ]))
+    },
+    {
+      name: "response page does not match the request",
+      previousArticles: legacyArticles,
+      responder: ({ request }) => jsonResponse(beehiivPostsEnvelope([
+        beehiivPost({ id: "wrong-page-post", title: "Wrong page" })
+      ], { page: request.page + 1, totalResults: 1, totalPages: 1 }))
+    },
+    {
+      name: "response limit does not match the request",
+      previousArticles: expandedArticles,
+      responder: () => jsonResponse(beehiivPostsEnvelope([
+        beehiivPost({ id: "wrong-limit-post", title: "Wrong limit" })
+      ], { limit: 99, totalResults: 1, totalPages: 1 }))
+    },
+    {
+      name: "declared page count is inconsistent with total results",
+      previousArticles: legacyArticles,
+      responder: () => jsonResponse(beehiivPostsEnvelope(makePages(0, 100), {
+        totalResults: 101,
+        totalPages: 1
+      }))
+    },
+    {
+      name: "truncated page",
+      previousArticles: expandedArticles,
+      responder: ({ request }) => jsonResponse(beehiivPostsEnvelope(makePages(0, 99), {
+        page: request.page,
+        totalResults: 101,
+        totalPages: 2
+      }))
+    },
+    {
+      name: "repeated provider ID across pages",
+      previousArticles: expandedArticles,
+      responder: ({ request }) => jsonResponse(beehiivPostsEnvelope(
+        request.page === 1 ? makePages(0, 100) : [makePages(0, 1)[0]],
+        { page: request.page, totalResults: 101, totalPages: 2 }
+      ))
+    },
+    {
+      name: "later-page failure after an earlier complete page",
+      previousArticles: expandedArticles,
+      responder: ({ request }) => request.page === 1
+        ? jsonResponse(beehiivPostsEnvelope(makePages(0, 100), { page: 1, totalResults: 101, totalPages: 2 }))
+        : jsonResponse({ error: "synthetic second-page outage" }, 503)
+    },
+    {
+      name: "page totals change during enumeration",
+      previousArticles: legacyArticles,
+      responder: ({ request }) => jsonResponse(beehiivPostsEnvelope(
+        request.page === 1 ? makePages(0, 100) : makePages(100, 2),
+        { page: request.page, totalResults: request.page === 1 ? 101 : 102, totalPages: 2 }
+      ))
+    },
+    {
+      name: "declared catalog exceeds the bounded source limit",
+      previousArticles: expandedArticles,
+      responder: ({ request }) => jsonResponse(beehiivPostsEnvelope(makePages(0, 100), {
+        page: request.page,
+        totalResults: 501,
+        totalPages: 6
+      }))
+    },
+    {
+      name: "authorization failure",
+      previousArticles: expandedArticles,
+      responder: () => jsonResponse({ error: "synthetic authorization failure" }, 401)
+    },
+    ...malformedRows
+  ];
+
+  for (const [index, scenario] of scenarios.entries()) {
+    const requestLog = [];
+    const previous = priorFullOutput();
+    previous.groups.articles = scenario.previousArticles;
+    const harness = createHarness({
+      input: phaseSevenInput({ curated: {
+        talks: [talkFact(`fresh-talk-${index}`)],
+        books: [bookFact(`fresh-book-${index}`)]
+      } }),
+      fetchFn: phaseFiveApiFetch({
+        requestLog,
+        articleFetcher: builderApiFetch({ requestLog }),
+        postsResponder: scenario.responder,
+        newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 44))
+      })
+    });
+    harness.objects.set(outputKey, JSON.stringify(previous));
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(output.groups.articles, scenario.previousArticles,
+      `${scenario.name} must preserve the entire prior article group exactly`);
+    assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+    assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+    assert.equal(output.groups.newsletter.subscribers, 44, "successful sibling families still refresh");
+    assert.ok(requestLog.some(({ kind }) => kind === "beehiiv-posts"), "the fallback follows an actual catalog request");
+    if (scenario.name === "authorization failure") {
+      assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length, 1,
+        "an authorization failure is not retried");
+    }
+    if (scenario.name === "later-page failure after an earlier complete page") {
+      assert.deepEqual(requestLog.filter(({ kind }) => kind === "beehiiv-posts").map(({ page }) => page), [1, 2, 2],
+        "a failure after the first complete page cannot publish a partial catalog");
+    }
+    if (scenario.name === "declared catalog exceeds the bounded source limit") {
+      assert.ok(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length <= 1,
+        "a declaration beyond the supported bound is rejected before catalog enumeration");
+    }
+  }
+
+  const absentLog = [];
+  const absentUrls = [];
+  const absentFetch = phaseFiveApiFetch({
+    requestLog: absentLog,
+    postsResponder: () => jsonResponse({ error: "synthetic authorization failure" }, 401)
+  });
+  const absent = createHarness({
+    input: phaseSevenInput({ curated: { talks: [talkFact("fresh-talk-without-prior")], books: [bookFact("fresh-book-without-prior")] } }),
+    fetchFn: async (input, init) => {
+      absentUrls.push(String(input));
+      return absentFetch(input, init);
+    }
+  });
+  await absent.handler({}, {});
+  const withoutPrior = await readPut(absent.putCalls[0]);
+  assert.equal(Object.hasOwn(withoutPrior.groups, "articles"), false,
+    "a first catalog failure omits articles instead of publishing a partial or zero count");
+  assert.equal(withoutPrior.groups.talks.counts.all, 1);
+  assert.equal(withoutPrior.groups.books.counts.all, 1);
+  assert.equal(absentLog.filter(({ kind }) => kind === "beehiiv-posts").length, 1,
+    "authorization failures do not retry");
+  assert.equal(absentUrls.some((value) => value.includes("newsletter.simpleaws.dev")), false,
+    "an API failure never falls back to the public sitemap or archive");
+});
+
+test("Simple AWS inventory and subscriber failures recover independently without accumulating counts", async () => {
+  let inventoryFails = false;
+  let subscribersFail = false;
+  let subscriberCount = 10;
+  let inventory = [beehiivPost({ id: "first-post", title: "First Published Article" })];
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseSevenInput(),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      articleFetcher: builderApiFetch({ requestLog }),
+      postsResponder: () => inventoryFails
+        ? jsonResponse({ error: "synthetic catalog outage" }, 503)
+        : jsonResponse(beehiivPostsEnvelope(inventory)),
+      newsletterResponder: ({ request }) => subscribersFail
+        ? jsonResponse({ error: "synthetic subscriber outage" }, 401)
+        : jsonResponse(newsletterEnvelope(beehiivPublicationId, subscriberCount))
+    })
+  });
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  const initialArticleGroup = initial.groups.articles;
+  const initialNewsletterGroup = initial.groups.newsletter;
+  assert.deepEqual(initialArticleGroup.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(initialNewsletterGroup.subscribers, 10);
+
+  inventoryFails = true;
+  subscriberCount = 20;
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const articleFailure = await readPut(harness.putCalls[1]);
+  assert.deepEqual(articleFailure.groups.articles, initialArticleGroup,
+    "a posts failure retains source coverage, counts, scope, and collection time together");
+  assert.equal(articleFailure.groups.newsletter.subscribers, 20,
+    "the subscriber request can succeed while the post catalog fails");
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length, 3,
+    "the failed page receives one transient retry");
+
+  inventoryFails = false;
+  subscribersFail = true;
+  inventory = [
+    beehiivPost({ id: "first-post", title: "First Published Article" }),
+    beehiivPost({ id: "second-post", title: "Second Published Article" })
+  ];
+  clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const subscriberFailure = await readPut(harness.putCalls[2]);
+  assert.deepEqual(subscriberFailure.groups.newsletter, articleFailure.groups.newsletter,
+    "a subscriber failure retains its prior group while the article inventory refreshes");
+  assert.deepEqual(subscriberFailure.groups.articles.counts, { all: 2, en: 2, es: 0 });
+  assert.equal(subscriberFailure.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z");
+
+  subscribersFail = false;
+  subscriberCount = 30;
+  clock.set("2026-10-19T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[3]);
+  assert.deepEqual(recovered.groups.articles.counts, { all: 2, en: 2, es: 0 },
+    "recovery recomputes the current catalog instead of adding it to yesterday's count");
+  assert.equal(recovered.groups.newsletter.subscribers, 30);
+  assert.equal(recovered.groups.articles.scopeId, subscriberFailure.groups.articles.scopeId);
+  assert.equal(recovered.groups.newsletter.scopeId, initialNewsletterGroup.scopeId);
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 4,
+    "each independent subscriber read is made once, with the authorization error left unretried");
+  assertNoBeehiivPostCanaries(harness, "synthetic catalog outage", "synthetic subscriber outage", beehiivApiKey);
 });

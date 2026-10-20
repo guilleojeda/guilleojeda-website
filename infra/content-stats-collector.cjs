@@ -12,6 +12,8 @@ const PAGE_SIZE = 10;
 const MAX_CAYLENT_PAGES = 100;
 const BUILDER_PAGE_SIZE = 50;
 const MAX_BUILDER_PAGES = 20;
+const BEEHIIV_POST_PAGE_SIZE = 100;
+const MAX_BEEHIIV_POST_PAGES = 5;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_TRANSIENT_RETRIES = 1;
 const OUTPUT_CACHE_CONTROL = "public,max-age=0,must-revalidate";
@@ -48,7 +50,8 @@ const GOOGLE_SEARCH_ARTICLE_URL_PATTERN = String.raw`(?-i)^https://newsletter\.s
 const GOOGLE_SEARCH_TIME_ZONE = "America/Los_Angeles";
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
-  "builder-center": "AWS Builder Center"
+  "builder-center": "AWS Builder Center",
+  "simple-aws": "Simple AWS"
 });
 
 class CollectorError extends Error {
@@ -222,18 +225,40 @@ function validateInput(input) {
     return { schemaVersion: 1, sources: [validateCaylentSource(input.source)] };
   }
 
-  if (!Array.isArray(input.sources) || input.sources.length !== 2) throw fail("INPUT_SCHEMA_INVALID");
+  const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6;
+  if (!Array.isArray(input.sources) ||
+      (simpleAwsAllowed ? ![2, 3].includes(input.sources.length) : input.sources.length !== 2)) {
+    throw fail("INPUT_SCHEMA_INVALID");
+  }
   const sourcesById = new Map();
   for (const source of input.sources) {
     if (!isObject(source) || typeof source.id !== "string") throw fail("INPUT_SCHEMA_INVALID");
     if (sourcesById.has(source.id)) throw fail("SOURCE_SET_INVALID");
     if (source.id === "caylent") sourcesById.set(source.id, validateCaylentSource(source));
     else if (source.id === "builder-center") sourcesById.set(source.id, validateBuilderSource(source));
+    else if (source.id === "simple-aws") {
+      if (!simpleAwsAllowed || !exactKeys(source, ["id"])) throw fail("INPUT_SCHEMA_INVALID");
+      sourcesById.set(source.id, { id: "simple-aws" });
+    }
     else throw fail("SOURCE_UNSUPPORTED");
   }
-  if (sourcesById.size !== 2 || !sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
+  const hasSimpleAws = sourcesById.has("simple-aws");
+  if (sourcesById.size !== 2 + Number(hasSimpleAws) || !sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
     throw fail("SOURCE_SET_INVALID");
   }
+
+  const configuredSources = (newsletterValue) => {
+    const sources = [sourcesById.get("caylent"), sourcesById.get("builder-center")];
+    if (!hasSimpleAws) return { sources, newsletter: newsletterValue };
+    const newsletter = validateNewsletterSelection(newsletterValue);
+    if (newsletter.language !== "en") throw fail("NEWSLETTER_CONFIGURATION_INVALID");
+    sources.push({
+      id: "simple-aws",
+      publicationId: newsletter.publicationId,
+      language: newsletter.language
+    });
+    return { sources, newsletter };
+  };
 
   if (input.schemaVersion === 3 || input.schemaVersion === 4) {
     const expectedKeys = input.schemaVersion === 3
@@ -243,11 +268,12 @@ function validateInput(input) {
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"])) {
       throw fail("INPUT_SCHEMA_INVALID");
     }
+    const { sources, newsletter } = configuredSources(input.newsletter);
     return {
       schemaVersion: input.schemaVersion,
-      sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
+      sources,
       curated: input.curated,
-      ...(input.schemaVersion === 4 ? { newsletter: input.newsletter } : {})
+      ...(input.schemaVersion === 4 ? { newsletter } : {})
     };
   }
 
@@ -256,11 +282,12 @@ function validateInput(input) {
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"])) {
       throw fail("INPUT_SCHEMA_INVALID");
     }
+    const { sources, newsletter } = configuredSources(input.newsletter);
     return {
       schemaVersion: 5,
-      sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
+      sources,
       curated: input.curated,
-      newsletter: input.newsletter,
+      newsletter,
       analytics: validateAnalyticsSelection(input.analytics)
     };
   }
@@ -270,11 +297,12 @@ function validateInput(input) {
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"])) {
       throw fail("INPUT_SCHEMA_INVALID");
     }
+    const { sources, newsletter } = configuredSources(input.newsletter);
     return {
       schemaVersion: 6,
-      sources: [sourcesById.get("caylent"), sourcesById.get("builder-center")],
+      sources,
       curated: input.curated,
-      newsletter: input.newsletter,
+      newsletter,
       analytics: validateAnalyticsSelection(input.analytics),
       searchConsole: validateSearchConsoleSelection(input.searchConsole)
     };
@@ -427,9 +455,13 @@ async function collectNewsletter(value, env, collectedAt) {
 }
 
 function scopeFingerprint(sources) {
-  const sourceSelectors = sources.map((source) => source.id === "caylent"
-    ? { id: source.id, authorId: source.authorId, language: source.language }
-    : { id: source.id, authorId: source.authorId })
+  const sourceSelectors = sources.map((source) => {
+    if (source.id === "caylent") return { id: source.id, authorId: source.authorId, language: source.language };
+    if (source.id === "simple-aws") {
+      return { id: source.id, publicationId: source.publicationId, language: source.language };
+    }
+    return { id: source.id, authorId: source.authorId };
+  })
     .sort((left, right) => left.id.localeCompare(right.id));
   const scope = {
     definitionVersion: 1,
@@ -954,6 +986,110 @@ async function fetchBuilderPage(source, cursor, page) {
   return { articles: envelope.articles, nextCursor: envelope.cursor ?? "" };
 }
 
+async function fetchBeehiivPostsPage(source, apiKey, page) {
+  const url = new URL(`${BEEHIIV_API_ENDPOINT}${encodeURIComponent(source.publicationId)}/posts`);
+  url.searchParams.set("status", "confirmed");
+  url.searchParams.set("platform", "all");
+  url.searchParams.set("hidden_from_feed", "all");
+  url.searchParams.set("limit", String(BEEHIIV_POST_PAGE_SIZE));
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("order_by", "publish_date");
+  url.searchParams.set("direction", "asc");
+  return fetchJson(url.toString(), source.id, page, {
+    headers: { accept: "application/json", authorization: `Bearer ${apiKey}` },
+    redirect: "error"
+  });
+}
+
+function validateBeehiivPostsPage(envelope, requestedPage) {
+  if (!isObject(envelope) || !Array.isArray(envelope.data) ||
+      !Number.isSafeInteger(envelope.limit) || envelope.limit !== BEEHIIV_POST_PAGE_SIZE ||
+      !Number.isSafeInteger(envelope.page) || envelope.page !== requestedPage ||
+      !Number.isSafeInteger(envelope.total_results) || envelope.total_results < 0 ||
+      !Number.isSafeInteger(envelope.total_pages) || envelope.total_pages < 0) {
+    throw fail("BEEHIIV_PAGINATION_INVALID");
+  }
+
+  const expectedPages = envelope.total_results === 0
+    ? 0
+    : Math.ceil(envelope.total_results / BEEHIIV_POST_PAGE_SIZE);
+  if (envelope.total_pages !== expectedPages) throw fail("BEEHIIV_PAGINATION_INVALID");
+
+  const expectedRows = envelope.total_results === 0
+    ? 0
+    : Math.min(BEEHIIV_POST_PAGE_SIZE, envelope.total_results - (requestedPage - 1) * BEEHIIV_POST_PAGE_SIZE);
+  if (expectedRows < 0 || envelope.data.length !== expectedRows) throw fail("BEEHIIV_PAGINATION_INVALID");
+  return {
+    totalResults: envelope.total_results,
+    totalPages: envelope.total_pages
+  };
+}
+
+function eligibleBeehiivPublication(record, source, now) {
+  if (!isObject(record)) throw fail("BEEHIIV_POST_INVALID");
+
+  const providerId = requireString(record.id, "BEEHIIV_POST_INVALID");
+  const title = normalizedTitle(record.title);
+  const status = record.status;
+  if (typeof status !== "string" || !["confirmed", "draft", "archived"].includes(status)) {
+    throw fail("BEEHIIV_POST_INVALID");
+  }
+  if (!["web", "email", "both"].includes(record.platform)) throw fail("BEEHIIV_POST_INVALID");
+  if (!Number.isSafeInteger(record.publish_date)) throw fail("BEEHIIV_POST_INVALID");
+
+  const publishedAt = record.publish_date * 1000;
+  if (!Number.isFinite(new Date(publishedAt).getTime())) throw fail("BEEHIIV_POST_INVALID");
+  if (status !== "confirmed" || publishedAt > now) return null;
+
+  return {
+    sourceId: source.id,
+    providerId,
+    title,
+    language: source.language
+  };
+}
+
+async function collectSimpleAws(source, now, env) {
+  const apiKey = await readBeehiivApiKey(env);
+  const publications = [];
+  const providerIds = new Set();
+  let totalResults = null;
+  let totalPages = null;
+  let collectedRows = 0;
+
+  let page = 1;
+  while (true) {
+    const envelope = await fetchBeehiivPostsPage(source, apiKey, page);
+    const pagination = validateBeehiivPostsPage(envelope, page);
+
+    if (totalResults === null) {
+      totalResults = pagination.totalResults;
+      totalPages = pagination.totalPages;
+      if (totalPages > MAX_BEEHIIV_POST_PAGES) throw fail("BEEHIIV_PAGE_CAP_REACHED");
+    } else if (pagination.totalResults !== totalResults || pagination.totalPages !== totalPages) {
+      throw fail("BEEHIIV_PAGINATION_INVALID");
+    }
+
+    for (const record of envelope.data) {
+      if (!isObject(record)) throw fail("BEEHIIV_POST_INVALID");
+      const providerId = requireString(record.id, "BEEHIIV_POST_INVALID");
+      if (providerIds.has(providerId)) throw fail("BEEHIIV_POST_ID_REPEATED");
+      providerIds.add(providerId);
+      collectedRows += 1;
+      const publication = eligibleBeehiivPublication(record, source, now);
+      if (publication) publications.push(publication);
+    }
+
+    if (totalPages === 0 || page === totalPages) break;
+    page += 1;
+  }
+
+  if (totalResults === null || collectedRows !== totalResults || providerIds.size !== totalResults) {
+    throw fail("BEEHIIV_PAGINATION_INVALID");
+  }
+  return { publications, pages: totalPages === 0 ? 1 : totalPages };
+}
+
 function parseDate(value, { optional = false } = {}) {
   if (optional && (value === undefined || value === null)) return null;
   if (typeof value === "number") return isValidDateTimestamp(value) ? value : null;
@@ -1122,13 +1258,15 @@ async function collectBuilderCenter(source, now) {
   throw fail("BUILDER_PAGE_CAP_REACHED");
 }
 
-async function collectPublications(sources, now) {
+async function collectPublications(sources, now, env) {
   const publications = [];
   const pagesBySource = {};
   for (const source of sources) {
-    const result = source.id === "caylent"
-      ? await collectCaylent(source, now)
-      : await collectBuilderCenter(source, now);
+    let result;
+    if (source.id === "caylent") result = await collectCaylent(source, now);
+    else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
+    else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
+    else throw fail("SOURCE_UNSUPPORTED");
     pagesBySource[source.id] = result.pages;
     publications.push(...result.publications);
   }
@@ -1181,8 +1319,12 @@ function validSourceList(sources, family) {
   if (family === "articles") {
     const expected = sources.length === 1
       ? [["caylent", "Caylent"]]
-      : [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]];
-    return (sources.length === 1 || sources.length === 2) && sources.every((source, index) =>
+      : sources.length === 2
+        ? [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]]
+        : sources.length === 3
+          ? [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["simple-aws", "Simple AWS"]]
+          : null;
+    return expected !== null && sources.every((source, index) =>
       exactKeys(source, ["id", "label"]) && source.id === expected[index][0] && source.label === expected[index][1]);
   }
   return sources.length === 1 && exactKeys(sources[0], ["id", "label"]) &&
@@ -1409,7 +1551,7 @@ async function putOutput(bucket, key, output) {
 }
 
 async function collectLegacy(configuration, env, collectedAt, now) {
-  const collection = await collectPublications(configuration.sources, now);
+  const collection = await collectPublications(configuration.sources, now, env);
   const groups = { articles: makeArticleGroup(configuration.sources, collection.counts, collectedAt) };
   const output = makeOutput(groups);
   validateOutput(output);
@@ -1432,7 +1574,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let articleViewsResult;
   let articleSearchClicksResult;
   try {
-    articleCollection = await collectPublications(configuration.sources, now);
+    articleCollection = await collectPublications(configuration.sources, now, env);
     groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
   } catch (error) {
     if (!(error instanceof CollectorError)) throw error;

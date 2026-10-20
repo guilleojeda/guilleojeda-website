@@ -512,3 +512,86 @@ test('Search Console selection requires the existing input5 newsletter and analy
   assert.throws(() => build(withoutAnalytics), /searchConsole|Search Console|analytics|input5|input 5|input/i,
     'Search Console cannot produce input6 without the existing analytics selection');
 });
+
+test('the exact Simple AWS article source requires the existing valid English newsletter selection', async () => {
+  const build = await inputBuilder();
+  const invalidSelections = [
+    ['missing newsletter selection', undefined],
+    ['null newsletter selection', null],
+    ['malformed newsletter selection', { id: 'simple-aws', language: 'en' }],
+    ['different newsletter identity', { ...newsletterSelection(), id: 'another-publication' }],
+    ['empty publication ID', { ...newsletterSelection(), publicationId: '' }],
+    ['Spanish newsletter selection', { ...newsletterSelection(), language: 'es' }]
+  ];
+
+  for (const [description, selection] of invalidSelections) {
+    const source = fixture();
+    source.articleConfig.sources.push({ id: 'simple-aws' });
+    if (selection !== undefined) source.articleConfig.newsletter = selection;
+    assert.throws(() => build(source), /simple-aws|newsletter|publication|language|input/i, description);
+  }
+});
+
+test('a Simple AWS expansion keeps Caylent and Builder Center as mandatory base sources', async () => {
+  const build = await inputBuilder();
+  for (const missingId of ['caylent', 'builder-center']) {
+    const source = fixture();
+    source.articleConfig.sources.push({ id: 'simple-aws' });
+    source.articleConfig.newsletter = newsletterSelection();
+    source.articleConfig.sources = source.articleConfig.sources.filter((item) => item.id !== missingId);
+    assert.throws(() => build(source), /source|caylent|builder-center|input/i, `expanded source set missing ${missingId}`);
+  }
+});
+
+test('the Simple AWS article source accepts only its exact ID-only entry and rejects duplicates', async () => {
+  const build = await inputBuilder();
+  const invalidSources = [
+    ['unknown ID', (sources) => sources.push({ id: 'simpleaws' })],
+    ['unknown field', (sources) => sources.push({ id: 'simple-aws', label: 'Simple AWS' })],
+    ['credential field', (sources) => sources.push({ id: 'simple-aws', apiKey: 'synthetic-private-key' })],
+    ['duplicate ID', (sources) => sources.push({ id: 'simple-aws' }, { id: 'simple-aws' })]
+  ];
+
+  for (const [description, mutateSources] of invalidSources) {
+    const source = fixture();
+    mutateSources(source.articleConfig.sources);
+    source.articleConfig.newsletter = newsletterSelection();
+    assert.throws(() => build(source), /source|simple-aws|duplicate|credential|input/i, description);
+  }
+});
+
+test('adding Simple AWS preserves root input4, input5, and input6 projections and deep-clones sources', async () => {
+  const build = await inputBuilder();
+  const variants = [
+    ['input4', (source) => { source.articleConfig.newsletter = newsletterSelection(); }, 4],
+    ['input5', (source) => { addInputFiveSelections(source); }, 5],
+    ['input6', (source) => {
+      addInputFiveSelections(source);
+      source.articleConfig.searchConsole = searchConsoleSelection();
+    }, 6]
+  ];
+
+  for (const [description, configure, expectedVersion] of variants) {
+    const legacySource = fixture();
+    configure(legacySource);
+    const legacy = build(legacySource);
+    assert.equal(legacy.schemaVersion, expectedVersion);
+
+    const expandedSource = fixture();
+    configure(expandedSource);
+    expandedSource.articleConfig.sources.push({ id: 'simple-aws' });
+    const expanded = build(freeze(expandedSource));
+    const { sources: expandedSources, ...expandedRoot } = expanded;
+    const { sources: legacySources, ...legacyRoot } = legacy;
+
+    assert.equal(expanded.schemaVersion, expectedVersion, `${description} retains its existing root schema version`);
+    assert.deepEqual(expandedRoot, legacyRoot, `${description} keeps every existing root fact unchanged`);
+    assert.deepEqual(expandedSources, [...legacySources, { id: 'simple-aws' }], `${description} appends only the new source fact`);
+    assert.notEqual(expandedSources, expandedSource.articleConfig.sources, `${description} clones the maintained source array`);
+    assert.notEqual(expandedSources.at(-1), expandedSource.articleConfig.sources.at(-1), `${description} clones each source entry`);
+    assert.deepEqual(Object.keys(expandedSources.at(-1)), ['id'], `${description} projects no fields beyond the exact source ID`);
+    expandedSources.at(-1).id = 'mutated-result';
+    assert.equal(expandedSource.articleConfig.sources.at(-1).id, 'simple-aws', `${description} result mutation cannot change maintained configuration`);
+    assert.equal(Object.hasOwn(expanded, 'counts'), false, `${description} does not add computed counts`);
+  }
+});

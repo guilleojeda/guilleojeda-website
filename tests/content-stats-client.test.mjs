@@ -873,6 +873,103 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.fetchCount, 1, 'language changes must not issue another request');
   });
 
+  test(`${locale} Simple AWS article coverage filters locally while views, Search, and subscribers keep their own facts`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    const originalDate = '2025-11-03T00:00:00.000Z';
+    data.groups.articles.sources = [caylent, builderCenter, simpleAws];
+    data.groups.articles.collectedAt = originalDate;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    const articleCoverage = 'Caylent, AWS Builder Center, Simple AWS';
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.articles.coverage.textContent, articleCoverage);
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.views.value.textContent, new Intl.NumberFormat(locale).format(1200));
+    assert.equal(page.cards.articles.views.coverage.textContent, simpleAws.label);
+    assert.equal(page.cards.articles.views.collectedDate.textContent, expectedDate(locale, articleViewPeriodFacts['12m'].collectedAt));
+    assertSearchVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.search.value.textContent, new Intl.NumberFormat(locale).format(1200));
+    assert.equal(page.cards.articles.search.coverage.textContent, simpleAws.label);
+    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDate(locale, articleSearchPeriodFacts['12m'].collectedAt));
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label);
+    assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
+
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '30d');
+    assertSearchVisible(page, locale, '30d');
+    assert.equal(page.cards.articles.count.textContent, '11', 'period changes do not change the article aggregate');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+
+    for (const [language, expectedCount] of [['en', '7'], ['es', '4'], ['all', '11']]) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, expectedCount, `${language} uses its retained aggregate count`);
+      assert.equal(page.cards.articles.coverage.textContent, articleCoverage, `${language} keeps all actual source coverage`);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+      if (language === 'es') {
+        assertViewsUnavailable(page, locale);
+        assertSearchUnavailable(page, locale);
+        assert.equal(page.cards.newsletter.card.hidden, true, 'the English newsletter follows its own language support');
+      } else {
+        assertViewsVisible(page, locale, '30d');
+        assertSearchVisible(page, locale, '30d');
+        assert.equal(page.cards.newsletter.card.hidden, false);
+        assert.equal(page.cards.newsletter.count.textContent, '27');
+      }
+      assert.equal(page.fetchCount, 1, 'language and period changes reuse the aggregate request');
+    }
+  });
+
+  test(`${locale} an expanded Simple AWS source set can report a measured zero`, async () => {
+    const data = snapshotWithNewsletter();
+    data.groups.articles.sources = [caylent, builderCenter, simpleAws];
+    data.groups.articles.counts = { all: 0, en: 0, es: 0 };
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    for (const [language, expected] of [['all', '0'], ['en', '0'], ['es', '0']]) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.results.hidden, false, 'a supported zero remains visible data');
+      assert.equal(page.cards.articles.status.hidden, true);
+      assert.equal(page.cards.articles.count.textContent, expected);
+      assert.equal(page.cards.articles.coverage.textContent, 'Caylent, AWS Builder Center, Simple AWS');
+    }
+    assert.equal(page.fetchCount, 1);
+  });
+
+  for (const [description, extraSource] of [
+    ['unknown Simple AWS ID', [{ id: 'simpleaws', label: 'Simple AWS' }]],
+    ['wrong Simple AWS label', [{ id: 'simple-aws', label: 'AWS Simple' }]],
+    ['duplicate Simple AWS source', [{ id: 'simple-aws', label: 'Simple AWS' }, { id: 'simple-aws', label: 'Simple AWS' }]],
+    ['private Simple AWS field', [{ id: 'simple-aws', label: 'Simple AWS', apiKey: 'synthetic-private-key' }]]
+  ]) {
+    test(`${locale} invalid ${description} affects Articles only`, async () => {
+      const data = snapshotWithArticleSearchClicks();
+      data.groups.articles.sources = [caylent, builderCenter, ...extraSource];
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertUnavailable(page, locale, 'articles');
+      assertViewsVisible(page, locale, '12m');
+      assertSearchVisible(page, locale, '12m');
+      assert.equal(page.cards.talks.count.textContent, '6');
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+
+      page.selector.value = 'en';
+      page.selector.dispatch('change');
+      assertUnavailable(page, locale, 'articles');
+      assertViewsVisible(page, locale, '12m');
+      assertSearchVisible(page, locale, '12m');
+      assert.equal(page.fetchCount, 1, 'the invalid article source list does not trigger another request');
+    });
+  }
+
   test(`${locale} shared language filter updates all independent cards from one aggregate request`, async () => {
     const page = createPage({ locale, data: snapshotWithNewsletter() });
     await page.settle();
