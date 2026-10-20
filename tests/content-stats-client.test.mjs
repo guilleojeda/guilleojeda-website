@@ -16,12 +16,21 @@ const cloudyThings = { id: 'cloudy-things', label: 'Cloudy Things' };
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const directoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
+const directoryOutboundClickPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const directoryViewPeriodFacts = {
   '7d': { views: 17, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31', qualifications: ['sampled'] },
   '30d': { views: 47, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31', qualifications: ['thresholding'] },
   '90d': { views: 147, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31', qualifications: ['other-row'] },
   '12m': { views: 1470, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'thresholding', 'other-row'] },
   ytd: { views: 970, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: [] }
+};
+
+const directoryOutboundClickPeriodFacts = {
+  '7d': { clicks: 6, collectedAt: '2026-09-03T00:00:00.000Z', startDate: '2026-08-25', endDate: '2026-08-31', qualifications: ['other-row'] },
+  '30d': { clicks: 41, collectedAt: '2026-09-04T00:00:00.000Z', startDate: '2026-08-02', endDate: '2026-08-31', qualifications: ['sampled'] },
+  '90d': { clicks: 206, collectedAt: '2026-09-05T00:00:00.000Z', startDate: '2026-06-03', endDate: '2026-08-31', qualifications: ['thresholding'] },
+  '12m': { clicks: 3111, collectedAt: '2026-09-06T00:00:00.000Z', startDate: '2025-09-01', endDate: '2026-08-31', qualifications: ['sampled', 'other-row'] },
+  ytd: { clicks: 1901, collectedAt: '2026-09-07T00:00:00.000Z', startDate: '2026-01-01', endDate: '2026-08-31', qualifications: ['thresholding'] }
 };
 
 const articleViewPeriodFacts = {
@@ -135,6 +144,35 @@ function directoryViewsRecords() {
 
 function snapshotWithDirectoryViews({ data = snapshotWithArticleSearchClicks(), records = directoryViewsRecords(), definitionVersion = 1 } = {}) {
   data.groups.directoryViews = { definitionVersion, records };
+  return data;
+}
+
+function directoryOutboundClicksRecord(period, overrides = {}) {
+  const facts = directoryOutboundClickPeriodFacts[period];
+  return {
+    basis: 'period',
+    collectedAt: facts.collectedAt,
+    scopeId: 'a'.repeat(64),
+    publication: { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' },
+    timeZone: 'America/Buenos_Aires',
+    startDate: facts.startDate,
+    endDate: facts.endDate,
+    clicks: facts.clicks,
+    qualifications: [...facts.qualifications],
+    ...overrides
+  };
+}
+
+function directoryOutboundClicksRecords() {
+  return Object.fromEntries(directoryOutboundClickPeriods.map((period) => [period, directoryOutboundClicksRecord(period)]));
+}
+
+function snapshotWithDirectoryOutboundClicks({
+  data = snapshotWithDirectoryViews(),
+  records = directoryOutboundClicksRecords(),
+  definitionVersion = 1
+} = {}) {
+  data.groups.directoryOutboundClicks = { definitionVersion, records };
   return data;
 }
 
@@ -341,6 +379,21 @@ const directoryViewsCopy = {
   }
 };
 
+const directoryOutboundClicksCopy = {
+  en: {
+    label: 'External link clicks',
+    loading: 'Loading Dónde Aprendo AWS external link clicks…',
+    unavailable: 'Dónde Aprendo AWS external link clicks are unavailable for this period.',
+    unit: 'clicks'
+  },
+  es: {
+    label: 'Clics en enlaces externos',
+    loading: 'Cargando clics en enlaces externos de Dónde Aprendo AWS…',
+    unavailable: 'Los clics en enlaces externos de Dónde Aprendo AWS no están disponibles para este período.',
+    unit: 'clics'
+  }
+};
+
 function makeCard(kind, locale) {
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
@@ -405,7 +458,8 @@ function makeDirectoryViews(locale) {
     dataset: {
       statsKind: 'directory-views',
       statsDirectoryViews: '',
-      statsDirectoryViewsUnavailable: directoryViewsCopy[locale].unavailable
+      statsDirectoryViewsUnavailable: directoryViewsCopy[locale].unavailable,
+      statsDirectoryOutboundClicksUnavailable: directoryOutboundClicksCopy[locale].unavailable
     },
     attributes: { 'aria-busy': 'false' }
   });
@@ -425,6 +479,27 @@ function makeDirectoryViews(locale) {
   const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsCollectedDate: '' } }));
   const qualifications = results.appendChild(new SemanticElement({ dataset: { statsDirectoryViewsQualifications: '' }, hidden: true }));
   return { card, status, results, value, unit, coverage, interval, collectedDate, qualifications };
+}
+
+function makeDirectoryOutboundClicks(locale, card) {
+  const region = card.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicks: '' } }));
+  const label = region.appendChild(new SemanticElement({ textContent: directoryOutboundClicksCopy[locale].label }));
+  const status = region.appendChild(new SemanticElement({
+    dataset: { statsDirectoryOutboundClicksStatus: '' },
+    textContent: directoryOutboundClicksCopy[locale].loading,
+    hidden: true
+  }));
+  const results = region.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicksResults: '' }, hidden: true }));
+  const value = results.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicksValue: '' } }));
+  const unit = results.appendChild(new SemanticElement({
+    dataset: { statsDirectoryOutboundClicksUnit: '' },
+    textContent: directoryOutboundClicksCopy[locale].unit
+  }));
+  const coverage = results.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicksCoverage: '' } }));
+  const interval = results.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicksInterval: '' } }));
+  const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicksCollectedDate: '' } }));
+  const qualifications = results.appendChild(new SemanticElement({ dataset: { statsDirectoryOutboundClicksQualifications: '' }, hidden: true }));
+  return { region, label, status, results, value, unit, coverage, interval, collectedDate, qualifications };
 }
 
 function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, includeViews = true, includeSearch = true } = {}) {
@@ -460,6 +535,7 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
   }));
   cards.directoryViews = makeDirectoryViews(locale);
   section.appendChild(cards.directoryViews.card);
+  cards.directoryOutboundClicks = makeDirectoryOutboundClicks(locale, cards.directoryViews.card);
   if (includeViews) cards.articles.views = makeArticleViews(cards.articles.card, locale);
   if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
   const fetchCalls = [];
@@ -691,6 +767,62 @@ function assertDirectoryViewsVisible(page, locale, period) {
   }
 }
 
+function assertDirectoryOutboundClicksUnavailable(page, locale, { hidden = false } = {}) {
+  const clicks = page.cards.directoryOutboundClicks;
+  assert.equal(page.cards.directoryViews.card.hidden, hidden, 'directory outbound clicks follow the Spanish-only card scope');
+  assert.equal(clicks.results.hidden, true, 'unavailable outbound clicks must not reveal an old value');
+  assert.equal(clicks.value.textContent, '', 'unavailable outbound clicks clear their value');
+  assert.equal(clicks.coverage.textContent, '', 'unavailable outbound clicks clear old coverage');
+  assert.equal(clicks.interval.textContent, '', 'unavailable outbound clicks clear old interval metadata');
+  assert.equal(clicks.collectedDate.textContent, '', 'unavailable outbound clicks clear the old fetch date');
+  assert.equal(clicks.qualifications.textContent, '', 'unavailable outbound clicks clear old qualifications');
+  assert.equal(page.cards.directoryViews.card.getAttribute('aria-busy'), 'false');
+  if (hidden) return;
+
+  assert.equal(clicks.status.hidden, false, 'applicable but unavailable outbound clicks show a status');
+  assert.equal(clicks.status.textContent, directoryOutboundClicksCopy[locale].unavailable);
+  if (locale === 'es') assert.match(clicks.status.textContent, /no.*disponible|no se pueden/i);
+  else assert.match(clicks.status.textContent, /unavailable|not available/i);
+}
+
+function assertLocalizedDirectoryOutboundClicksUnit(page, locale) {
+  const clicks = page.cards.directoryOutboundClicks;
+  if (locale === 'es') {
+    assert.match(clicks.label.textContent, /clics\s+en\s+enlaces\s+externos/i);
+    assert.match(clicks.unit.textContent, /clics?/i);
+  } else {
+    assert.match(clicks.label.textContent, /external\s+link\s+clicks/i);
+    assert.match(clicks.unit.textContent, /clicks?/i);
+  }
+}
+
+function assertDirectoryOutboundClicksVisible(page, locale, period) {
+  const record = page.data.groups.directoryOutboundClicks.records[period];
+  const clicks = page.cards.directoryOutboundClicks;
+  assert.equal(page.cards.directoryViews.card.hidden, false, 'All and Español can display this Spanish-source metric');
+  assert.equal(clicks.results.hidden, false, `${period} directory outbound clicks should render`);
+  assert.equal(clicks.status.hidden, true);
+  assert.equal(clicks.value.textContent, new Intl.NumberFormat(locale).format(record.clicks));
+  assertLocalizedDirectoryOutboundClicksUnit(page, locale);
+  assert.equal(clicks.coverage.textContent, record.publication.label, 'click coverage comes from its own saved record');
+  assert.ok(clicks.interval.textContent.includes(record.timeZone), 'the click interval retains the source timezone');
+  const formatDateOnly = (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
+  assert.ok(clicks.interval.textContent.includes(formatDateOnly(record.startDate)), 'the click interval retains its localized start date');
+  assert.ok(clicks.interval.textContent.includes(formatDateOnly(record.endDate)), 'the click interval retains its localized end date');
+  assert.equal(clicks.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'clicks retain their own collection date');
+  assert.equal(clicks.qualifications.hidden, record.qualifications.length === 0);
+  const qualificationText = clicks.qualifications.textContent;
+  if (locale === 'es') {
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /muest|muestra/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /umbral/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /otras filas?|filas? restantes|l[ií]mite de filas/i);
+  } else {
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /sampl|sampled/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
+  }
+}
+
 function assertAllUnavailable(page, locale) {
   for (const kind of ['articles', 'talks', 'books', 'newsletter']) assertUnavailable(page, locale, kind);
   assertViewsUnavailable(page, locale);
@@ -708,6 +840,8 @@ for (const locale of ['en', 'es']) {
     }
     assert.equal(page.cards.articles.views.status.hidden, false, 'the independent views region has its own loading status');
     assert.match(page.cards.articles.views.status.textContent, locale === 'es' ? /cargando/i : /loading/i);
+    assert.equal(page.cards.directoryOutboundClicks.status.hidden, false, 'the independent click metric has its own loading status');
+    assert.match(page.cards.directoryOutboundClicks.status.textContent, locale === 'es' ? /cargando.*clics/i : /loading.*clicks/i);
     assert.equal(page.periodSelector.value, '12m', 'the period control defaults to twelve months');
     assert.equal(page.periodSelector.disabled, true, 'period selection stays disabled while loading');
     await page.settle();
@@ -751,6 +885,197 @@ for (const locale of ['en', 'es']) {
     page.selector.dispatch('change');
     assertDirectoryViewsVisible(page, locale, 'ytd');
     assert.equal(page.fetchCount, 1, 'content-language changes stay local in both interface locales');
+  });
+
+  test(`${locale} directory outbound clicks use independent period records and Spanish content-language scope`, async () => {
+    const page = createPage({ locale, data: snapshotWithDirectoryOutboundClicks() });
+    await page.settle();
+
+    assertDirectoryOutboundClicksVisible(page, locale, '12m');
+    assertDirectoryViewsVisible(page, locale, '12m');
+    assert.notEqual(page.cards.directoryOutboundClicks.value.textContent, page.cards.directoryViews.value.textContent,
+      'outbound clicks retain a value independent from page views');
+    assert.notDeepEqual(page.data.groups.directoryOutboundClicks.records['12m'].qualifications,
+      page.data.groups.directoryViews.records['12m'].qualifications,
+    'outbound clicks retain qualifications independent from page views');
+
+    for (const period of directoryOutboundClickPeriods) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertDirectoryOutboundClicksVisible(page, locale, period);
+      assertDirectoryViewsVisible(page, locale, period);
+      assert.notEqual(page.cards.directoryOutboundClicks.value.textContent, page.cards.directoryViews.value.textContent,
+        `${period} clicks do not reuse the page-views value`);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+      assert.equal(page.fetchCount, 1, 'period changes reuse the existing aggregate request');
+    }
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
+    assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertDirectoryOutboundClicksVisible(page, locale, 'ytd');
+    assertDirectoryViewsVisible(page, locale, 'ytd');
+    assertViewsUnavailable(page, locale);
+    assertSearchUnavailable(page, locale);
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.newsletter.card.hidden, true);
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assertDirectoryOutboundClicksVisible(page, locale, 'ytd');
+    assert.equal(page.fetchCount, 1, 'language changes stay local in both interface locales');
+  });
+
+  test(`${locale} directory outbound clicks distinguish zero, a missing period, and invalid period data`, async () => {
+    const records = directoryOutboundClicksRecords();
+    records['7d'].clicks = 0;
+    delete records['30d'];
+    records['90d'] = { ...records['90d'], clicks: '206' };
+    const page = createPage({ locale, data: snapshotWithDirectoryOutboundClicks({ records }) });
+    await page.settle();
+
+    assertDirectoryOutboundClicksVisible(page, locale, '12m');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertDirectoryOutboundClicksVisible(page, locale, '7d');
+    assert.equal(page.cards.directoryOutboundClicks.value.textContent, '0', 'a source-reported zero is measured data');
+    assertDirectoryViewsVisible(page, locale, '7d');
+
+    for (const period of ['30d', '90d']) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertDirectoryOutboundClicksUnavailable(page, locale);
+      assertDirectoryViewsVisible(page, locale, period);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+    }
+
+    page.periodSelector.value = 'ytd';
+    page.periodSelector.dispatch('change');
+    assertDirectoryOutboundClicksVisible(page, locale, 'ytd');
+    assert.equal(page.fetchCount, 1, 'click record validation is isolated to its selected period');
+  });
+
+  test(`${locale} invalid directory outbound-click groups do not poison Views or other families`, async () => {
+    const cases = [
+      ['unsupported definition version', (group) => { group.definitionVersion = 2; }],
+      ['private property field', (group) => { group.propertyId = '424203315'; }],
+      ['unsupported total record', (group) => { group.records.total = directoryOutboundClicksRecord('12m'); }],
+      ['malformed record map', (group) => { group.records = []; }]
+    ];
+
+    for (const [description, mutate] of cases) {
+      const data = snapshotWithDirectoryOutboundClicks();
+      mutate(data.groups.directoryOutboundClicks);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertDirectoryOutboundClicksUnavailable(page, locale);
+      assertDirectoryViewsVisible(page, locale, '12m');
+      assert.equal(page.cards.articles.count.textContent, '11', `${description} leaves article counts available`);
+      assert.equal(page.cards.talks.count.textContent, '6');
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+
+      page.periodSelector.value = '30d';
+      page.periodSelector.dispatch('change');
+      assertDirectoryOutboundClicksUnavailable(page, locale);
+      assertDirectoryViewsVisible(page, locale, '30d');
+      assert.equal(page.fetchCount, 1);
+    }
+  });
+
+  test(`${locale} invalid directory outbound-click records affect only their period`, async () => {
+    const cases = [
+      ['wrong basis', (record) => { record.basis = 'recorded-total'; }],
+      ['noncanonical collection timestamp', (record) => { record.collectedAt = '2026-09-06T00:00:00Z'; }],
+      ['invalid scope hash', (record) => { record.scopeId = 'not-a-sha256'; }],
+      ['wrong publication identity', (record) => { record.publication.id = 'simple-aws'; }],
+      ['wrong publication label', (record) => { record.publication.label = 'Simple AWS'; }],
+      ['wrong publication language', (record) => { record.publication.language = 'en'; }],
+      ['invalid timezone', (record) => { record.timeZone = 'Not/AZone'; }],
+      ['invalid interval', (record) => { record.startDate = '2026-02-30'; }],
+      ['unsafe click count', (record) => { record.clicks = Number.MAX_SAFE_INTEGER + 1; }],
+      ['missing qualifications', (record) => { delete record.qualifications; }],
+      ['duplicate qualification', (record) => { record.qualifications = ['sampled', 'sampled']; }],
+      ['provider qualification', (record) => { record.qualifications = ['provider-warning']; }],
+      ['private host field', (record) => { record.hostname = 'dondeaprendoaws.com'; }]
+    ];
+
+    for (const [description, mutate] of cases) {
+      const data = snapshotWithDirectoryOutboundClicks();
+      mutate(data.groups.directoryOutboundClicks.records['12m']);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertDirectoryOutboundClicksUnavailable(page, locale);
+      assertDirectoryViewsVisible(page, locale, '12m');
+      assert.equal(page.cards.articles.count.textContent, '11', `${description} leaves article counts available`);
+      page.periodSelector.value = '30d';
+      page.periodSelector.dispatch('change');
+      assertDirectoryOutboundClicksVisible(page, locale, '30d');
+      assertDirectoryViewsVisible(page, locale, '30d');
+      assert.equal(page.fetchCount, 1);
+    }
+  });
+
+  test(`${locale} invalid directory Views do not hide healthy outbound clicks`, async () => {
+    const data = snapshotWithDirectoryOutboundClicks();
+    data.groups.directoryViews = { definitionVersion: 2, records: directoryViewsRecords() };
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assertDirectoryViewsUnavailable(page, locale);
+    assertDirectoryOutboundClicksVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertDirectoryViewsUnavailable(page, locale);
+    assertDirectoryOutboundClicksVisible(page, locale, '30d');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} retained and recovered outbound clicks keep their own collection dates and metadata`, async () => {
+    const retainedRecords = directoryOutboundClicksRecords();
+    retainedRecords['12m'] = directoryOutboundClicksRecord('12m', {
+      collectedAt: '2025-03-14T00:00:00.000Z',
+      scopeId: 'b'.repeat(64),
+      startDate: '2024-03-01',
+      endDate: '2025-02-28',
+      clicks: 520,
+      qualifications: ['thresholding']
+    });
+    const retainedPage = createPage({ locale, data: snapshotWithDirectoryOutboundClicks({ records: retainedRecords }) });
+    await retainedPage.settle();
+    assertDirectoryOutboundClicksVisible(retainedPage, locale, '12m');
+    assert.equal(retainedPage.cards.directoryOutboundClicks.value.textContent, new Intl.NumberFormat(locale).format(520));
+    assert.equal(retainedPage.cards.directoryOutboundClicks.collectedDate.textContent,
+      expectedDate(locale, '2025-03-14T00:00:00.000Z'));
+    assert.ok(retainedPage.cards.directoryOutboundClicks.interval.textContent.includes('2024'), 'retained dates remain visible');
+
+    const recoveredRecords = directoryOutboundClicksRecords();
+    recoveredRecords['12m'] = directoryOutboundClicksRecord('12m', {
+      collectedAt: '2026-10-18T00:00:00.000Z',
+      scopeId: 'c'.repeat(64),
+      clicks: 690,
+      qualifications: ['other-row']
+    });
+    const recoveredPage = createPage({ locale, data: snapshotWithDirectoryOutboundClicks({ records: recoveredRecords }) });
+    await recoveredPage.settle();
+    assertDirectoryOutboundClicksVisible(recoveredPage, locale, '12m');
+    assert.equal(recoveredPage.cards.directoryOutboundClicks.value.textContent, new Intl.NumberFormat(locale).format(690));
+    assert.equal(recoveredPage.cards.directoryOutboundClicks.collectedDate.textContent,
+      expectedDate(locale, '2026-10-18T00:00:00.000Z'));
+    assert.equal(recoveredPage.cards.directoryViews.value.textContent, new Intl.NumberFormat(locale).format(1470),
+      'recovered clicks do not replace the separately collected Views value');
+    assert.equal(retainedPage.fetchCount, 1);
+    assert.equal(recoveredPage.fetchCount, 1);
   });
 
   test(`${locale} directory page views distinguish zero, a missing period, and an invalid period record`, async () => {
@@ -885,6 +1210,7 @@ for (const locale of ['en', 'es']) {
     await page.settle();
 
     assertDirectoryViewsUnavailable(page, locale);
+    assertDirectoryOutboundClicksUnavailable(page, locale);
     assert.equal(page.cards.articles.count.textContent, '11');
     assert.equal(page.cards.newsletter.count.textContent, '27');
     assertViewsVisible(page, locale, '12m');
@@ -893,6 +1219,7 @@ for (const locale of ['en', 'es']) {
     page.selector.value = 'en';
     page.selector.dispatch('change');
     assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
     assert.equal(page.cards.articles.count.textContent, '7');
     assert.equal(page.cards.newsletter.count.textContent, '27');
 
@@ -903,19 +1230,22 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.newsletter.card.hidden, true);
     assertViewsUnavailable(page, locale);
     assertSearchUnavailable(page, locale);
+    assertDirectoryOutboundClicksUnavailable(page, locale);
     assert.equal(page.fetchCount, 1);
   });
 
-  test(`${locale} directory views stay period-only when Recorded total is selected and Spanish restores 12 months`, async () => {
-    const page = createPage({ locale, data: snapshotWithDirectoryViews() });
+  test(`${locale} directory period metrics stay unavailable for Recorded total and Spanish restores 12 months`, async () => {
+    const page = createPage({ locale, data: snapshotWithDirectoryOutboundClicks() });
     await page.settle();
 
     assertDirectoryViewsVisible(page, locale, '12m');
+    assertDirectoryOutboundClicksVisible(page, locale, '12m');
     page.periodSelector.value = 'total';
     page.periodSelector.dispatch('change');
     assertViewsVisible(page, locale, 'total');
     assertSearchUnavailable(page, locale);
     assertDirectoryViewsUnavailable(page, locale);
+    assertDirectoryOutboundClicksUnavailable(page, locale);
     assert.equal(page.cards.articles.count.textContent, '11');
 
     page.selector.value = 'es';
@@ -924,11 +1254,13 @@ for (const locale of ['en', 'es']) {
     assertViewsUnavailable(page, locale);
     assertSearchUnavailable(page, locale);
     assertDirectoryViewsVisible(page, locale, '12m');
+    assertDirectoryOutboundClicksVisible(page, locale, '12m');
     assert.equal(page.cards.articles.count.textContent, '4');
 
     page.selector.value = 'en';
     page.selector.dispatch('change');
     assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
     assert.equal(page.cards.articles.count.textContent, '7');
     assert.equal(page.fetchCount, 1);
   });
@@ -940,6 +1272,7 @@ for (const locale of ['en', 'es']) {
     await page.settle();
 
     assertDirectoryViewsUnavailable(page, locale);
+    assertDirectoryOutboundClicksUnavailable(page, locale);
     assert.equal(page.cards.articles.results.hidden, true);
     assert.equal(page.cards.articles.count.textContent, '');
     assert.equal(page.cards.talks.results.hidden, true);
@@ -950,6 +1283,7 @@ for (const locale of ['en', 'es']) {
     page.selector.value = 'en';
     page.selector.dispatch('change');
     assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+    assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
     assert.equal(page.fetchCount, 1);
   });
 

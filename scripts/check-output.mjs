@@ -127,6 +127,26 @@ function checkContentStatsShell(page, html) {
   const directoryUnavailableText = normalizedText(directoryUnavailable);
   if (locale === 'en') assert.match(directoryUnavailableText, /unavailable|not available/i, 'English directory Views unavailable copy is meaningful');
   else assert.match(directoryUnavailableText, /no disponibles?|no disponible|no se pueden/i, 'Spanish directory Views unavailable copy is meaningful');
+  const directoryOutboundClicks = extractElement(directoryViewsCard, null, 'data-stats-directory-outbound-clicks');
+  assert.ok(directoryOutboundClicks, `${locale} directory clicks must be rendered in the existing directory card`);
+  for (const field of ['status', 'results', 'value', 'unit', 'coverage', 'interval', 'collected-date', 'qualifications']) {
+    assert.ok(directoryOutboundClicks.html.includes(`data-stats-directory-outbound-clicks-${field}`),
+      `${locale} directory outbound clicks need ${field}`);
+  }
+  const clickRegionText = normalizedText(directoryOutboundClicks.html);
+  if (locale === 'en') assert.match(clickRegionText, /external link clicks?/, 'English directory metric names external-link clicks');
+  else assert.match(clickRegionText, /clics? en enlaces externos/, 'Spanish directory metric names external-link clicks');
+  const clickStatus = extractElement(directoryOutboundClicks.html, null, 'data-stats-directory-outbound-clicks-status');
+  assert.ok(clickStatus, `${locale} directory clicks need their own loading/unavailable status`);
+  mustContain(clickStatus.html, 'role="status"', `${locale} click status has a status role`);
+  mustContain(clickStatus.html, 'aria-live="polite"', `${locale} click status announces updates politely`);
+  const clickStatusText = normalizedText(clickStatus.html);
+  if (locale === 'en') assert.match(clickStatusText, /loading.*clicks?/, 'English click status has localized loading copy');
+  else assert.match(clickStatusText, /cargando.*clics?/, 'Spanish click status has localized loading copy');
+  const clickUnavailable = directoryViewsCard.match(/data-stats-directory-outbound-clicks-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
+  const clickUnavailableText = normalizedText(clickUnavailable);
+  if (locale === 'en') assert.match(clickUnavailableText, /unavailable|not available/, 'English directory click unavailable copy is meaningful');
+  else assert.match(clickUnavailableText, /no disponibles?|no disponible|no se pueden/, 'Spanish directory click unavailable copy is meaningful');
   const newsletterCardElement = extractElement(statsHtml, 'article', 'data-stats-kind', 'newsletter');
   const newsletterCard = newsletterCardElement?.html;
   assert.ok(newsletterCard, `${locale} newsletter must have a distinct accessible card`);
@@ -227,6 +247,28 @@ function checkContentStatsShell(page, html) {
     assert.match(searchDisclosureParagraph, /no (?:son|representan|identifican) (?:personas|visitantes|lectores) unic[oa]s|no representan a personas unicas/i, 'Spanish disclosure says clicks do not represent unique people');
     assert.match(searchDisclosureParagraph, /no se (?:suman|combinan|agregan)|se muestran por separado|se mantienen separad[oa]s?|separad[oa]s? de|distint[oa]s? de/i, 'Spanish disclosure keeps Search clicks separate from views');
     assert.match(searchDisclosureParagraph, /vistas?|analytics/i, 'Spanish separation statement names the existing views metric');
+  }
+  const directoryOutboundDisclosure = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => normalizedText(match[1]))
+    .find((paragraph) => /donde aprendo aws/i.test(paragraph)
+      && (locale === 'en' ? /outbound.{0,30}click|click.{0,30}outbound/i : /clic.{0,45}(?:salida|enlaces externos)|(?:salida|enlaces externos).{0,45}clic/i).test(paragraph));
+  assert.ok(directoryOutboundDisclosure, `${locale} disclosure explains recorded Dónde Aprendo AWS outbound clicks`);
+  if (locale === 'en') {
+    assert.match(directoryOutboundDisclosure, /recorded|reported/, 'English disclosure describes source-reported clicks');
+    assert.match(directoryOutboundDisclosure, /external|outbound/, 'English disclosure identifies external-link scope');
+    assert.match(directoryOutboundDisclosure, /all recorded|site[- ]wide|full directory|whole directory|footer|social|publication/i,
+      'English disclosure makes the broad directory link scope clear');
+    assert.match(directoryOutboundDisclosure, /repeat|more than once|multiple times/, 'English disclosure says outbound clicks can repeat');
+    assert.match(directoryOutboundDisclosure, /separate|not added to|not combined with/,
+      'English disclosure keeps outbound clicks separate from page views');
+  } else {
+    assert.match(directoryOutboundDisclosure, /registrad|informad/, 'Spanish disclosure describes source-reported clicks');
+    assert.match(directoryOutboundDisclosure, /enlaces externos|enlaces de salida/, 'Spanish disclosure identifies external-link scope');
+    assert.match(directoryOutboundDisclosure, /todos los clics registrados|todo el directorio|pie de pagina|redes sociales|publicacion/i,
+      'Spanish disclosure makes the broad directory link scope clear');
+    assert.match(directoryOutboundDisclosure, /repet|varias veces|mas de una vez/, 'Spanish disclosure says outbound clicks can repeat');
+    assert.match(directoryOutboundDisclosure, /separad|no se suman|no se combinan/,
+      'Spanish disclosure keeps outbound clicks separate from page views');
   }
 
   const articlesCard = extractElement(statsHtml, 'article', 'data-stats-kind', 'articles');
@@ -431,6 +473,8 @@ const hasNewsletterSelection = Object.hasOwn(inputs, 'newsletter');
 const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
 const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
+const hasDirectoryOutboundClicks = hasDirectoryAnalyticsSelection
+  && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'outboundClicks');
 assert.deepEqual(Object.keys(inputs).sort(), [
   'curated',
   'definitionVersion',
@@ -443,7 +487,8 @@ assert.deepEqual(Object.keys(inputs).sort(), [
 ].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
 assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
-assert.equal(inputs.schemaVersion, hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+if (hasDirectoryOutboundClicks) assert.equal(sourceConfig.directoryAnalytics.outboundClicks, true, 'outbound clicks require the literal true selector');
+assert.equal(inputs.schemaVersion, hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 if (hasNewsletterSelection) {
@@ -492,14 +537,16 @@ if (hasSearchConsoleSelection) {
 }
 if (hasDirectoryAnalyticsSelection) {
   assert.ok(sourceConfig.directoryAnalytics, 'directory Views input must come from a maintained selector');
-  assert.deepEqual(Object.keys(sourceConfig.directoryAnalytics).sort(), ['hostname', 'id', 'language', 'propertyId', 'timeZone'],
-    'maintained directory Analytics selector must contain only its source and scope facts');
+  assert.deepEqual(Object.keys(sourceConfig.directoryAnalytics).sort(), [
+    'hostname', 'id', 'language', 'propertyId', 'timeZone', ...(hasDirectoryOutboundClicks ? ['outboundClicks'] : [])
+  ].sort(), 'maintained directory Analytics selector must contain only its source, scope facts, and optional click opt-in');
   assert.equal(sourceConfig.directoryAnalytics.id, 'donde-aprendo-aws', 'directory selector identity');
   assert.equal(sourceConfig.directoryAnalytics.propertyId, '424203315', 'directory selector uses the verified GA4 property');
   assert.equal(sourceConfig.directoryAnalytics.hostname, 'dondeaprendoaws.com', 'directory selector covers the production apex hostname');
   assert.equal(sourceConfig.directoryAnalytics.language, 'es', 'directory language follows the Spanish original content');
   assert.equal(sourceConfig.directoryAnalytics.timeZone, 'America/Buenos_Aires', 'directory selector uses the verified GA4 property timezone');
-  assert.deepEqual(inputs.directoryAnalytics, sourceConfig.directoryAnalytics, 'protected input7 projects the exact maintained selector');
+  assert.deepEqual(inputs.directoryAnalytics, sourceConfig.directoryAnalytics,
+    `protected input${hasDirectoryOutboundClicks ? '8' : '7'} projects the exact maintained selector`);
   assert.equal(Object.hasOwn(inputs.directoryAnalytics, 'recordedSince'), false, 'directory Views do not add recorded-total configuration');
 } else {
   assert.ok(!Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'compatible generated input remains valid before directory enablement');
@@ -622,8 +669,15 @@ for (const page of policyPages) {
   mustContainText(privacySection.html, 'Search Console', `${page.lang} privacy text names Search Console`);
   mustContainText(privacySection.html, 'Dónde Aprendo AWS', `${page.lang} privacy text names directory Analytics use`);
   const privacyText = normalizedText(privacySection.html);
-  if (page.lang === 'en') assert.match(privacyText, /aggregate page views?/i, 'English privacy text identifies aggregate directory page views');
-  else assert.match(privacyText, /vistas? de paginas? agregadas?|vistas? agregadas? de paginas?/i, 'Spanish privacy text identifies aggregate directory page views');
+  if (page.lang === 'en') {
+    assert.match(privacyText, /aggregate page views?/i, 'English privacy text identifies aggregate directory page views');
+    assert.match(privacyText, /aggregate.{0,60}(?:outbound|external) link clicks?|(?:outbound|external) link clicks?.{0,60}aggregate/i,
+      'English privacy text identifies aggregate outbound-link clicks');
+  } else {
+    assert.match(privacyText, /vistas? de paginas? agregadas?|vistas? agregadas? de paginas?/i, 'Spanish privacy text identifies aggregate directory page views');
+    assert.match(privacyText, /clics?.{0,60}(?:salida|enlaces externos).{0,60}agregad|clics?.{0,60}(?:salida|enlaces externos)/i,
+      'Spanish privacy text identifies aggregate outbound-link clicks');
+  }
   const skipLink = html.match(/<a class="skip-link" href="([^"]+)">([^<]*)<\/a>/i);
   assert.ok(skipLink, `${page.lang} privacy page has a skip link`);
   assert.equal(skipLink[1], '#privacy', `${page.lang} privacy skip link targets this page`);
