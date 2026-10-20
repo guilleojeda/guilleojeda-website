@@ -176,7 +176,7 @@ function phaseTenInput({ baseInput, directoryAnalytics, ...options } = {}) {
 function phaseTwelveInput({ baseInput, directoryAnalytics, recordedSince = "2024-01-21", ...options } = {}) {
   const input = phaseNineInput({ baseInput, directoryAnalytics, ...options });
   input.schemaVersion = 9;
-  input.directoryAnalytics.recordedSince = recordedSince;
+  input.directoryAnalytics = { ...input.directoryAnalytics, recordedSince };
   return input;
 }
 
