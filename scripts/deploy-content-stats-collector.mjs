@@ -191,16 +191,66 @@ function parseChangeSet(result) {
   return parseJson(result.stdout, "CloudFormation create-change-set");
 }
 
+function isDynamicReferencePreview(resourceChange, { resourceType, targetName, causingEntities }) {
+  if (resourceChange?.ResourceType !== resourceType ||
+      resourceChange?.Action !== "Modify" ||
+      resourceChange?.Replacement !== "False" ||
+      !Array.isArray(resourceChange?.Scope) ||
+      resourceChange.Scope.length !== 1 ||
+      resourceChange.Scope[0] !== "Properties" ||
+      !Array.isArray(resourceChange?.Details) ||
+      resourceChange.Details.length === 0) {
+    return false;
+  }
+
+  return resourceChange.Details.every(({ Evaluation, ChangeSource, Target, CausingEntity } = {}) =>
+    Evaluation === "Dynamic" &&
+    ChangeSource === "ResourceAttribute" &&
+    Target?.Attribute === "Properties" &&
+    Target?.Name === targetName &&
+    causingEntities.includes(CausingEntity)
+  );
+}
+
 function ensureCodeOnlyChangeSet(changeSet) {
   const changes = changeSet?.Changes || [];
-  if (changes.length !== 1) throw new Error(`Refusing CloudFormation change set with ${changes.length} resource changes`);
-  const resourceChange = changes[0]?.ResourceChange;
-  if (resourceChange?.LogicalResourceId !== COLLECTOR_RESOURCE ||
-      resourceChange?.ResourceType !== "AWS::Lambda::Function" ||
-      resourceChange?.Action !== "Modify" ||
-      resourceChange?.Replacement !== "False") {
-    throw new Error("Refusing CloudFormation change set that does not contain only an in-place collector Lambda update");
+  if (!Array.isArray(changes)) throw new Error("Refusing CloudFormation change set without a resource change list");
+
+  const seenResources = new Set();
+  let collectorChangeSeen = false;
+  for (const { ResourceChange: resourceChange } of changes) {
+    const logicalId = resourceChange?.LogicalResourceId;
+    if (!logicalId || seenResources.has(logicalId)) {
+      throw new Error(`Refusing CloudFormation change set with a missing or duplicate resource change (${logicalId || "unknown"})`);
+    }
+    seenResources.add(logicalId);
+
+    if (logicalId === COLLECTOR_RESOURCE) {
+      if (resourceChange.ResourceType !== "AWS::Lambda::Function" ||
+          resourceChange.Action !== "Modify" ||
+          resourceChange.Replacement !== "False") {
+        throw new Error("Refusing CloudFormation change set that does not contain an in-place collector Lambda update");
+      }
+      collectorChangeSeen = true;
+      continue;
+    }
+
+    if (logicalId === "ContentStatsSchedulerRole" && isDynamicReferencePreview(resourceChange, {
+      resourceType: "AWS::IAM::Role",
+      targetName: "Policies",
+      causingEntities: ["ContentStatsCollector.Arn"]
+    })) continue;
+
+    if (logicalId === "ContentStatsDailySchedule" && isDynamicReferencePreview(resourceChange, {
+      resourceType: "AWS::Scheduler::Schedule",
+      targetName: "Target",
+      causingEntities: ["ContentStatsCollector.Arn", "ContentStatsSchedulerRole.Arn"]
+    })) continue;
+
+    throw new Error(`Refusing CloudFormation change set with an unexpected or non-dynamic resource change (${logicalId})`);
   }
+
+  if (!collectorChangeSeen) throw new Error("Refusing CloudFormation change set without the collector Lambda update");
 }
 
 async function describeChangeSet({ run, region, changeSetName }) {
