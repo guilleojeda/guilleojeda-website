@@ -211,9 +211,14 @@ function projectDirectoryAnalytics(directoryAnalytics) {
   const keys = Object.keys(directoryAnalytics).sort();
   const requiredKeys = ['hostname', 'id', 'language', 'propertyId', 'timeZone'];
   const hasOutboundClicks = Object.hasOwn(directoryAnalytics, 'outboundClicks');
-  const expectedKeys = hasOutboundClicks ? [...requiredKeys, 'outboundClicks'].sort() : requiredKeys;
+  const hasRecordedSince = Object.hasOwn(directoryAnalytics, 'recordedSince');
+  const expectedKeys = [
+    ...requiredKeys,
+    ...(hasOutboundClicks ? ['outboundClicks'] : []),
+    ...(hasRecordedSince ? ['recordedSince'] : [])
+  ].sort();
   if (keys.join(',') !== expectedKeys.join(',')) {
-    invalid('directoryAnalytics must contain only the supported directory scope selectors and optional outboundClicks flag');
+    invalid('directoryAnalytics must contain only the supported directory scope selectors and optional outboundClicks flag and recordedSince date');
   }
   if (directoryAnalytics.id !== 'donde-aprendo-aws') invalid('unsupported directoryAnalytics publication id');
   if (typeof directoryAnalytics.propertyId !== 'string' || !/^\d+$/.test(directoryAnalytics.propertyId)) {
@@ -229,6 +234,9 @@ function projectDirectoryAnalytics(directoryAnalytics) {
   if (hasOutboundClicks && directoryAnalytics.outboundClicks !== true) {
     invalid('directoryAnalytics outboundClicks must be the literal true opt-in');
   }
+  if (hasRecordedSince && !isRealDate(directoryAnalytics.recordedSince)) {
+    invalid('directoryAnalytics recordedSince must be a real YYYY-MM-DD date');
+  }
 
   const result = {
     id: directoryAnalytics.id,
@@ -238,6 +246,7 @@ function projectDirectoryAnalytics(directoryAnalytics) {
     timeZone: directoryAnalytics.timeZone
   };
   if (hasOutboundClicks) result.outboundClicks = true;
+  if (hasRecordedSince) result.recordedSince = directoryAnalytics.recordedSince;
   return result;
 }
 
@@ -247,6 +256,9 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
   const hasSearchConsole = Object.hasOwn(articleConfig, 'searchConsole');
   const hasDirectoryAnalytics = Object.hasOwn(articleConfig, 'directoryAnalytics');
+  const hasDirectoryRecordedSince = hasDirectoryAnalytics
+    && articleConfig.directoryAnalytics
+    && Object.hasOwn(articleConfig.directoryAnalytics, 'recordedSince');
   const hasDirectoryOutboundClicks = hasDirectoryAnalytics
     && articleConfig.directoryAnalytics
     && Object.hasOwn(articleConfig.directoryAnalytics, 'outboundClicks');
@@ -267,7 +279,12 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     : null;
 
   return {
-    schemaVersion: hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalytics ? 7 : hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
+    schemaVersion: hasDirectoryRecordedSince ? 9
+      : hasDirectoryOutboundClicks ? 8
+        : hasDirectoryAnalytics ? 7
+          : hasSearchConsole ? 6
+            : hasAnalytics ? 5
+              : hasNewsletter ? 4 : 3,
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
