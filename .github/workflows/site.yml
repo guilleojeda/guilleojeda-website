@@ -109,5 +109,8 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           role-session-name: github-actions-${{ github.run_id }}
 
+      - name: Update collector code through CloudFormation
+        run: node scripts/deploy-content-stats-collector.mjs
+
       - name: Publish, invalidate, and smoke test
         run: node scripts/deploy.mjs
