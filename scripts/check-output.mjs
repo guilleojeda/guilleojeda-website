@@ -96,6 +96,20 @@ function checkContentStatsShell(page, html) {
   const sectionPosition = html.lastIndexOf('<', sectionIdPosition);
   const statsHtml = html.slice(sectionPosition, talksPosition);
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
+  const sourcesDisclosure = extractElement(statsHtml, 'details', 'class', 'content-stats-sources');
+  assert.ok(sourcesDisclosure, `${locale} statistics need the source and counting disclosure`);
+  const sourcesCopy = normalizedText(sourcesDisclosure.html);
+  if (locale === 'en') {
+    assert.match(sourcesCopy, /recorded totals?.{0,80}available activity.{0,100}displayed start date/,
+      'English recorded totals identify the available-history start shown');
+    assert.match(sourcesCopy, /earlier activity.{0,80}gaps? in tracking.{0,40}may be missing/,
+      'English recorded-total disclosure warns that earlier activity and tracking gaps may be missing');
+  } else {
+    assert.match(sourcesCopy, /totales registrados.{0,80}actividad disponible.{0,100}fecha indicada/,
+      'Spanish recorded totals identify the available-history start shown');
+    assert.match(sourcesCopy, /puede faltar actividad anterior.{0,100}periodos? sin seguimiento/,
+      'Spanish recorded-total disclosure warns that earlier activity and tracking gaps may be missing');
+  }
 
   const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
   assert.equal(cardKinds.length, 5, `${locale} statistics add one separate Dónde Aprendo AWS card`);
