@@ -47,6 +47,7 @@
     "propertyId": "424203315",
     "hostname": "dondeaprendoaws.com",
     "language": "es",
-    "timeZone": "America/Buenos_Aires"
+    "timeZone": "America/Buenos_Aires",
+    "outboundClicks": true
   }
 }
