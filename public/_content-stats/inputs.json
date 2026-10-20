@@ -15,6 +15,11 @@
     },
     {
       "id": "simple-aws"
+    },
+    {
+      "id": "cloudy-things",
+      "authorName": "Guillermo Ojeda",
+      "language": "en"
     }
   ],
   "newsletter": {
