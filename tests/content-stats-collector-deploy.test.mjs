@@ -511,11 +511,12 @@ test("CI IAM permits only template reads and scoped collector code change sets",
   assert.equal(passRole.Action, "iam:PassRole");
   assert.deepEqual(passRole.Resource, { "Fn::GetAtt": ["ContentStatsCollectorExecutionRole", "Arn"] });
   assert.deepEqual(passRole.Condition.StringEquals["iam:PassedToService"], "lambda.amazonaws.com");
-  const roleRead = statements.find(({ Sid }) => Sid === "ReadCollectorRelatedRoles");
+  const roleRead = statements.find(({ Sid }) => Sid === "ReadCollectorAndDeploymentRoles");
   assert.equal(roleRead.Action, "iam:GetRole");
   assert.deepEqual(roleRead.Resource, [
     { "Fn::GetAtt": ["ContentStatsCollectorExecutionRole", "Arn"] },
-    { "Fn::GetAtt": ["ContentStatsSchedulerRole", "Arn"] }
+    { "Fn::GetAtt": ["ContentStatsSchedulerRole", "Arn"] },
+    { "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-SiteDeploymentRole-*" }
   ]);
   const actionNames = statements.flatMap(({ Action }) => Array.isArray(Action) ? Action : [Action]);
   assert.equal(actionNames.some((action) => /(?:InvokeFunction|scheduler:|secretsmanager:|ssm:|logs:|GetFunctionConfiguration)/i.test(action)), false);

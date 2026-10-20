@@ -706,7 +706,7 @@
                   }
                 },
                 {
-                  "Sid": "ReadCollectorRelatedRoles",
+                  "Sid": "ReadCollectorAndDeploymentRoles",
                   "Effect": "Allow",
                   "Action": "iam:GetRole",
                   "Resource": [
@@ -721,6 +721,9 @@
                         "ContentStatsSchedulerRole",
                         "Arn"
                       ]
+                    },
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AWS::StackName}-SiteDeploymentRole-*"
                     }
                   ]
                 },
