@@ -662,7 +662,11 @@
                 {
                   "Sid": "ReadSiteHostedZoneMetadata",
                   "Effect": "Allow",
-                  "Action": "route53:GetHostedZone",
+                  "Action": [
+                    "route53:GetHostedZone",
+                    "route53:ListTagsForResource",
+                    "route53:ListQueryLoggingConfigs"
+                  ],
                   "Resource": {
                     "Fn::Sub": "arn:${AWS::Partition}:route53:::hostedzone/${SiteHostedZone}"
                   }
@@ -670,7 +674,11 @@
                 {
                   "Sid": "ReadSiteDistributionMetadata",
                   "Effect": "Allow",
-                  "Action": "cloudfront:GetDistribution",
+                  "Action": [
+                    "cloudfront:GetDistribution",
+                    "cloudfront:GetDistributionConfig",
+                    "cloudfront:ListTagsForResource"
+                  ],
                   "Resource": {
                     "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${SiteDistribution}"
                   }
