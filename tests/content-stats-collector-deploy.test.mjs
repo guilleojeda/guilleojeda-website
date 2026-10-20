@@ -485,12 +485,20 @@ test("CI IAM permits only template reads and scoped collector code change sets",
   assert.deepEqual(stackRead.Action.sort(), ["cloudformation:DescribeStacks", "cloudformation:GetTemplate"].sort());
   assert.match(JSON.stringify(stackRead.Resource), /stack\/\$\{AWS::StackName\}\/\*/);
   const hostedZoneRead = statements.find(({ Sid }) => Sid === "ReadSiteHostedZoneMetadata");
-  assert.equal(hostedZoneRead.Action, "route53:GetHostedZone");
+  assert.deepEqual(hostedZoneRead.Action.sort(), [
+    "route53:GetHostedZone",
+    "route53:ListQueryLoggingConfigs",
+    "route53:ListTagsForResource"
+  ].sort());
   assert.deepEqual(hostedZoneRead.Resource, {
     "Fn::Sub": "arn:${AWS::Partition}:route53:::hostedzone/${SiteHostedZone}"
   });
   const distributionRead = statements.find(({ Sid }) => Sid === "ReadSiteDistributionMetadata");
-  assert.equal(distributionRead.Action, "cloudfront:GetDistribution");
+  assert.deepEqual(distributionRead.Action.sort(), [
+    "cloudfront:GetDistribution",
+    "cloudfront:GetDistributionConfig",
+    "cloudfront:ListTagsForResource"
+  ].sort());
   assert.deepEqual(distributionRead.Resource, {
     "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${SiteDistribution}"
   });
@@ -531,11 +539,17 @@ test("CI IAM permits only template reads and scoped collector code change sets",
   const actionNames = statements.flatMap(({ Action }) => Array.isArray(Action) ? Action : [Action]);
   assert.equal(actionNames.some((action) => /(?:InvokeFunction|scheduler:|secretsmanager:|ssm:|logs:|GetFunctionConfiguration)/i.test(action)), false);
   assert.deepEqual(actionNames.filter((action) => action.startsWith("iam:")).sort(), ["iam:GetRole", "iam:PassRole"].sort());
-  assert.deepEqual(actionNames.filter((action) => action.startsWith("route53:")), ["route53:GetHostedZone"]);
+  assert.deepEqual(actionNames.filter((action) => action.startsWith("route53:")).sort(), [
+    "route53:GetHostedZone",
+    "route53:ListQueryLoggingConfigs",
+    "route53:ListTagsForResource"
+  ].sort());
   assert.deepEqual(actionNames.filter((action) => action.startsWith("cloudfront:")).sort(), [
     "cloudfront:CreateInvalidation",
     "cloudfront:GetDistribution",
-    "cloudfront:GetInvalidation"
+    "cloudfront:GetDistributionConfig",
+    "cloudfront:GetInvalidation",
+    "cloudfront:ListTagsForResource"
   ].sort());
   assert.ok(actionNames.includes("s3:ListBucket"));
   assert.ok(actionNames.includes("s3:PutObject"));
