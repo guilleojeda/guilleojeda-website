@@ -12,6 +12,7 @@ const caylent = { id: 'caylent', label: 'Caylent' };
 const builderCenter = { id: 'builder-center', label: 'AWS Builder Center' };
 const websiteInventory = { id: 'website-inventory', label: 'Website inventory' };
 const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
+const cloudyThings = { id: 'cloudy-things', label: 'Cloudy Things' };
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 
@@ -940,6 +941,108 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.articles.coverage.textContent, 'Caylent, AWS Builder Center, Simple AWS');
     }
     assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Cloudy Things counts work without the Simple AWS article source`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    const collectedAt = '2025-11-03T00:00:00.000Z';
+    data.groups.articles.sources = [caylent, builderCenter, cloudyThings];
+    data.groups.articles.counts = { all: 13, en: 9, es: 4 };
+    data.groups.articles.collectedAt = collectedAt;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    const articleCoverage = 'Caylent, AWS Builder Center, Cloudy Things';
+    assert.equal(page.cards.articles.count.textContent, '13');
+    assert.equal(page.cards.articles.coverage.textContent, articleCoverage);
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.views.coverage.textContent, simpleAws.label, 'Views retain their own publication coverage');
+    assert.equal(page.cards.articles.views.collectedDate.textContent, expectedDate(locale, articleViewPeriodFacts['12m'].collectedAt));
+    assertSearchVisible(page, locale, '12m');
+    assert.equal(page.cards.articles.search.coverage.textContent, simpleAws.label, 'Search retains its own publication coverage');
+    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDate(locale, articleSearchPeriodFacts['12m'].collectedAt));
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label, 'subscribers retain their own publication coverage');
+    assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
+
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '30d');
+    assertSearchVisible(page, locale, '30d');
+    assert.equal(page.cards.articles.count.textContent, '13', 'activity periods do not change cumulative article counts');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+
+    for (const [language, expectedCount] of [['all', '13'], ['en', '9'], ['es', '4']]) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, expectedCount, `${language} applies the saved aggregate locally`);
+      assert.equal(page.cards.articles.coverage.textContent, articleCoverage, `${language} keeps actual Cloudy Things coverage`);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      if (language === 'es') {
+        assertViewsUnavailable(page, locale);
+        assertSearchUnavailable(page, locale);
+        assert.equal(page.cards.newsletter.card.hidden, true);
+      } else {
+        assertViewsVisible(page, locale, '30d');
+        assertSearchVisible(page, locale, '30d');
+        assert.equal(page.cards.newsletter.count.textContent, '27');
+      }
+      assert.equal(page.fetchCount, 1, 'language and period changes reuse the single aggregate request');
+    }
+  });
+
+  test(`${locale} a saved Simple AWS plus Cloudy Things snapshot retains exact coverage, date and zero`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    const collectedAt = '2024-10-19T00:00:00.000Z';
+    data.groups.articles.sources = [caylent, builderCenter, simpleAws, cloudyThings];
+    data.groups.articles.counts = { all: 0, en: 0, es: 0 };
+    data.groups.articles.collectedAt = collectedAt;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    for (const language of ['all', 'en', 'es']) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.results.hidden, false, 'a measured zero stays visible');
+      assert.equal(page.cards.articles.status.hidden, true);
+      assert.equal(page.cards.articles.count.textContent, '0');
+      assert.equal(page.cards.articles.coverage.textContent, 'Caylent, AWS Builder Center, Simple AWS, Cloudy Things');
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), 'retained expanded coverage keeps its original collection date');
+    }
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} invalid Cloudy Things source sets affect Articles only`, async () => {
+    const invalidSourceSets = [
+      ['unknown ID', [caylent, builderCenter, { id: 'cloudy-thing', label: 'Cloudy Things' }]],
+      ['wrong label', [caylent, builderCenter, { id: 'cloudy-things', label: 'CloudyThings' }]],
+      ['duplicate source', [caylent, builderCenter, cloudyThings, { ...cloudyThings }]],
+      ['private field', [caylent, builderCenter, { ...cloudyThings, apiKey: 'synthetic-private-key' }]],
+      ['misordered sources', [caylent, builderCenter, cloudyThings, simpleAws]],
+      ['missing required Builder Center source', [caylent, cloudyThings]]
+    ];
+
+    for (const [description, sources] of invalidSourceSets) {
+      const data = snapshotWithArticleSearchClicks();
+      data.groups.articles.sources = sources;
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertUnavailable(page, locale, 'articles');
+      assertViewsVisible(page, locale, '12m');
+      assertSearchVisible(page, locale, '12m');
+      assert.equal(page.cards.talks.count.textContent, '6');
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+
+      page.selector.value = 'en';
+      page.selector.dispatch('change');
+      assertUnavailable(page, locale, 'articles');
+      assertViewsVisible(page, locale, '12m');
+      assertSearchVisible(page, locale, '12m');
+      assert.equal(page.fetchCount, 1, `${description} does not cause another request`);
+    }
   });
 
   for (const [description, extraSource] of [

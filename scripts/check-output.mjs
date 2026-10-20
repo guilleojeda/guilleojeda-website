@@ -155,6 +155,12 @@ function checkContentStatsShell(page, html) {
   assert.match(articleCountDisclosure, /\bweb\b/i, `${locale} Simple AWS count disclosure includes web posts`);
   assert.match(articleCountDisclosure, locale === 'en' ? /\bemail\b|e-mail/i : /correo(?:\s+electr[oó]nico)?|email/i,
     `${locale} Simple AWS count disclosure includes email posts`);
+  const cloudyThingsCountDisclosure = disclosureText.split(/[.!?]/).find((sentence) =>
+    /Cloudy Things/i.test(sentence)
+      && (locale === 'en' ? /article\s+counts?|counts?\s+(?:of\s+)?articles/i : /conteo\s+de\s+art[ií]culos|art[ií]culos\s+(?:contados|incluyen)/i).test(sentence));
+  assert.ok(cloudyThingsCountDisclosure, `${locale} disclosure connects Cloudy Things to article-count coverage`);
+  assert.match(cloudyThingsCountDisclosure, locale === 'en' ? /\bcan\b|\bmay\b/ : /\bpuede\b|\bpueden\b/,
+    `${locale} Cloudy Things count disclosure describes optional coverage`);
   const searchDisclosureParagraph = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
     .map((match) => normalizedText(match[1]))
     .find((paragraph) => /search console/i.test(paragraph));
@@ -448,15 +454,30 @@ if (hasSearchConsoleSelection) {
   assert.ok(!Object.hasOwn(sourceConfig, 'searchConsole'), 'schema-v3/v4/v5 output must match a source configuration without Search Console');
 }
 const simpleAwsArticleSource = sourceConfig.sources.find((source) => source?.id === 'simple-aws');
+const cloudyThingsArticleSource = sourceConfig.sources.find((source) => source?.id === 'cloudy-things');
+const expectedArticleSourceIds = [
+  'builder-center',
+  'caylent',
+  ...(simpleAwsArticleSource ? ['simple-aws'] : []),
+  ...(cloudyThingsArticleSource ? ['cloudy-things'] : [])
+].sort();
 assert.deepEqual(inputs.sources.map((source) => source?.id).sort(),
-  simpleAwsArticleSource ? ['builder-center', 'caylent', 'simple-aws'] : ['builder-center', 'caylent'],
-  'protected build input must contain exactly the selected approved article sources');
+  expectedArticleSourceIds,
+  'protected build input must contain exactly the currently selected article sources');
 assert.deepEqual(inputs.sources, sourceConfig.sources, 'protected article selection must match the maintained configuration');
 if (simpleAwsArticleSource) {
   assert.deepEqual(simpleAwsArticleSource, { id: 'simple-aws' }, 'Simple AWS article selection reuses existing publication facts without credentials or duplicated fields');
   assert.ok(sourceConfig.newsletter, 'Simple AWS article counts require the existing publication selection');
   assert.equal(sourceConfig.newsletter.id, 'simple-aws');
   assert.equal(sourceConfig.newsletter.language, 'en', 'Simple AWS article content language is owner-confirmed English');
+}
+if (cloudyThingsArticleSource) {
+  assert.deepEqual(Object.keys(cloudyThingsArticleSource).sort(), ['authorName', 'id', 'language'],
+    'Cloudy Things article selection must contain only its author and content language');
+  assert.equal(cloudyThingsArticleSource.id, 'cloudy-things', 'Cloudy Things article source identity');
+  assert.equal(typeof cloudyThingsArticleSource.authorName, 'string');
+  assert.notEqual(cloudyThingsArticleSource.authorName.trim(), '', 'Cloudy Things author name must be non-empty');
+  assert.equal(cloudyThingsArticleSource.language, 'en', 'the selected Cloudy Things inventory uses the currently verified English title policy');
 }
 const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
 assert.deepEqual(Object.keys(caylentSource).sort(), ['apiKey', 'authorId', 'id', 'language', 'originality'], 'Caylent input must contain only its public delivery key and counting configuration');

@@ -129,6 +129,47 @@ function phaseSevenInput({ sources, ...options } = {}) {
   };
 }
 
+function cloudyThingsSource({ authorName = "Guillermo Ojeda", language = "en" } = {}) {
+  return { id: "cloudy-things", authorName, language };
+}
+
+function phaseEightInput({ sources, ...options } = {}) {
+  const input = phaseSevenInput(options);
+  return {
+    ...input,
+    sources: sources ?? [...input.sources, cloudyThingsSource()]
+  };
+}
+
+function cloudyArticle({
+  id = "cloudy-id",
+  slug = id,
+  url = `https://blog.guilleojeda.com/${slug}`,
+  title = `Synthetic Cloudy headline ${id}`,
+  domTitle = title,
+  author = "Guillermo Ojeda",
+  publishedAt = "2025-03-07T20:44:58.310Z",
+  includeId = true,
+  includeHref = true,
+  includeDate = true,
+  includeAuthor = true
+} = {}) {
+  return { id, slug, url, title, domTitle, author, publishedAt, includeId, includeHref, includeDate, includeAuthor };
+}
+
+function cloudyGeneratedArticles(count, offset = 0) {
+  return Array.from({ length: count }, (_, index) => {
+    const id = offset + index;
+    const title = `Synthetic Cloudy Things article ${id}`;
+    return cloudyArticle({
+      id: `synthetic-cloudy-${id}`,
+      slug: `synthetic-cloudy-article-${id}`,
+      title,
+      domTitle: title
+    });
+  });
+}
+
 function talkFact(id, kind = "talk", status = "delivered", language = "en") {
   return { id, kind, status, language };
 }
@@ -291,6 +332,182 @@ function jsonResponse(body, status = 200) {
     json: async () => body,
     text: async () => JSON.stringify(body)
   };
+}
+
+const cloudyArchiveOrigin = "https://blog.guilleojeda.com";
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function cloudyArticleMarkup(row) {
+  let href = row.href;
+  if (href === undefined && row.includeHref) {
+    try {
+      href = new URL(row.url).pathname;
+    } catch {
+      href = String(row.url ?? "");
+    }
+  }
+  const articleLabel = row.includeId ? ` aria-labelledby="archive-post-${escapeHtml(row.id)}"` : "";
+  const hrefAttribute = row.includeHref ? ` href="${escapeHtml(href)}"` : "";
+  const time = row.includeDate
+    ? `<time dateTime="${escapeHtml(row.publishedAt)}">Mar 7, 2025</time>`
+    : "<time>Mar 7, 2025</time>";
+  const headingId = row.includeId ? ` id="archive-post-${escapeHtml(row.id)}"` : "";
+  const author = row.includeAuthor ? `<p>${escapeHtml(row.author)}</p>` : "";
+  return `<article${articleLabel}><a${hrefAttribute}>${time}<div><h2${headingId}>${escapeHtml(row.domTitle)}</h2>${author}</div></a></article>`;
+}
+
+function cloudyArchiveMarkup({
+  page = 1,
+  totalPages = 1,
+  declaredTotalPages = totalPages,
+  totalPosts,
+  headerTotal = totalPosts,
+  rows = [],
+  jsonLdRows = rows,
+  includeCollectionPage = true,
+  jsonLdText,
+  currentPage = page,
+  nextHref = page < totalPages ? `/archive?page=${page + 1}` : null,
+  includeNextControl = true,
+  nextDisabled = nextHref === null,
+  includePagination = true,
+  extraHtml = ""
+} = {}) {
+  const archiveUrl = page === 1 ? `${cloudyArchiveOrigin}/archive` : `${cloudyArchiveOrigin}/archive?page=${page}`;
+  const collection = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    url: archiveUrl,
+    hasPart: jsonLdRows.map((row) => ({ "@type": "Article", headline: row.title, url: row.url }))
+  };
+  const script = includeCollectionPage
+    ? `<script type="application/ld+json">${jsonLdText ?? JSON.stringify(collection)}</script>`
+    : "";
+  const previous = page > 1
+    ? `<a href="/archive?page=${page - 1}">Previous</a>`
+    : `<button disabled="">Previous</button>`;
+  const pageButtons = Array.from({ length: totalPages }, (_, index) => {
+    const number = index + 1;
+    if (number === currentPage) return `<button disabled=""><span>${number}</span></button>`;
+    return `<a href="${number === 1 ? "/archive" : `/archive?page=${number}`}">${number}</a>`;
+  }).join("");
+  const next = includeNextControl
+    ? nextHref === null || nextDisabled
+      ? `<button disabled="">Next</button>`
+      : `<a href="${escapeHtml(nextHref)}">Next</a>`
+    : "";
+  const nav = includePagination
+    ? `<nav aria-label="Pagination">${previous}<div>${pageButtons}</div><div>Page <!-- -->${currentPage}<!-- --> of <!-- -->${declaredTotalPages}</div>${next}</nav>`
+    : "";
+  const total = totalPosts ?? rows.length;
+  const header = `<header><h1 id="archive-heading">Archive</h1><p>${headerTotal ?? total}<!-- --> <!-- -->posts<!-- --> published so far</p></header>`;
+  const archiveContent = `<section aria-labelledby="archive-heading">${header}${rows.map(cloudyArticleMarkup).join("")}</section>`;
+  return `${archiveContent}${script}${nav}${extraHtml}`;
+}
+
+function cloudyHtmlResponse(body, { status = 200, contentType = "text/html; charset=utf-8", headers = {} } = {}) {
+  return new Response(body, {
+    status,
+    headers: { "content-type": contentType, ...headers }
+  });
+}
+
+function cloudyStreamingResponse(chunks, { status = 200, contentType = "text/html; charset=utf-8" } = {}) {
+  let chunksRead = 0;
+  let cancelled = false;
+  let completed = false;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (chunksRead >= chunks.length) {
+        completed = true;
+        controller.close();
+        return;
+      }
+      const chunk = chunks[chunksRead++];
+      controller.enqueue(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
+    },
+    cancel() {
+      cancelled = true;
+    }
+  });
+  const response = new Response(stream, { status, headers: { "content-type": contentType } });
+  return {
+    response,
+    stats() {
+      return { chunksRead, cancelled, completed, totalChunks: chunks.length };
+    }
+  };
+}
+
+function cloudyArchiveFetcher({ requestLog = [], pages = new Map(), responder, fallback } = {}) {
+  const articleFetch = fallback ?? builderApiFetch({ requestLog });
+  const attempts = new Map();
+  return async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.origin !== cloudyArchiveOrigin || url.pathname !== "/archive") return articleFetch(input, init);
+    const page = url.searchParams.has("page") ? Number(url.searchParams.get("page")) : 1;
+    const attempt = (attempts.get(page) ?? 0) + 1;
+    attempts.set(page, attempt);
+    const request = {
+      kind: "cloudy-archive",
+      url: url.toString(),
+      page,
+      attempt,
+      method: init.method,
+      headers: init.headers ?? {},
+      redirect: init.redirect,
+      signal: init.signal
+    };
+    requestLog.push(request);
+    let value = typeof responder === "function"
+      ? await responder({ request, attempt, page })
+      : pages.get(page);
+    if (typeof value === "function") value = await value({ request, attempt, page });
+    if (typeof value === "string") return cloudyHtmlResponse(value);
+    if (value !== undefined) return value;
+    return cloudyHtmlResponse("<div>Page not found</div>");
+  };
+}
+
+function phaseEightApiFetch({
+  requestLog = [],
+  cloudyPages = new Map(),
+  cloudyResponder,
+  caylentPages,
+  builderPages,
+  postsResponder,
+  newsletterResponder,
+  tokenResponder,
+  reportResponder,
+  searchResponder
+} = {}) {
+  const sourceFetch = builderApiFetch({ requestLog, caylentPages, builderPages });
+  const articleFetcher = cloudyArchiveFetcher({ requestLog, pages: cloudyPages, responder: cloudyResponder, fallback: sourceFetch });
+  return phaseFiveApiFetch({
+    requestLog,
+    articleFetcher,
+    postsResponder,
+    newsletterResponder,
+    tokenResponder,
+    reportResponder,
+    searchResponder
+  });
+}
+
+function assertNoCloudyCanaries(harness, ...values) {
+  const published = harness.putCalls.map((call) => bodyText(call.Body)).join("\n");
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(published.includes(value), false, `public aggregate must omit ${value}`);
+    assert.equal(logs.includes(value), false, `collector logs must omit ${value}`);
+  }
 }
 
 function createClock(initialTime = "2026-10-16T12:00:00.000Z") {
@@ -477,6 +694,11 @@ function createHarness({
     Date: clock.Date,
     URL,
     URLSearchParams,
+    Response,
+    ReadableStream,
+    TextDecoder,
+    TextEncoder,
+    Uint8Array,
     Buffer,
     AbortController,
     AbortSignal: {
@@ -4442,4 +4664,489 @@ test("Simple AWS inventory and subscriber failures recover independently without
   assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 4,
     "each independent subscriber read is made once, with the authorization error left unretried");
   assertNoBeehiivPostCanaries(harness, "synthetic catalog outage", "synthetic subscriber outage", beehiivApiKey);
+});
+
+test("Cloudy Things enumerates all 25/25/7 archive pages with safe aggregate-only output", async () => {
+  const records = cloudyGeneratedArticles(57);
+  const pageFixture = new Map([
+    [1, cloudyArchiveMarkup({
+      page: 1,
+      totalPages: 3,
+      totalPosts: 57,
+      rows: records.slice(0, 25),
+      extraHtml: '<script type="application/json">{"provider":"synthetic-cloudy-private-metadata-canary"}</script><script type="application/ld+json">{"@type":"Thing","name":"unrelated provider addition"}</script>'
+    })],
+    [2, cloudyArchiveMarkup({ page: 2, totalPages: 3, totalPosts: 57, rows: records.slice(25, 50) })],
+    [3, cloudyArchiveMarkup({ page: 3, totalPages: 3, totalPosts: 57, rows: records.slice(50) })]
+  ]);
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseEightInput(),
+    fetchFn: phaseEightApiFetch({ requestLog, cloudyPages: pageFixture })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  const group = output.groups.articles;
+  assert.equal(output.schemaVersion, 1);
+  assert.deepEqual(group.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "simple-aws", label: "Simple AWS" },
+    { id: "cloudy-things", label: "Cloudy Things" }
+  ]);
+  assert.deepEqual(group.counts, { all: 57, en: 57, es: 0 });
+
+  const requests = requestLog.filter(({ kind }) => kind === "cloudy-archive");
+  assert.deepEqual(requests.map(({ page }) => page), [1, 2, 3]);
+  for (const [index, request] of requests.entries()) {
+    const url = new URL(request.url);
+    assert.equal(url.origin, cloudyArchiveOrigin);
+    assert.equal(url.pathname, "/archive");
+    assert.equal(url.search, index === 0 ? "" : `?page=${index + 1}`);
+    assert.equal(url.username, "");
+    assert.equal(url.password, "");
+    assert.ok(request.method === undefined || request.method === "GET",
+      "the archive request uses Fetch's default GET or states GET explicitly");
+    assert.equal(String(Object.entries(request.headers).find(([name]) => name.toLowerCase() === "accept")?.[1]).includes("text/html"), true);
+    assert.equal(Object.entries(request.headers).some(([name]) => ["authorization", "cookie"].includes(name.toLowerCase())), false);
+    assert.ok(["error", "manual"].includes(request.redirect), "redirects must be rejected or left unfollowed for explicit status rejection");
+    assert.ok(request.signal);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
+  }
+  assert.equal(requestLog.some(({ url }) => /sitemap|rss|graphql|posts\//i.test(url)), false,
+    "archive counts use only the public archive and do not fall back to other source interfaces");
+  assertNoCloudyCanaries(
+    harness,
+    ...records.flatMap(({ id, slug, url, title }) => [id, slug, url, title]),
+    "synthetic-cloudy-private-metadata-canary",
+    cloudyArchiveOrigin
+  );
+});
+
+test("Cloudy Things uses JSON-LD headlines and the shared title-language rule for eligible authored posts", async () => {
+  const rows = [
+    cloudyArticle({ id: "cafe-composed", slug: "cafe-composed", title: "  Café   Guide " }),
+    cloudyArticle({ id: "cafe-decomposed", slug: "cafe-decomposed", title: "CAFE\u0301 guide" }),
+    cloudyArticle({ id: "cafe-unaccented", slug: "cafe-unaccented", title: "Cafe Guide" }),
+    cloudyArticle({ id: "shared-title", slug: "shared-title", title: "Shared title across sources" }),
+    cloudyArticle({ id: "future", slug: "future", title: "Future archive record", publishedAt: "2027-01-01T00:00:00.000Z" }),
+    cloudyArticle({ id: "other-author", slug: "other-author", title: "Another author record", author: "A Different Author" }),
+    cloudyArticle({
+      id: "json-escaped-title",
+      slug: "json-escaped-title",
+      title: "Café & Tools",
+      domTitle: "Rendered display title may differ",
+      includeId: false
+    })
+  ];
+  const markup = cloudyArchiveMarkup({ totalPosts: rows.length, rows }).replace("Café & Tools", "Caf\\u00e9 & Tools");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseEightInput(),
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, markup]]),
+      caylentPages: new Map([[0, { results: [
+        article({ id: "caylent-accent-copy", title: "Cafe Guide" }),
+        article({ id: "caylent-json-headline-copy", title: "Café & Tools" })
+      ] }]]),
+      builderPages: new Map([["", {
+        articles: [builderArticle({ id: "builder-spanish-copy", title: "Shared title across sources", locale: "es" })],
+        resultsSize: 1
+      }]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([
+        beehiivPost({ id: "simple-shared-copy", title: "Shared title across sources" })
+      ]))
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const group = (await readPut(harness.putCalls[0])).groups.articles;
+  assert.deepEqual(group.counts, { all: 5, en: 4, es: 1 },
+    "NFC/case/whitespace copies collapse, punctuation/accent differences remain significant, and Spanish stays distinct");
+  assert.deepEqual(group.sources.map(({ id }) => id), ["caylent", "builder-center", "simple-aws", "cloudy-things"]);
+  assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 1);
+  assertNoCloudyCanaries(harness, ...rows.flatMap(({ id, slug, url, title, domTitle }) => [id, slug, url, title, domTitle]));
+});
+
+test("Cloudy Things is supported with source-array inputs 2 through 6 and adds no credential requirement", async () => {
+  const baseSources = [sourceInput().source, builderCenterSource()];
+  const cloudOnlySources = [...baseSources, cloudyThingsSource()];
+  const allSources = [...baseSources, simpleAwsArticleSource(), cloudyThingsSource()];
+  const cases = [
+    { name: "input 2", input: phaseTwoInput({ sources: cloudOnlySources }), expected: ["caylent", "builder-center", "cloudy-things"] },
+    { name: "input 3", input: phaseThreeInput({ sources: cloudOnlySources }), expected: ["caylent", "builder-center", "cloudy-things"] },
+    { name: "input 4 without Simple AWS articles", input: phaseFourInput({ sources: cloudOnlySources }), expected: ["caylent", "builder-center", "cloudy-things"] },
+    { name: "input 4", input: phaseFourInput({ sources: allSources }), expected: ["caylent", "builder-center", "simple-aws", "cloudy-things"] },
+    { name: "input 5 without Simple AWS articles", input: phaseFiveInput({ sources: cloudOnlySources }), expected: ["caylent", "builder-center", "cloudy-things"] },
+    { name: "input 5", input: phaseFiveInput({ sources: allSources }), expected: ["caylent", "builder-center", "simple-aws", "cloudy-things"] },
+    { name: "input 6 without Simple AWS articles", input: phaseSixInput({ sources: cloudOnlySources }), expected: ["caylent", "builder-center", "cloudy-things"] },
+    { name: "input 6", input: phaseSixInput({ sources: allSources }), expected: ["caylent", "builder-center", "simple-aws", "cloudy-things"] }
+  ];
+
+  for (const { name, input, expected } of cases) {
+    const requestLog = [];
+    const harness = createHarness({
+      input,
+      fetchFn: phaseEightApiFetch({
+        requestLog,
+        cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: `input-${input.schemaVersion}-${expected.length}-post` })] })]])
+      })
+    });
+    await harness.handler({}, {});
+    const group = (await readPut(harness.putCalls[0])).groups.articles;
+    assert.deepEqual(group.sources.map(({ id }) => id), expected, `${name} keeps canonical source coverage`);
+    assert.deepEqual(group.counts, { all: 1, en: 1, es: 0 }, `${name} publishes the fetched Cloudy article`);
+    assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 1);
+    if (name === "input 2" || name === "input 3") {
+      assert.deepEqual(harness.secretCalls, [], `${name} does not need a credential for Cloudy Things`);
+      assert.equal(requestLog.some(({ kind }) => kind.startsWith("beehiiv")), false);
+    }
+  }
+});
+
+test("the Cloudy Things selector validates before provider work and can be disabled", async () => {
+  const caylent = sourceInput().source;
+  const builder = builderCenterSource();
+  const simple = simpleAwsArticleSource();
+  const validCloudy = cloudyThingsSource();
+  const invalidInputs = [
+    phaseEightInput({ sources: [caylent, builder, simple, { id: "cloudy-things", language: "en" }] }),
+    phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, authorName: " \t " }] }),
+    phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, language: "es" }] }),
+    phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, language: "fr" }] }),
+    phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, archiveUrl: cloudyArchiveOrigin }] }),
+    phaseEightInput({ sources: [caylent, builder, simple, validCloudy, validCloudy] })
+  ];
+
+  for (const input of invalidInputs) {
+    const requestLog = [];
+    const harness = createHarness({
+      input,
+      fetchFn: phaseEightApiFetch({ requestLog })
+    });
+    await assertFailedWithoutReplacing(harness);
+    assert.deepEqual(requestLog, [], "malformed Cloudy selectors fail before any provider request");
+    assert.deepEqual(harness.secretCalls, [], "malformed Cloudy selectors fail before Secrets Manager");
+    assert.deepEqual(harness.parameterCalls, [], "malformed Cloudy selectors fail before Google credentials");
+  }
+
+  const disabledLog = [];
+  const disabled = createHarness({
+    input: phaseTwoInput({ sources: [caylent, builder] }),
+    secretArn: null,
+    fetchFn: phaseEightApiFetch({ requestLog: disabledLog })
+  });
+  await disabled.handler({}, {});
+  const disabledGroup = (await readPut(disabled.putCalls[0])).groups.articles;
+  assert.deepEqual(disabledGroup.sources.map(({ id }) => id), ["caylent", "builder-center"]);
+  assert.equal(disabledLog.some(({ kind }) => kind === "cloudy-archive"), false,
+    "the disabled Cloudy selector makes no archive request and needs no credential");
+  assert.deepEqual(disabled.secretCalls, []);
+});
+
+test("Cloudy Things selector scope is independent of archive contents and other metrics", async () => {
+  const caylent = sourceInput().source;
+  const builder = builderCenterSource();
+  const simple = simpleAwsArticleSource();
+  const cloudy = cloudyThingsSource();
+  const completeSources = [caylent, builder, simple, cloudy];
+  let rows = [cloudyArticle({ id: "scope-cloudy-first", title: "Cloudy scope article one" })];
+  const requestLog = [];
+  const fetchFn = phaseEightApiFetch({
+    requestLog,
+    cloudyPages: new Map([[1, () => cloudyArchiveMarkup({ rows })]]),
+    postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+  });
+  const harness = createHarness({ input: phaseSixInput({ sources: completeSources }), fetchFn });
+  const unrelatedScopes = (output) => ({
+    newsletter: output.groups.newsletter.scopeId,
+    views: Object.fromEntries(Object.entries(output.groups.articleViews.records).map(([period, record]) => [period, record.scopeId])),
+    search: Object.fromEntries(Object.entries(output.groups.articleSearchClicks.records).map(([period, record]) => [period, record.scopeId]))
+  });
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  assert.deepEqual(initial.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  const initialArticleScope = initial.groups.articles.scopeId;
+  const initialUnrelatedScopes = unrelatedScopes(initial);
+
+  harness.setInput(phaseSixInput({ sources: [cloudy, simple, builder, caylent] }));
+  await harness.handler({}, {});
+  const reordered = await readPut(harness.putCalls[1]);
+  assert.equal(reordered.groups.articles.scopeId, initialArticleScope,
+    "source array order does not change semantic article scope");
+  assert.deepEqual(reordered.groups.articles.sources.map(({ id }) => id), ["caylent", "builder-center", "simple-aws", "cloudy-things"]);
+  assert.deepEqual(unrelatedScopes(reordered), initialUnrelatedScopes);
+
+  rows = [...rows, cloudyArticle({ id: "scope-cloudy-new", title: "Cloudy scope article two" })];
+  await harness.handler({}, {});
+  const newPublication = await readPut(harness.putCalls[2]);
+  assert.deepEqual(newPublication.groups.articles.counts, { all: 2, en: 2, es: 0 },
+    "newly published archive rows are discovered without changing scope");
+  assert.equal(newPublication.groups.articles.scopeId, initialArticleScope);
+  assert.deepEqual(unrelatedScopes(newPublication), initialUnrelatedScopes);
+
+  harness.setInput(phaseSixInput({ sources: [caylent, builder, simple, cloudyThingsSource({ authorName: "Another Author" })] }));
+  await harness.handler({}, {});
+  const changedAuthor = await readPut(harness.putCalls[3]);
+  assert.notEqual(changedAuthor.groups.articles.scopeId, initialArticleScope,
+    "the configured Cloudy author filter belongs to article scope");
+  assert.deepEqual(changedAuthor.groups.articles.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(unrelatedScopes(changedAuthor), initialUnrelatedScopes);
+
+  harness.setInput(phaseSixInput({ sources: [caylent, builder, simple] }));
+  await harness.handler({}, {});
+  const disabled = await readPut(harness.putCalls[4]);
+  assert.notEqual(disabled.groups.articles.scopeId, changedAuthor.groups.articles.scopeId,
+    "disabling Cloudy Things changes article scope");
+  assert.notEqual(disabled.groups.articles.scopeId, initialArticleScope,
+    "an enabled versus disabled Cloudy selector changes article scope");
+  assert.deepEqual(disabled.groups.articles.sources.map(({ id }) => id), ["caylent", "builder-center", "simple-aws"]);
+  assert.deepEqual(unrelatedScopes(disabled), initialUnrelatedScopes,
+    "Cloudy source selection does not change subscribers, Views, or Search scopes");
+});
+
+test("incomplete Cloudy Things archives retain whole prior article groups and publish healthy siblings", async () => {
+  const caylent = sourceInput().source;
+  const builder = builderCenterSource();
+  const simple = simpleAwsArticleSource();
+  const cloudy = cloudyThingsSource();
+  const one = cloudyArticle({ id: "failure-first-row", slug: "failure-first-row", title: "First valid row" });
+  const two = cloudyArticle({ id: "failure-second-row", slug: "failure-second-row", title: "Second valid row" });
+  const three = cloudyArticle({ id: "failure-third-row", slug: "failure-third-row", title: "Third valid row" });
+  const twoPageOne = cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one] });
+  const threePageOne = cloudyArchiveMarkup({ page: 1, totalPages: 3, totalPosts: 3, rows: [one] });
+  const previousCoverage = [
+    priorGroup({
+      sources: [{ id: "caylent", label: "Caylent" }, { id: "builder-center", label: "AWS Builder Center" }],
+      counts: { all: 8, en: 6, es: 2 }, scopeId: "8".repeat(64), collectedAt: "2026-10-11T10:00:00.000Z"
+    }),
+    priorGroup({
+      sources: [{ id: "caylent", label: "Caylent" }, { id: "builder-center", label: "AWS Builder Center" }, { id: "simple-aws", label: "Simple AWS" }],
+      counts: { all: 13, en: 11, es: 2 }, scopeId: "9".repeat(64), collectedAt: "2026-10-12T10:00:00.000Z"
+    }),
+    priorGroup({
+      sources: [
+        { id: "caylent", label: "Caylent" },
+        { id: "builder-center", label: "AWS Builder Center" },
+        { id: "simple-aws", label: "Simple AWS" },
+        { id: "cloudy-things", label: "Cloudy Things" }
+      ],
+      counts: { all: 18, en: 15, es: 3 }, scopeId: "a".repeat(64), collectedAt: "2026-10-13T10:00:00.000Z"
+    })
+  ];
+  const oversizedStream = cloudyStreamingResponse([
+    cloudyArchiveMarkup({ rows: [one] }),
+    ...Array.from({ length: 32 }, () => Buffer.alloc(64 * 1024, 0x78))
+  ]);
+  const scenarios = [
+    { name: "missing CollectionPage", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], includeCollectionPage: false })]]), canaries: [one.title, one.url] },
+    { name: "malformed JSON-LD", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], jsonLdText: "{" })]]), canaries: [one.title, one.url] },
+    { name: "blank JSON-LD headline", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, title: " \t " })] })]]), canaries: [one.url] },
+    { name: "missing author", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, includeAuthor: false })] })]]), canaries: [one.title, one.url] },
+    { name: "missing publication date", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, includeDate: false })] })]]), canaries: [one.title, one.url] },
+    { name: "invalid publication date", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, publishedAt: "not-an-ISO-date" })] })]]), canaries: [one.title, one.url] },
+    { name: "unsafe article URL", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, url: "https://elsewhere.example/private-post" })] })]]), canaries: [one.title, "elsewhere.example"] },
+    { name: "rendered and JSON-LD rows do not join one-to-one", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], jsonLdRows: [] })]]), canaries: [one.title, one.url] },
+    { name: "duplicate article URL", pages: new Map([[1, cloudyArchiveMarkup({ totalPosts: 2, rows: [one, cloudyArticle({ ...two, url: one.url })] })]]), canaries: [one.title, two.title, one.url] },
+    { name: "truncated terminal inventory", pages: new Map([[1, cloudyArchiveMarkup({ totalPosts: 2, rows: [one] })]]), canaries: [one.title, one.url] },
+    { name: "response current page does not match request", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], currentPage: 2 })]]), canaries: [one.title, one.url] },
+    { name: "premature terminal page", pages: new Map([[1, cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one], nextHref: null, nextDisabled: true })]]), canaries: [one.title, one.url] },
+    { name: "missing live Next control", pages: new Map([[1, cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one], includeNextControl: false })]]), canaries: [one.title, one.url] },
+    { name: "foreign Next link", pages: new Map([[1, cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one], nextHref: "https://elsewhere.example/archive?page=2" })]]), canaries: [one.title, one.url] },
+    {
+      name: "totals change during pagination",
+      pages: new Map([
+        [1, twoPageOne],
+        [2, cloudyArchiveMarkup({ page: 2, totalPages: 2, totalPosts: 3, rows: [two, three] })]
+      ]),
+      canaries: [one.title, two.title, three.title, one.url]
+    },
+    {
+      name: "repeated URL across pages",
+      pages: new Map([
+        [1, twoPageOne],
+        [2, cloudyArchiveMarkup({ page: 2, totalPages: 2, totalPosts: 2, rows: [cloudyArticle({ ...two, url: one.url })] })]
+      ]),
+      canaries: [one.title, two.title, one.url]
+    },
+    {
+      name: "HTTP-200 not-found page 4 is not an archive end marker",
+      pages: new Map([
+        [1, cloudyArchiveMarkup({ page: 1, totalPages: 4, totalPosts: 4, rows: [one] })],
+        [2, cloudyArchiveMarkup({ page: 2, totalPages: 4, totalPosts: 4, rows: [two] })],
+        [3, cloudyArchiveMarkup({ page: 3, totalPages: 4, totalPosts: 4, rows: [three] })],
+        [4, "<div>Page not found</div>"]
+      ]),
+      canaries: [one.title, two.title, three.title, one.url]
+    },
+    {
+      name: "body exceeds the bounded archive response size",
+      pages: new Map([[1, () => oversizedStream.response]]),
+      canaries: [one.title, one.url],
+      stream: oversizedStream
+    },
+    {
+      name: "declared archive exceeds the bounded page count",
+      pages: new Map(Array.from({ length: 11 }, (_, index) => [index + 1, cloudyArchiveMarkup({
+        page: index + 1,
+        totalPages: 11,
+        totalPosts: 11,
+        rows: [cloudyArticle({ id: `cap-row-${index + 1}`, title: `Cap private title ${index + 1}` })]
+      })])),
+      canaries: ["Cap private title 1", "cap-row-1"],
+      maxRequests: 10
+    },
+    {
+      name: "later-page service failure after an earlier valid page",
+      pages: new Map([
+        [1, twoPageOne],
+        [2, () => cloudyHtmlResponse("synthetic Cloudy late-page failure", { status: 503 })]
+      ]),
+      canaries: [one.title, one.url, "synthetic Cloudy late-page failure"],
+      expectedPages: [1, 2, 2]
+    },
+    {
+      name: "non-HTML content type",
+      pages: new Map([[1, () => cloudyHtmlResponse(cloudyArchiveMarkup({ rows: [one] }), { contentType: "application/json" })]]),
+      canaries: [one.title, one.url]
+    },
+    {
+      name: "redirect response",
+      pages: new Map([[1, () => cloudyHtmlResponse("synthetic redirect response", { status: 302, headers: { location: "https://elsewhere.example/archive" } })]]),
+      canaries: ["synthetic redirect response", "elsewhere.example"]
+    },
+    {
+      name: "permanent forbidden response",
+      pages: new Map([[1, () => cloudyHtmlResponse("synthetic Cloudy forbidden response", { status: 403 })]]),
+      canaries: ["synthetic Cloudy forbidden response"],
+      expectedPages: [1]
+    }
+  ];
+
+  for (const [index, scenario] of scenarios.entries()) {
+    const previousArticles = previousCoverage[index % previousCoverage.length];
+    const previous = priorFullOutput({ articleViews: null });
+    previous.groups.articles = previousArticles;
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput({
+        sources: [caylent, builder, simple, cloudy],
+        curated: { talks: [talkFact(`fresh-cloudy-talk-${index}`)], books: [bookFact(`fresh-cloudy-book-${index}`)] }
+      }),
+      fetchFn: phaseEightApiFetch({ requestLog, cloudyPages: scenario.pages, cloudyResponder: scenario.responder })
+    });
+    harness.objects.set(outputKey, JSON.stringify(previous));
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(output.groups.articles, previousArticles, `${scenario.name} preserves prior coverage, scope, counts, and date`);
+    assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+    assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+    assert.ok(output.groups.newsletter, "a healthy subscriber family still refreshes");
+    assert.ok(requestLog.some(({ kind }) => kind === "cloudy-archive"), `${scenario.name} follows an actual archive request`);
+    const cloudyRequests = requestLog.filter(({ kind }) => kind === "cloudy-archive");
+    if (scenario.maxRequests !== undefined) {
+      assert.ok(cloudyRequests.length <= scenario.maxRequests, "pagination fails within the configured finite bound");
+    }
+    if (scenario.stream !== undefined) {
+      const stats = scenario.stream.stats();
+      assert.equal(scenario.stream.response.headers.get("content-length"), null,
+        "the size guard is exercised from streamed body bytes rather than a declared length");
+      assert.ok(stats.chunksRead < stats.totalChunks, "the body reader stops before consuming the full oversized response");
+      assert.equal(stats.cancelled, true, "the unread response body is cancelled after the size limit is exceeded");
+    }
+    if (scenario.expectedPages !== undefined) {
+      assert.deepEqual(cloudyRequests.map(({ page }) => page), scenario.expectedPages,
+        "a transient later-page failure gets one retry and never publishes its earlier page");
+    }
+    assert.equal(requestLog.some(({ url }) => /sitemap|rss|graphql/i.test(url)), false,
+      "an archive failure never falls back to sitemap, RSS, or a private API");
+    assertNoCloudyCanaries(harness, ...scenario.canaries, beehiivApiKey);
+  }
+
+  const absentLog = [];
+  const absent = createHarness({
+    input: phaseFourInput({
+      sources: [caylent, builder, simple, cloudy],
+      curated: { talks: [talkFact("fresh-without-prior")], books: [bookFact("fresh-book-without-prior")] }
+    }),
+    fetchFn: phaseEightApiFetch({
+      requestLog: absentLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "absent-prior-row" })], includeCollectionPage: false })]])
+    })
+  });
+  await absent.handler({}, {});
+  const absentOutput = await readPut(absent.putCalls[0]);
+  assert.equal(Object.hasOwn(absentOutput.groups, "articles"), false,
+    "a first Cloudy archive failure omits Articles instead of publishing a partial or zero count");
+  assert.deepEqual(absentOutput.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(absentOutput.groups.books.counts, { all: 1, en: 1, es: 0 });
+  assert.ok(absentOutput.groups.newsletter);
+  assertNoCloudyCanaries(absent, "absent-prior-row");
+});
+
+test("Cloudy Things failure and recovery recompute the complete family without blocking subscribers", async () => {
+  let cloudyFails = false;
+  let rows = [cloudyArticle({ id: "recovery-cloudy-one", title: "Cloudy recovery one" })];
+  let posts = [beehiivPost({ id: "recovery-simple-one", title: "Simple recovery one" })];
+  let subscriberCount = 10;
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFourInput({ sources: [sourceInput().source, builderCenterSource(), simpleAwsArticleSource(), cloudyThingsSource()] }),
+    clock,
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      cloudyPages: new Map([[1, () => cloudyFails
+        ? cloudyHtmlResponse("synthetic Cloudy recovery outage", { status: 503 })
+        : cloudyArchiveMarkup({ rows })]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope(posts)),
+      newsletterResponder: ({ request }) => {
+        const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(publicationId, subscriberCount));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  const initialArticles = initial.groups.articles;
+  const initialNewsletter = initial.groups.newsletter;
+  assert.deepEqual(initialArticles.counts, { all: 2, en: 2, es: 0 });
+  assert.equal(initialNewsletter.subscribers, 10);
+
+  cloudyFails = true;
+  posts = [...posts, beehiivPost({ id: "recovery-simple-two", title: "Simple recovery two" })];
+  subscriberCount = 20;
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const failed = await readPut(harness.putCalls[1]);
+  assert.deepEqual(failed.groups.articles, initialArticles,
+    "a Cloudy page failure retains the complete prior four-source group despite a fresh Simple AWS catalog");
+  assert.equal(failed.groups.newsletter.subscribers, 20,
+    "a Cloudy archive failure does not block the independent subscriber family");
+  assert.equal(failed.groups.newsletter.collectedAt, "2026-10-17T12:00:00.000Z");
+
+  cloudyFails = false;
+  rows = [...rows, cloudyArticle({ id: "recovery-cloudy-two", title: "Cloudy recovery two" })];
+  clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.deepEqual(recovered.groups.articles.counts, { all: 4, en: 4, es: 0 },
+    "recovery discovers both sources' new posts and recomputes instead of accumulating prior totals");
+  assert.equal(recovered.groups.articles.scopeId, initialArticles.scopeId);
+  assert.equal(recovered.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z");
+  assert.equal(recovered.groups.newsletter.subscribers, 20);
+  assert.equal(recovered.groups.newsletter.scopeId, initialNewsletter.scopeId);
+  assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 4,
+    "success, one failed attempt plus its single retry, and recovery all use only archive pages");
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length, 3);
+  assertNoCloudyCanaries(harness, "synthetic Cloudy recovery outage", "recovery-cloudy-one", "recovery-simple-one", beehiivApiKey);
 });
