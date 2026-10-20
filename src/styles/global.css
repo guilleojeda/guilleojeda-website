@@ -602,6 +602,9 @@ a:hover {
 .content-stats-directory-views-results[hidden],
 .content-stats-directory-views-status[hidden],
 .content-stats-directory-views-qualifications[hidden],
+.content-stats-directory-outbound-clicks-results[hidden],
+.content-stats-directory-outbound-clicks-status[hidden],
+.content-stats-directory-outbound-clicks-qualifications[hidden],
 .content-stats-search-results[hidden],
 .content-stats-search-status[hidden] {
   display: none;
@@ -663,6 +666,27 @@ a:hover {
   border-top: 1px solid var(--line);
 }
 
+.content-stats-directory-outbound-clicks {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.content-stats-directory-outbound-clicks-heading {
+  margin: 0 0 0.65rem;
+  color: var(--olive);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.content-stats-directory-outbound-clicks-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .content-stats-views-status {
   margin: 0;
   color: var(--muted);
@@ -685,7 +709,8 @@ a:hover {
 }
 
 .content-stats-views-count,
-.content-stats-directory-views-count {
+.content-stats-directory-views-count,
+.content-stats-directory-outbound-clicks-count {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -697,7 +722,8 @@ a:hover {
 }
 
 .content-stats-views-count [data-stats-views-value],
-.content-stats-directory-views-count [data-stats-directory-views-value] {
+.content-stats-directory-views-count [data-stats-directory-views-value],
+.content-stats-directory-outbound-clicks-count [data-stats-directory-outbound-clicks-value] {
   color: var(--forest-deep);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 700;
@@ -725,7 +751,8 @@ a:hover {
 }
 
 .content-stats-views-meta,
-.content-stats-directory-views-meta {
+.content-stats-directory-views-meta,
+.content-stats-directory-outbound-clicks-meta {
   gap: 1rem 2rem;
   padding-top: 0.8rem;
 }
@@ -736,7 +763,8 @@ a:hover {
 }
 
 .content-stats-views-qualifications,
-.content-stats-directory-views-qualifications {
+.content-stats-directory-views-qualifications,
+.content-stats-directory-outbound-clicks-qualifications {
   margin: 0.75rem 0 0;
   color: var(--muted);
   font-size: 0.78rem;

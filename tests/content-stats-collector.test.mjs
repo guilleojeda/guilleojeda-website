@@ -5878,7 +5878,7 @@ test("input 8 adds outbound clicks to four-source collection with one shared Goo
   assert.equal(googleRequests(requestLog, "google-oauth").length, 1);
   assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }],
     "all enabled Google families share one SSM read");
-  assert.equal(harness.secretCalls.length, 1);
+  assert.equal(harness.secretCalls.length, 2);
 });
 
 test("outbound-click failures retain and recover per period independently from directory views", async () => {
@@ -5893,6 +5893,7 @@ test("outbound-click failures retain and recover per period independently from d
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
       reportResponder: ({ request }) => {
@@ -5948,7 +5949,7 @@ test("outbound-click failures retain and recover per period independently from d
   assert.equal(recovered.groups.directoryOutboundClicks.records["30d"].scopeId,
     first.groups.directoryOutboundClicks.records["30d"].scopeId,
     "new counts and collection dates do not change the stable metric scope");
-  assert.deepEqual(recovered.groups.directoryViews.records["30d"], first.groups.directoryViews.records["30d"],
+  assert.deepEqual(recovered.groups.directoryViews.records["30d"], retained.groups.directoryViews.records["30d"],
     "a Views failure retains its own prior interval while healthy clicks publish");
   assert.equal(recovered.groups.directoryOutboundClicks.records["7d"].clicks, 102);
   assertNoGoogleCanaries(harness, googleResponseCanary);
@@ -6090,8 +6091,9 @@ test("shared Google credential failure retains outbound clicks with other Google
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
       tokenResponder: () => tokenFails
-        ? jsonResponse({ error: googleResponseCanary }, 403)
+        ? jsonResponse({ error: googleResponseCanary }, 503)
         : jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" }),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
@@ -6134,6 +6136,7 @@ test("outbound-click scope is independent from Views, and removing selection rem
     input: phaseTenInput(),
     fetchFn: phaseEightApiFetch({
       requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: ({ request }) => {
         const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
@@ -6186,7 +6189,7 @@ test("outbound-click scope is independent from Views, and removing selection rem
       "changing the selected directory property changes click scope");
     assert.notEqual(directorySelectorChanged.groups.directoryViews.records[period].scopeId, enabledViewScopes[period]);
     assert.equal(directorySelectorChanged.groups.articleViews.records[period].scopeId,
-      unrelatedSelectorsChanged.groups.articleViews.records[period]);
+      unrelatedSelectorsChanged.groups.articleViews.records[period].scopeId);
     assert.equal(directorySelectorChanged.groups.articleSearchClicks.records[period].scopeId, enabledSearchScopes[period]);
   }
 

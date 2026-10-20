@@ -231,12 +231,15 @@ function validateSearchConsoleSelection(value) {
   };
 }
 
-function validateDirectoryAnalyticsSelection(value) {
-  if (!exactKeys(value, ["id", "propertyId", "hostname", "language", "timeZone"]) ||
+function validateDirectoryAnalyticsSelection(value, outboundClicksEnabled = false) {
+  const expectedKeys = ["id", "propertyId", "hostname", "language", "timeZone"];
+  if (outboundClicksEnabled) expectedKeys.push("outboundClicks");
+  if (!exactKeys(value, expectedKeys) ||
       value.id !== DIRECTORY_ANALYTICS_PUBLICATION.id ||
       typeof value.propertyId !== "string" || !/^\d+$/.test(value.propertyId) ||
       value.hostname !== DIRECTORY_ANALYTICS_HOSTNAME || value.language !== "es" ||
-      !isValidIanaTimeZone(value.timeZone)) {
+      !isValidIanaTimeZone(value.timeZone) ||
+      (outboundClicksEnabled && value.outboundClicks !== true)) {
     throw fail("DIRECTORY_ANALYTICS_CONFIGURATION_INVALID");
   }
   return {
@@ -250,7 +253,7 @@ function validateDirectoryAnalyticsSelection(value) {
 
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (![1, 2, 3, 4, 5, 6, 7].includes(input.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(input.schemaVersion)) {
     throw fail("INPUT_VERSION_UNSUPPORTED");
   }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
@@ -259,7 +262,8 @@ function validateInput(input) {
     return { schemaVersion: 1, sources: [validateCaylentSource(input.source)] };
   }
 
-  const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6 || input.schemaVersion === 7;
+  const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6 ||
+    input.schemaVersion === 7 || input.schemaVersion === 8;
   const allowedSourceCounts = simpleAwsAllowed ? [2, 3, 4] : [2, 3];
   if (!Array.isArray(input.sources) || !allowedSourceCounts.includes(input.sources.length)) {
     throw fail("INPUT_SCHEMA_INVALID");
@@ -349,7 +353,8 @@ function validateInput(input) {
     };
   }
 
-  if (input.schemaVersion === 7) {
+  if (input.schemaVersion === 7 || input.schemaVersion === 8) {
+    const outboundClicksEnabled = input.schemaVersion === 8;
     const hasNewsletter = Object.hasOwn(input, "newsletter");
     const hasAnalytics = Object.hasOwn(input, "analytics");
     const hasSearchConsole = Object.hasOwn(input, "searchConsole");
@@ -365,13 +370,14 @@ function validateInput(input) {
     }
     const { sources, newsletter } = configuredSources(input.newsletter);
     return {
-      schemaVersion: 7,
+      schemaVersion: input.schemaVersion,
       sources,
       curated: input.curated,
       ...(hasNewsletter ? { newsletter } : {}),
       ...(hasAnalytics ? { analytics: validateAnalyticsSelection(input.analytics) } : {}),
       ...(hasSearchConsole ? { searchConsole: validateSearchConsoleSelection(input.searchConsole) } : {}),
-      directoryAnalytics: validateDirectoryAnalyticsSelection(input.directoryAnalytics)
+      directoryAnalytics: validateDirectoryAnalyticsSelection(input.directoryAnalytics, outboundClicksEnabled),
+      ...(outboundClicksEnabled ? { directoryOutboundClicks: true } : {})
     };
   }
 
@@ -800,6 +806,23 @@ function directoryViewsScopeFingerprint(analytics) {
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
 
+function directoryOutboundClicksScopeFingerprint(analytics) {
+  const scope = {
+    definitionVersion: 1,
+    family: "directoryOutboundClicks",
+    metric: "eventCount",
+    filter: { eventName: "click", outbound: "true" },
+    publication: {
+      id: analytics.id,
+      propertyId: analytics.propertyId,
+      language: analytics.language,
+      hostname: analytics.hostname
+    },
+    timeZone: analytics.timeZone
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
 function articleSearchClicksScopeFingerprint(searchConsole) {
   const scope = {
     definitionVersion: 1,
@@ -817,10 +840,10 @@ function articleSearchClicksScopeFingerprint(searchConsole) {
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
 
-function validateGoogleReport(response, analytics) {
+function validateGoogleReport(response, analytics, expectedMetricName) {
   if (!isObject(response) || !Array.isArray(response.metricHeaders) || response.metricHeaders.length !== 1 ||
       !exactKeys(response.metricHeaders[0], ["name", "type"]) ||
-      response.metricHeaders[0].name !== "screenPageViews" || response.metricHeaders[0].type !== "TYPE_INTEGER" ||
+      response.metricHeaders[0].name !== expectedMetricName || response.metricHeaders[0].type !== "TYPE_INTEGER" ||
       (response.dimensionHeaders !== undefined &&
         (!Array.isArray(response.dimensionHeaders) || response.dimensionHeaders.length !== 0)) ||
       response.rowCount !== 1 || !Array.isArray(response.rows) || response.rows.length !== 1 ||
@@ -831,8 +854,8 @@ function validateGoogleReport(response, analytics) {
     throw fail("ANALYTICS_REPORT_INVALID");
   }
 
-  const views = Number(response.rows[0].metricValues[0].value);
-  if (!Number.isSafeInteger(views) || views < 0) throw fail("ANALYTICS_REPORT_INVALID");
+  const value = Number(response.rows[0].metricValues[0].value);
+  if (!Number.isSafeInteger(value) || value < 0) throw fail("ANALYTICS_REPORT_INVALID");
 
   const metadata = response.metadata;
   if (!isObject(metadata) || metadata.timeZone !== analytics.timeZone) {
@@ -875,7 +898,7 @@ function validateGoogleReport(response, analytics) {
   if ((metadata.samplingMetadatas?.length ?? 0) > 0) qualifications.push("sampled");
   if (metadata.subjectToThresholding === true) qualifications.push("thresholding");
   if (metadata.dataLossFromOtherRow === true) qualifications.push("other-row");
-  return { views, qualifications };
+  return { value, qualifications };
 }
 
 async function requestGoogleReport(analytics, accessToken, range, collectedAt) {
@@ -902,7 +925,7 @@ async function requestGoogleReport(analytics, accessToken, range, collectedAt) {
     body: JSON.stringify(body),
     redirect: "error"
   });
-  const result = validateGoogleReport(response, analytics);
+  const result = validateGoogleReport(response, analytics, "screenPageViews");
   return {
     basis: range.period === "total" ? "recorded-total" : "period",
     collectedAt,
@@ -911,7 +934,7 @@ async function requestGoogleReport(analytics, accessToken, range, collectedAt) {
     timeZone: analytics.timeZone,
     startDate: range.startDate,
     endDate: range.endDate,
-    views: result.views,
+    views: result.value,
     qualifications: result.qualifications
   };
 }
@@ -942,7 +965,7 @@ async function requestDirectoryGoogleReport(analytics, accessToken, range, colle
     body: JSON.stringify(body),
     redirect: "error"
   });
-  const result = validateGoogleReport(response, analytics);
+  const result = validateGoogleReport(response, analytics, "screenPageViews");
   return {
     basis: "period",
     collectedAt,
@@ -951,12 +974,66 @@ async function requestDirectoryGoogleReport(analytics, accessToken, range, colle
     timeZone: analytics.timeZone,
     startDate: range.startDate,
     endDate: range.endDate,
-    views: result.views,
+    views: result.value,
     qualifications: result.qualifications
   };
 }
 
-async function collectViewPeriods(ranges, requestRecord) {
+async function requestDirectoryOutboundClickReport(analytics, accessToken, range, collectedAt) {
+  const url = `${GOOGLE_ANALYTICS_ENDPOINT}${analytics.propertyId}:runReport`;
+  const body = {
+    dateRanges: [{ startDate: range.startDate, endDate: range.endDate }],
+    metrics: [{ name: "eventCount" }],
+    dimensionFilter: {
+      andGroup: {
+        expressions: [
+          {
+            filter: {
+              fieldName: "hostName",
+              stringFilter: { matchType: "EXACT", value: analytics.hostname, caseSensitive: true }
+            }
+          },
+          {
+            filter: {
+              fieldName: "eventName",
+              stringFilter: { matchType: "EXACT", value: "click", caseSensitive: true }
+            }
+          },
+          {
+            filter: {
+              fieldName: "outbound",
+              stringFilter: { matchType: "EXACT", value: "true", caseSensitive: true }
+            }
+          }
+        ]
+      }
+    }
+  };
+  const response = await fetchJson(url, "donde-aprendo-aws", range.period, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(body),
+    redirect: "error"
+  });
+  const result = validateGoogleReport(response, analytics, "eventCount");
+  return {
+    basis: "period",
+    collectedAt,
+    scopeId: directoryOutboundClicksScopeFingerprint(analytics),
+    publication: { ...DIRECTORY_ANALYTICS_PUBLICATION, language: analytics.language },
+    timeZone: analytics.timeZone,
+    startDate: range.startDate,
+    endDate: range.endDate,
+    clicks: result.value,
+    qualifications: result.qualifications
+  };
+}
+
+async function collectGooglePeriods(ranges, requestRecord) {
   const eligiblePeriods = ranges.map(({ period }) => period);
   if (ranges.length === 0) return { group: null, failedPeriods: [], eligiblePeriods };
   const records = {};
@@ -982,12 +1059,17 @@ async function collectViewPeriods(ranges, requestRecord) {
 
 async function collectArticleViews(analytics, accessToken, collectedAt, now) {
   const ranges = supportedGoogleViewRanges(analytics, now);
-  return collectViewPeriods(ranges, (range) => requestGoogleReport(analytics, accessToken, range, collectedAt));
+  return collectGooglePeriods(ranges, (range) => requestGoogleReport(analytics, accessToken, range, collectedAt));
 }
 
 async function collectDirectoryViews(analytics, accessToken, collectedAt, now) {
   const ranges = supportedDirectoryViewRanges(analytics, now);
-  return collectViewPeriods(ranges, (range) => requestDirectoryGoogleReport(analytics, accessToken, range, collectedAt));
+  return collectGooglePeriods(ranges, (range) => requestDirectoryGoogleReport(analytics, accessToken, range, collectedAt));
+}
+
+async function collectDirectoryOutboundClicks(analytics, accessToken, collectedAt, now) {
+  const ranges = supportedDirectoryViewRanges(analytics, now);
+  return collectGooglePeriods(ranges, (range) => requestDirectoryOutboundClickReport(analytics, accessToken, range, collectedAt));
 }
 
 function validateSearchConsoleResponse(response) {
@@ -1076,21 +1158,32 @@ async function collectArticleSearchClicks(searchConsole, accessToken, collectedA
 }
 
 async function collectGoogleMetrics(configuration, env, collectedAt, now) {
-  const directoryEnabled = configuration.schemaVersion === 7 && configuration.directoryAnalytics !== undefined;
+  const supportsDirectoryAnalytics = configuration.schemaVersion === 7 || configuration.schemaVersion === 8;
+  const directoryEnabled = supportsDirectoryAnalytics && configuration.directoryAnalytics !== undefined;
+  const directoryOutboundClicksEnabled = configuration.directoryOutboundClicks === true && directoryEnabled;
   const articleViewsEnabled = configuration.analytics !== undefined;
   const viewsRanges = articleViewsEnabled ? supportedGoogleViewRanges(configuration.analytics, now) : [];
   const viewsEligiblePeriods = viewsRanges.map(({ period }) => period);
   const directoryRanges = directoryEnabled ? supportedDirectoryViewRanges(configuration.directoryAnalytics, now) : [];
   const directoryEligiblePeriods = directoryRanges.map(({ period }) => period);
-  const searchRanges = (configuration.schemaVersion === 6 || configuration.schemaVersion === 7) && configuration.searchConsole !== undefined
+  const outboundClickRanges = directoryOutboundClicksEnabled ? directoryRanges : [];
+  const outboundClickEligiblePeriods = outboundClickRanges.map(({ period }) => period);
+  const searchRanges = (configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8) && configuration.searchConsole !== undefined
     ? supportedGoogleSearchRanges(configuration.searchConsole, now)
     : [];
   const searchEligiblePeriods = searchRanges.map(({ period }) => period);
   const emptyViews = { group: null, failedPeriods: [], eligiblePeriods: viewsEligiblePeriods };
   const emptyDirectory = { group: null, failedPeriods: [], eligiblePeriods: directoryEligiblePeriods };
+  const emptyOutboundClicks = { group: null, failedPeriods: [], eligiblePeriods: outboundClickEligiblePeriods };
   const emptySearch = { group: null, failedPeriods: [], eligiblePeriods: searchEligiblePeriods };
-  if (viewsEligiblePeriods.length === 0 && directoryEligiblePeriods.length === 0 && searchEligiblePeriods.length === 0) {
-    return { articleViews: emptyViews, directoryViews: emptyDirectory, articleSearchClicks: emptySearch };
+  if (viewsEligiblePeriods.length === 0 && directoryEligiblePeriods.length === 0 &&
+      outboundClickEligiblePeriods.length === 0 && searchEligiblePeriods.length === 0) {
+    return {
+      articleViews: emptyViews,
+      directoryViews: emptyDirectory,
+      directoryOutboundClicks: emptyOutboundClicks,
+      articleSearchClicks: emptySearch
+    };
   }
 
   let accessToken;
@@ -1107,6 +1200,9 @@ async function collectGoogleMetrics(configuration, env, collectedAt, now) {
       directoryViews: directoryEligiblePeriods.length > 0
         ? { ...emptyDirectory, failedPeriods: directoryEligiblePeriods, failureCode: failure }
         : emptyDirectory,
+      directoryOutboundClicks: outboundClickEligiblePeriods.length > 0
+        ? { ...emptyOutboundClicks, failedPeriods: outboundClickEligiblePeriods, failureCode: failure }
+        : emptyOutboundClicks,
       articleSearchClicks: searchEligiblePeriods.length > 0
         ? { ...emptySearch, failedPeriods: searchEligiblePeriods, failureCode: failure }
         : emptySearch
@@ -1119,10 +1215,13 @@ async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const directoryViews = directoryEligiblePeriods.length > 0
     ? await collectDirectoryViews(configuration.directoryAnalytics, accessToken, collectedAt, now)
     : emptyDirectory;
+  const directoryOutboundClicks = outboundClickEligiblePeriods.length > 0
+    ? await collectDirectoryOutboundClicks(configuration.directoryAnalytics, accessToken, collectedAt, now)
+    : emptyOutboundClicks;
   const articleSearchClicks = searchEligiblePeriods.length > 0
     ? await collectArticleSearchClicks(configuration.searchConsole, accessToken, collectedAt, now)
     : emptySearch;
-  return { articleViews, directoryViews, articleSearchClicks };
+  return { articleViews, directoryViews, directoryOutboundClicks, articleSearchClicks };
 }
 
 async function fetchCaylentPage(source, offset, page) {
@@ -2000,6 +2099,57 @@ function isValidDirectoryViewsGroup(group) {
     DIRECTORY_VIEWS_PERIODS.includes(period) && isValidDirectoryViewRecord(record));
 }
 
+function isValidDirectoryOutboundClickRecord(record) {
+  if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", "clicks", "qualifications"])) {
+    return false;
+  }
+  if (record.basis !== "period" || typeof record.collectedAt !== "string") return false;
+  const collected = Date.parse(record.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== record.collectedAt) return false;
+  if (typeof record.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(record.scopeId)) return false;
+  if (!exactKeys(record.publication, ["id", "label", "language"]) ||
+      record.publication.id !== DIRECTORY_ANALYTICS_PUBLICATION.id ||
+      record.publication.label !== DIRECTORY_ANALYTICS_PUBLICATION.label ||
+      record.publication.language !== "es") {
+    return false;
+  }
+  if (!isValidIanaTimeZone(record.timeZone) || !isRealIsoDate(record.startDate) ||
+      !isRealIsoDate(record.endDate) || record.startDate > record.endDate ||
+      !Number.isSafeInteger(record.clicks) || record.clicks < 0 || !Array.isArray(record.qualifications)) {
+    return false;
+  }
+  const qualifications = new Set();
+  for (const qualification of record.qualifications) {
+    if (typeof qualification !== "string" || !GOOGLE_VIEW_QUALIFICATIONS.has(qualification) || qualifications.has(qualification)) {
+      return false;
+    }
+    qualifications.add(qualification);
+  }
+  return true;
+}
+
+function sanitizeDirectoryOutboundClicksGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 || !isObject(group.records)) {
+    return null;
+  }
+  const records = {};
+  for (const period of DIRECTORY_VIEWS_PERIODS) {
+    if (Object.hasOwn(group.records, period) && isValidDirectoryOutboundClickRecord(group.records[period])) {
+      records[period] = group.records[period];
+    }
+  }
+  return Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null;
+}
+
+function isValidDirectoryOutboundClicksGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 ||
+      !isObject(group.records) || Object.keys(group.records).length === 0) {
+    return false;
+  }
+  return Object.entries(group.records).every(([period, record]) =>
+    DIRECTORY_VIEWS_PERIODS.includes(period) && isValidDirectoryOutboundClickRecord(record));
+}
+
 function isValidArticleSearchRecord(record, period) {
   if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", "clicks"])) {
     return false;
@@ -2050,7 +2200,7 @@ function validateOutput(output) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const families = Object.keys(output.groups);
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "articleSearchClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks"]);
   if (families.length < 1 || families.some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2061,9 +2211,11 @@ function validateOutput(output) {
         ? isValidArticleViewsGroup(output.groups[family])
         : family === "directoryViews"
           ? isValidDirectoryViewsGroup(output.groups[family])
-        : family === "articleSearchClicks"
-          ? isValidArticleSearchClicksGroup(output.groups[family])
-        : isValidGroup(output.groups[family], family);
+          : family === "directoryOutboundClicks"
+            ? isValidDirectoryOutboundClicksGroup(output.groups[family])
+            : family === "articleSearchClicks"
+              ? isValidArticleSearchClicksGroup(output.groups[family])
+              : isValidGroup(output.groups[family], family);
     if (!valid) throw fail("OUTPUT_SCHEMA_INVALID");
   }
 }
@@ -2097,7 +2249,7 @@ async function readPreviousAggregate(bucket, key) {
       !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "articleSearchClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks"]);
   if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2111,6 +2263,11 @@ async function readPreviousAggregate(bucket, key) {
     }
     if (family === "directoryViews") {
       const sanitized = sanitizeDirectoryViewsGroup(previous.groups[family]);
+      if (sanitized) groups[family] = sanitized;
+      continue;
+    }
+    if (family === "directoryOutboundClicks") {
+      const sanitized = sanitizeDirectoryOutboundClicksGroup(previous.groups[family]);
       if (sanitized) groups[family] = sanitized;
       continue;
     }
@@ -2164,6 +2321,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let articleCollection;
   let articleViewsResult;
   let directoryViewsResult;
+  let directoryOutboundClicksResult;
   let articleSearchClicksResult;
   try {
     articleCollection = await collectPublications(configuration.sources, now, env);
@@ -2183,7 +2341,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   }
 
   if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
-      (configuration.schemaVersion === 7 && configuration.newsletter !== undefined)) {
+      ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8) && configuration.newsletter !== undefined)) {
     try {
       groups.newsletter = await collectNewsletter(configuration.newsletter, env, collectedAt);
     } catch (error) {
@@ -2193,11 +2351,12 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   }
 
   if (configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
-      (configuration.schemaVersion === 7 && configuration.directoryAnalytics !== undefined)) {
+      ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8) && configuration.directoryAnalytics !== undefined)) {
     try {
       const googleMetrics = await collectGoogleMetrics(configuration, env, collectedAt, now);
       articleViewsResult = googleMetrics.articleViews;
       directoryViewsResult = googleMetrics.directoryViews;
+      directoryOutboundClicksResult = googleMetrics.directoryOutboundClicks;
       articleSearchClicksResult = googleMetrics.articleSearchClicks;
       if (articleViewsResult?.group) groups.articleViews = articleViewsResult.group;
       if (articleViewsResult?.failedPeriods.length > 0) {
@@ -2206,6 +2365,10 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
       if (directoryViewsResult?.group) groups.directoryViews = directoryViewsResult.group;
       if (directoryViewsResult?.failedPeriods.length > 0) {
         failures.directoryViews = directoryViewsResult.failureCode ?? "DIRECTORY_ANALYTICS_REPORT_FAILED";
+      }
+      if (directoryOutboundClicksResult?.group) groups.directoryOutboundClicks = directoryOutboundClicksResult.group;
+      if (directoryOutboundClicksResult?.failedPeriods.length > 0) {
+        failures.directoryOutboundClicks = directoryOutboundClicksResult.failureCode ?? "DIRECTORY_OUTBOUND_CLICKS_REPORT_FAILED";
       }
       if (articleSearchClicksResult?.group) groups.articleSearchClicks = articleSearchClicksResult.group;
       if (articleSearchClicksResult?.failedPeriods.length > 0) {
@@ -2231,6 +2394,15 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
         directoryViewsResult.failedPeriods = directoryViewsResult.eligiblePeriods;
         failures.directoryViews = error.code;
       }
+      if (configuration.directoryOutboundClicks === true) {
+        directoryOutboundClicksResult = {
+          group: null,
+          failedPeriods: [],
+          eligiblePeriods: supportedDirectoryViewRanges(configuration.directoryAnalytics, now).map(({ period }) => period)
+        };
+        directoryOutboundClicksResult.failedPeriods = directoryOutboundClicksResult.eligiblePeriods;
+        failures.directoryOutboundClicks = error.code;
+      }
       if (configuration.searchConsole !== undefined) {
         articleSearchClicksResult = {
           group: null,
@@ -2251,15 +2423,17 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     previousGroups = await readPreviousAggregate(env.bucket, env.outputKey);
     if (previousGroups) {
       for (const family of Object.keys(failures)) {
-        if (family === "articleViews" || family === "directoryViews" || family === "articleSearchClicks") {
+        if (family === "articleViews" || family === "directoryViews" || family === "directoryOutboundClicks" || family === "articleSearchClicks") {
           const result = family === "articleViews"
             ? articleViewsResult
-            : family === "directoryViews" ? directoryViewsResult : articleSearchClicksResult;
+            : family === "directoryViews" ? directoryViewsResult
+              : family === "directoryOutboundClicks" ? directoryOutboundClicksResult : articleSearchClicksResult;
           const prior = previousGroups[family];
           const eligiblePeriods = new Set(result?.eligiblePeriods ?? []);
           const timeZone = family === "articleViews"
             ? configuration.analytics.timeZone
-            : family === "directoryViews" ? configuration.directoryAnalytics.timeZone : GOOGLE_SEARCH_TIME_ZONE;
+            : family === "directoryViews" || family === "directoryOutboundClicks"
+              ? configuration.directoryAnalytics.timeZone : GOOGLE_SEARCH_TIME_ZONE;
           const currentYtdStart = `${localDateAt(timeZone, now).slice(0, 4)}-01-01`;
           const records = { ...(groups[family]?.records ?? {}) };
           for (const period of result?.failedPeriods ?? []) {
@@ -2312,7 +2486,7 @@ async function handler() {
     const collectedAt = new Date().toISOString();
     const now = Date.parse(collectedAt);
     return configuration.schemaVersion === 3 || configuration.schemaVersion === 4 || configuration.schemaVersion === 5 ||
-      configuration.schemaVersion === 6 || configuration.schemaVersion === 7
+      configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8
       ? await collectIndependentGroups(configuration, env, collectedAt, now)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {

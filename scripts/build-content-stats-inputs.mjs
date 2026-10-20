@@ -209,8 +209,11 @@ function projectSearchConsole(searchConsole) {
 function projectDirectoryAnalytics(directoryAnalytics) {
   assertObject(directoryAnalytics, 'directoryAnalytics');
   const keys = Object.keys(directoryAnalytics).sort();
-  if (keys.join(',') !== 'hostname,id,language,propertyId,timeZone') {
-    invalid('directoryAnalytics must contain only the supported directory scope selectors');
+  const requiredKeys = ['hostname', 'id', 'language', 'propertyId', 'timeZone'];
+  const hasOutboundClicks = Object.hasOwn(directoryAnalytics, 'outboundClicks');
+  const expectedKeys = hasOutboundClicks ? [...requiredKeys, 'outboundClicks'].sort() : requiredKeys;
+  if (keys.join(',') !== expectedKeys.join(',')) {
+    invalid('directoryAnalytics must contain only the supported directory scope selectors and optional outboundClicks flag');
   }
   if (directoryAnalytics.id !== 'donde-aprendo-aws') invalid('unsupported directoryAnalytics publication id');
   if (typeof directoryAnalytics.propertyId !== 'string' || !/^\d+$/.test(directoryAnalytics.propertyId)) {
@@ -223,14 +226,19 @@ function projectDirectoryAnalytics(directoryAnalytics) {
   if (!isTimeZone(directoryAnalytics.timeZone)) {
     invalid('directoryAnalytics timeZone must be a valid IANA time zone');
   }
+  if (hasOutboundClicks && directoryAnalytics.outboundClicks !== true) {
+    invalid('directoryAnalytics outboundClicks must be the literal true opt-in');
+  }
 
-  return {
+  const result = {
     id: directoryAnalytics.id,
     propertyId: directoryAnalytics.propertyId,
     hostname: directoryAnalytics.hostname,
     language: directoryAnalytics.language,
     timeZone: directoryAnalytics.timeZone
   };
+  if (hasOutboundClicks) result.outboundClicks = true;
+  return result;
 }
 
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
@@ -239,6 +247,9 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
   const hasSearchConsole = Object.hasOwn(articleConfig, 'searchConsole');
   const hasDirectoryAnalytics = Object.hasOwn(articleConfig, 'directoryAnalytics');
+  const hasDirectoryOutboundClicks = hasDirectoryAnalytics
+    && articleConfig.directoryAnalytics
+    && Object.hasOwn(articleConfig.directoryAnalytics, 'outboundClicks');
   if (hasAnalytics && !hasNewsletter) invalid('analytics requires the existing newsletter selection');
   if (hasSearchConsole && (!hasNewsletter || !hasAnalytics)) {
     invalid('searchConsole requires the existing newsletter and analytics selections');
@@ -256,7 +267,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     : null;
 
   return {
-    schemaVersion: hasDirectoryAnalytics ? 7 : hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
+    schemaVersion: hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalytics ? 7 : hasSearchConsole ? 6 : hasAnalytics ? 5 : hasNewsletter ? 4 : 3,
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
