@@ -8126,3 +8126,49 @@ test("each invocation rereads cumulative sent without warm-runtime accumulation"
     "each invocation makes one shared publication stats request");
   assert.equal(harness.secretCalls.length, 2, "each invocation retrieves the existing credential once");
 });
+
+test("input4 dispatches sent using the normalized English newsletter language and retains its own prior value", async () => {
+  let subscribers = 17;
+  let totalSent = 100;
+  const requestLog = [];
+  const clock = createClock("2026-10-21T12:00:00.000Z");
+  const newsletter = { id: "simple-aws", publicationId: beehiivPublicationId, language: "en" };
+  const input = phaseFourInput({ newsletter });
+  const harness = createHarness({
+    input,
+    clock,
+    fetchFn: phaseFourApiFetch({
+      requestLog,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, subscribers, totalSent))
+    })
+  });
+  assert.equal(input.sources.some(({ id }) => id === "simple-aws"), false,
+    "the no-catalog source path leaves the newsletter selection for collection-time normalization");
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  assert.equal(initial.groups.newsletterEmailsSent.sent, 100);
+
+  harness.setInput(phaseFourInput({ newsletter: { ...newsletter, language: " en " } }));
+  totalSent = 90;
+  clock.set("2026-10-22T12:00:00.000Z");
+  await harness.handler({}, {});
+  const refreshed = await readPut(harness.putCalls[1]);
+  const refreshedSent = refreshed.groups.newsletterEmailsSent;
+  assert.equal(refreshed.groups.newsletter.publication.language, "en");
+  assert.equal(refreshedSent.sent, 90, "normalized English selection publishes the fresh sent value");
+  assert.equal(refreshedSent.scopeId, initial.groups.newsletterEmailsSent.scopeId);
+  assert.equal(refreshedSent.collectedAt, "2026-10-22T12:00:00.000Z");
+
+  subscribers = 18;
+  totalSent = "unavailable";
+  clock.set("2026-10-23T12:00:00.000Z");
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls[2]);
+  assert.equal(retained.groups.newsletter.subscribers, 18, "subscriber refresh remains independent from sent failure");
+  assert.deepEqual(retained.groups.newsletterEmailsSent, refreshedSent,
+    "normalized English selection retains its own prior sent group on a bad sent value");
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 3,
+    "each collection invocation uses the existing single publication request");
+  assert.equal(harness.secretCalls.length, 3, "the sent family adds no secret read");
+});
