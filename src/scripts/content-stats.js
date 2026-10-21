@@ -4,12 +4,16 @@ const knownViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const knownSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const knownDirectoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const knownDirectoryOutboundClickPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
+const knownNewsletterEmailPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
   counts: ['all', 'en', 'es'],
   source: ['id', 'label'],
   newsletterGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'subscribers'],
+  newsletterEmailGroup: ['definitionVersion', 'records'],
+  newsletterEmailOpensRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'opens'],
+  newsletterEmailVerifiedClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks'],
   publication: ['id', 'label', 'language'],
   articleViewsGroup: ['definitionVersion', 'records'],
   articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications'],
@@ -278,12 +282,54 @@ function validateDirectoryOutboundClicks(value) {
   ]));
 }
 
+function validateNewsletterEmailRecord(value, metric) {
+  const keys = metric === 'opens'
+    ? allowedKeys.newsletterEmailOpensRecord
+    : allowedKeys.newsletterEmailVerifiedClicksRecord;
+  if (!hasOnlyKeys(value, keys)
+    || value.basis !== 'period'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSha256(value.scopeId)
+    || !hasOnlyKeys(value.publication, allowedKeys.publication)
+    || value.publication.id !== supportedNewsletter.id
+    || value.publication.label !== supportedNewsletter.label
+    || value.publication.language !== 'en'
+    || value.timeZone !== 'UTC'
+    || !isRealDateOnly(value.startDate)
+    || !isRealDateOnly(value.endDate)
+    || value.startDate > value.endDate
+    || !isNonnegativeCount(value[metric])) return null;
+
+  return value;
+}
+
+function validateNewsletterEmailFamily(value, metric) {
+  if (!hasOnlyKeys(value, allowedKeys.newsletterEmailGroup)
+    || value.definitionVersion !== 1
+    || !isRecord(value.records)
+    || !hasAllowedKeys(value.records, knownNewsletterEmailPeriods)) return null;
+
+  const records = Object.fromEntries(knownNewsletterEmailPeriods.map((period) => [
+    period,
+    Object.hasOwn(value.records, period) ? validateNewsletterEmailRecord(value.records[period], metric) : null
+  ]));
+  return Object.values(records).some(Boolean) ? records : null;
+}
+
 function validateSnapshot(value) {
   if (!isRecord(value)
     || !hasOnlyKeys(value, allowedKeys.document)
     || value.schemaVersion !== 1
     || !isRecord(value.groups)
-    || !hasAllowedKeys(value.groups, [...knownKinds, 'articleViews', 'articleSearchClicks', 'directoryViews', 'directoryOutboundClicks'])) return null;
+    || !hasAllowedKeys(value.groups, [
+      ...knownKinds,
+      'articleViews',
+      'articleSearchClicks',
+      'directoryViews',
+      'directoryOutboundClicks',
+      'newsletterEmailOpens',
+      'newsletterEmailVerifiedClicks'
+    ])) return null;
 
   return {
     groups: Object.fromEntries(knownKinds.map((kind) => [
@@ -299,7 +345,32 @@ function validateSnapshot(value) {
       : null,
     directoryOutboundClicks: Object.hasOwn(value.groups, 'directoryOutboundClicks')
       ? validateDirectoryOutboundClicks(value.groups.directoryOutboundClicks)
+      : null,
+    newsletterEmailOpens: Object.hasOwn(value.groups, 'newsletterEmailOpens')
+      ? validateNewsletterEmailFamily(value.groups.newsletterEmailOpens, 'opens')
+      : null,
+    newsletterEmailVerifiedClicks: Object.hasOwn(value.groups, 'newsletterEmailVerifiedClicks')
+      ? validateNewsletterEmailFamily(value.groups.newsletterEmailVerifiedClicks, 'clicks')
       : null
+  };
+}
+
+function getNewsletterEmailElements(section, attribute, family, valueField) {
+  const selector = `[data-stats-newsletter-email-${attribute}]`;
+  const region = section.querySelector(selector);
+  if (!region) return null;
+
+  return {
+    region,
+    family,
+    valueField,
+    attributePrefix: `data-stats-newsletter-email-${attribute}`,
+    status: region.querySelector(`[data-stats-newsletter-email-${attribute}-status]`),
+    results: region.querySelector(`[data-stats-newsletter-email-${attribute}-results]`),
+    value: region.querySelector(`[data-stats-newsletter-email-${attribute}-value]`),
+    coverage: region.querySelector(`[data-stats-newsletter-email-${attribute}-coverage]`),
+    interval: region.querySelector(`[data-stats-newsletter-email-${attribute}-interval]`),
+    collectedDate: region.querySelector(`[data-stats-newsletter-email-${attribute}-collected-date]`)
   };
 }
 
@@ -371,6 +442,8 @@ function getElements(section) {
     selector: section.querySelector('[data-stats-language]'),
     periodSelector: section.querySelector('[data-stats-period]'),
     totalOption: section.querySelector('[data-stats-period]')?.querySelector('[value="total"]') ?? null,
+    newsletterEmailOpens: getNewsletterEmailElements(section, 'opens', 'newsletterEmailOpens', 'opens'),
+    newsletterEmailVerifiedClicks: getNewsletterEmailElements(section, 'verified-clicks', 'newsletterEmailVerifiedClicks', 'clicks'),
     views,
     search,
     directoryViews,
@@ -422,33 +495,123 @@ function renderUnavailable(elements) {
   elements.card.setAttribute('aria-busy', 'false');
 }
 
-function renderNewsletterGroup(group, locale, language, elements) {
-  if (language !== 'all' && language !== group.publication.language) {
+function clearNewsletterSubscriber(elements, hidden = false) {
+  elements.results.hidden = true;
+  elements.count.textContent = '';
+  elements.coverage.textContent = '';
+  elements.collectedDate.textContent = '';
+  elements.status.hidden = hidden;
+  elements.status.textContent = '';
+}
+
+function renderNewsletter(snapshot, locale, language, elements) {
+  const subscriber = snapshot?.groups?.newsletter ?? null;
+  const opens = snapshot?.newsletterEmailOpens ?? null;
+  const verifiedClicks = snapshot?.newsletterEmailVerifiedClicks ?? null;
+  const supportedLanguages = [
+    ...(subscriber ? [subscriber.publication.language] : []),
+    ...(opens || verifiedClicks ? ['en'] : [])
+  ];
+  const hasSupportedNewsletterData = supportedLanguages.length > 0;
+  const hasApplicableNewsletterData = language === 'all' || supportedLanguages.includes(language);
+
+  if (language !== 'all' && hasSupportedNewsletterData && !hasApplicableNewsletterData) {
     elements.card.hidden = true;
-    elements.results.hidden = true;
-    elements.count.textContent = '';
-    elements.coverage.textContent = '';
-    elements.collectedDate.textContent = '';
-    elements.status.hidden = true;
-    elements.status.textContent = '';
+    clearNewsletterSubscriber(elements, true);
     elements.card.setAttribute('aria-busy', 'false');
     return;
   }
 
-  renderCount(group.subscribers, group.publication.label, group.collectedAt, locale, elements);
+  elements.card.hidden = false;
+  const subscriberApplies = subscriber
+    && (language === 'all' || subscriber.publication.language === language);
+  if (subscriberApplies) {
+    renderCount(subscriber.subscribers, subscriber.publication.label, subscriber.collectedAt, locale, elements);
+  } else if (subscriber) {
+    clearNewsletterSubscriber(elements, true);
+    elements.card.setAttribute('aria-busy', 'false');
+  } else {
+    renderUnavailable(elements);
+  }
 }
 
-function renderAll(groups, locale, language, elements) {
+function renderAll(snapshot, locale, language, elements) {
+  const groups = snapshot?.groups ?? null;
   for (const kind of knownKinds) {
+    if (kind === 'newsletter') continue;
     const card = elements.cards[kind];
     const group = groups?.[kind];
     if (!card || !group) {
       if (card) renderUnavailable(card);
       continue;
     }
-    if (kind === 'newsletter') renderNewsletterGroup(group, locale, language, card);
-    else renderGroup(group, locale, language, card);
+    renderGroup(group, locale, language, card);
   }
+  const newsletter = elements.cards.newsletter;
+  if (newsletter) renderNewsletter(snapshot, locale, language, newsletter);
+}
+
+function newsletterEmailElementsReady(elements) {
+  return Boolean(elements?.region && elements.status && elements.results && elements.value
+    && elements.coverage && elements.interval && elements.collectedDate);
+}
+
+function clearNewsletterEmailResult(elements) {
+  elements.value.textContent = '';
+  elements.coverage.textContent = '';
+  elements.interval.textContent = '';
+  elements.collectedDate.textContent = '';
+}
+
+function renderNewsletterEmailLoading(elements) {
+  if (!newsletterEmailElementsReady(elements)) return;
+  elements.region.hidden = false;
+  elements.results.hidden = true;
+  clearNewsletterEmailResult(elements);
+  elements.status.hidden = false;
+}
+
+function renderNewsletterEmailUnavailable(elements, locale, hidden = false) {
+  if (!newsletterEmailElementsReady(elements)) return;
+  elements.region.hidden = hidden;
+  elements.results.hidden = true;
+  clearNewsletterEmailResult(elements);
+  elements.status.textContent = hidden
+    ? ''
+    : elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
+      || (locale === 'es' ? 'No se pueden mostrar estos datos para este período.' : 'These figures are unavailable for this period.');
+  elements.status.hidden = hidden;
+}
+
+function renderNewsletterEmailMetric(snapshot, locale, language, period, elements) {
+  if (!newsletterEmailElementsReady(elements)) return;
+  if (language === 'es' || !knownNewsletterEmailPeriods.includes(period)) {
+    renderNewsletterEmailUnavailable(elements, locale, language === 'es');
+    return;
+  }
+
+  const record = snapshot?.[elements.family]?.[period];
+  if (!record) {
+    renderNewsletterEmailUnavailable(elements, locale);
+    return;
+  }
+
+  const startDate = formatDateOnly(record.startDate, locale);
+  const endDate = formatDateOnly(record.endDate, locale);
+  elements.region.hidden = false;
+  elements.value.textContent = new Intl.NumberFormat(locale).format(record[elements.valueField]);
+  elements.coverage.textContent = record.publication.label;
+  elements.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
+  elements.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
+  elements.results.hidden = false;
+  elements.status.hidden = true;
+  elements.status.textContent = '';
+}
+
+function renderNewsletterEmail(snapshot, locale, language, elements) {
+  const period = elements.periodSelector?.value ?? '12m';
+  renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailOpens);
+  renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailVerifiedClicks);
 }
 
 const qualificationCopy = {
@@ -733,6 +896,7 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
 
 function renderActivity(snapshot, locale, language, elements) {
   updateRecordedTotalAvailability(snapshot, language, elements);
+  renderNewsletterEmail(snapshot, locale, language, elements);
   renderViews(snapshot, locale, language, elements);
   renderSearch(snapshot, locale, language, elements);
   renderDirectoryViews(snapshot, locale, language, elements);
@@ -755,6 +919,8 @@ async function loadContentStats(section) {
     card.status.hidden = false;
     card.card.setAttribute('aria-busy', 'true');
   }
+  if (newsletterEmailElementsReady(elements.newsletterEmailOpens)) renderNewsletterEmailLoading(elements.newsletterEmailOpens);
+  if (newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)) renderNewsletterEmailLoading(elements.newsletterEmailVerifiedClicks);
   if (viewsElementsReady(elements)) renderViewsLoading(elements.views);
   if (searchElementsReady(elements)) renderSearchLoading(elements.search);
   if (directoryViewsElementsReady(elements)) renderDirectoryViewsLoading(elements.directoryViews);
@@ -777,18 +943,22 @@ async function loadContentStats(section) {
     // A document, network, or HTTP failure invalidates the whole snapshot.
   }
 
-  renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
-  if (snapshot && (viewsElementsReady(elements) || searchElementsReady(elements)
+  renderAll(snapshot, locale, elements.selector.value, elements);
+  if (snapshot && (newsletterEmailElementsReady(elements.newsletterEmailOpens)
+    || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
+    || viewsElementsReady(elements) || searchElementsReady(elements)
     || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements))) {
     elements.periodSelector.disabled = false;
   }
   else if (elements.totalOption) elements.totalOption.disabled = true;
   renderActivity(snapshot, locale, elements.selector.value, elements);
   elements.selector.addEventListener('change', () => {
-    renderAll(snapshot?.groups ?? null, locale, elements.selector.value, elements);
+    renderAll(snapshot, locale, elements.selector.value, elements);
     renderActivity(snapshot, locale, elements.selector.value, elements);
   });
-  if (viewsElementsReady(elements) || searchElementsReady(elements)
+  if (newsletterEmailElementsReady(elements.newsletterEmailOpens)
+    || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
+    || viewsElementsReady(elements) || searchElementsReady(elements)
     || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements)) {
     elements.periodSelector.addEventListener('change', () => {
       renderActivity(snapshot, locale, elements.selector.value, elements);

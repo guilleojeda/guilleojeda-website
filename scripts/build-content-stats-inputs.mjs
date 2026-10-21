@@ -262,6 +262,10 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const hasDirectoryOutboundClicks = hasDirectoryAnalytics
     && articleConfig.directoryAnalytics
     && Object.hasOwn(articleConfig.directoryAnalytics, 'outboundClicks');
+  const hasNewsletterEngagements = Object.hasOwn(articleConfig, 'newsletterEngagements');
+  if (hasNewsletterEngagements && articleConfig.newsletterEngagements !== true) {
+    invalid('newsletterEngagements must be the literal true opt-in');
+  }
   if (hasAnalytics && !hasNewsletter) invalid('analytics requires the existing newsletter selection');
   if (hasSearchConsole && (!hasNewsletter || !hasAnalytics)) {
     invalid('searchConsole requires the existing newsletter and analytics selections');
@@ -271,6 +275,12 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   }
 
   const newsletter = hasNewsletter ? projectNewsletter(articleConfig.newsletter) : null;
+  if (hasNewsletterEngagements && !newsletter) {
+    invalid('newsletterEngagements requires the existing English newsletter selection');
+  }
+  if (hasNewsletterEngagements && newsletter.language !== 'en') {
+    invalid('newsletterEngagements requires an English newsletter selection');
+  }
   if (sourceIds.has('simple-aws') && newsletter.language !== 'en') {
     invalid('Simple AWS article source requires an English newsletter selection');
   }
@@ -279,7 +289,8 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     : null;
 
   return {
-    schemaVersion: hasDirectoryRecordedSince ? 9
+    schemaVersion: hasNewsletterEngagements ? 10
+      : hasDirectoryRecordedSince ? 9
       : hasDirectoryOutboundClicks ? 8
         : hasDirectoryAnalytics ? 7
           : hasSearchConsole ? 6
@@ -292,6 +303,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
       books: projectBooks(books)
     },
     ...(newsletter ? { newsletter } : {}),
+    ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
     ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {}),
     ...(directoryAnalytics ? { directoryAnalytics } : {})
