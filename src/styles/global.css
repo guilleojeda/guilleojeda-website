@@ -708,10 +708,32 @@ a:hover {
   font-size: 0.9rem;
 }
 
+.content-stats-newsletter-sent {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.content-stats-newsletter-sent-heading {
+  margin: 0 0 0.65rem;
+  color: var(--olive);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.content-stats-newsletter-sent-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .content-stats-views-count,
 .content-stats-directory-views-count,
 .content-stats-directory-outbound-clicks-count,
-.content-stats-newsletter-email-count {
+.content-stats-newsletter-email-count,
+.content-stats-newsletter-sent-count {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -726,7 +748,8 @@ a:hover {
 .content-stats-directory-views-count [data-stats-directory-views-value],
 .content-stats-directory-outbound-clicks-count [data-stats-directory-outbound-clicks-value],
 .content-stats-newsletter-email-count [data-stats-newsletter-email-opens-value],
-.content-stats-newsletter-email-count [data-stats-newsletter-email-verified-clicks-value] {
+.content-stats-newsletter-email-count [data-stats-newsletter-email-verified-clicks-value],
+.content-stats-newsletter-sent-count [data-stats-newsletter-sent-value] {
   color: var(--forest-deep);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 700;

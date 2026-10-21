@@ -11,6 +11,7 @@ const allowedKeys = {
   counts: ['all', 'en', 'es'],
   source: ['id', 'label'],
   newsletterGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'subscribers'],
+  newsletterSentGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'sent'],
   newsletterEmailGroup: ['definitionVersion', 'records'],
   newsletterEmailOpensRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'opens'],
   newsletterEmailVerifiedClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks'],
@@ -146,6 +147,21 @@ function validateGroup(value, kind) {
     || !isNonnegativeCount(counts.en)
     || !isNonnegativeCount(counts.es)
     || counts.all !== counts.en + counts.es) return null;
+
+  return value;
+}
+
+function validateNewsletterSentGroup(value) {
+  if (!hasOnlyKeys(value, allowedKeys.newsletterSentGroup)
+    || value.definitionVersion !== 1
+    || value.basis !== 'cumulative'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSha256(value.scopeId)
+    || !hasOnlyKeys(value.publication, allowedKeys.publication)
+    || value.publication.id !== supportedNewsletter.id
+    || value.publication.label !== supportedNewsletter.label
+    || value.publication.language !== 'en'
+    || !isNonnegativeCount(value.sent)) return null;
 
   return value;
 }
@@ -327,6 +343,7 @@ function validateSnapshot(value) {
       'articleSearchClicks',
       'directoryViews',
       'directoryOutboundClicks',
+      'newsletterEmailsSent',
       'newsletterEmailOpens',
       'newsletterEmailVerifiedClicks'
     ])) return null;
@@ -336,6 +353,9 @@ function validateSnapshot(value) {
       kind,
       Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
     ])),
+    newsletterEmailsSent: Object.hasOwn(value.groups, 'newsletterEmailsSent')
+      ? validateNewsletterSentGroup(value.groups.newsletterEmailsSent)
+      : null,
     articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null,
     articleSearchClicks: Object.hasOwn(value.groups, 'articleSearchClicks')
       ? validateArticleSearchClicks(value.groups.articleSearchClicks)
@@ -371,6 +391,21 @@ function getNewsletterEmailElements(section, attribute, family, valueField) {
     coverage: region.querySelector(`[data-stats-newsletter-email-${attribute}-coverage]`),
     interval: region.querySelector(`[data-stats-newsletter-email-${attribute}-interval]`),
     collectedDate: region.querySelector(`[data-stats-newsletter-email-${attribute}-collected-date]`)
+  };
+}
+
+function getNewsletterSentElements(section) {
+  const region = section.querySelector('[data-stats-newsletter-sent]');
+  if (!region) return null;
+
+  return {
+    region,
+    attributePrefix: 'data-stats-newsletter-sent',
+    status: region.querySelector('[data-stats-newsletter-sent-status]'),
+    results: region.querySelector('[data-stats-newsletter-sent-results]'),
+    value: region.querySelector('[data-stats-newsletter-sent-value]'),
+    coverage: region.querySelector('[data-stats-newsletter-sent-coverage]'),
+    collectedDate: region.querySelector('[data-stats-newsletter-sent-collected-date]')
   };
 }
 
@@ -442,6 +477,7 @@ function getElements(section) {
     selector: section.querySelector('[data-stats-language]'),
     periodSelector: section.querySelector('[data-stats-period]'),
     totalOption: section.querySelector('[data-stats-period]')?.querySelector('[value="total"]') ?? null,
+    newsletterEmailsSent: getNewsletterSentElements(section),
     newsletterEmailOpens: getNewsletterEmailElements(section, 'opens', 'newsletterEmailOpens', 'opens'),
     newsletterEmailVerifiedClicks: getNewsletterEmailElements(section, 'verified-clicks', 'newsletterEmailVerifiedClicks', 'clicks'),
     views,
@@ -506,10 +542,12 @@ function clearNewsletterSubscriber(elements, hidden = false) {
 
 function renderNewsletter(snapshot, locale, language, elements) {
   const subscriber = snapshot?.groups?.newsletter ?? null;
+  const sent = snapshot?.newsletterEmailsSent ?? null;
   const opens = snapshot?.newsletterEmailOpens ?? null;
   const verifiedClicks = snapshot?.newsletterEmailVerifiedClicks ?? null;
   const supportedLanguages = [
     ...(subscriber ? [subscriber.publication.language] : []),
+    ...(sent ? ['en'] : []),
     ...(opens || verifiedClicks ? ['en'] : [])
   ];
   const hasSupportedNewsletterData = supportedLanguages.length > 0;
@@ -612,6 +650,59 @@ function renderNewsletterEmail(snapshot, locale, language, elements) {
   const period = elements.periodSelector?.value ?? '12m';
   renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailOpens);
   renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailVerifiedClicks);
+}
+
+function newsletterSentElementsReady(elements) {
+  return Boolean(elements?.region && elements.status && elements.results
+    && elements.value && elements.coverage && elements.collectedDate);
+}
+
+function clearNewsletterSentResult(elements) {
+  elements.value.textContent = '';
+  elements.coverage.textContent = '';
+  elements.collectedDate.textContent = '';
+}
+
+function renderNewsletterSentLoading(elements) {
+  if (!newsletterSentElementsReady(elements)) return;
+  elements.region.hidden = false;
+  elements.results.hidden = true;
+  clearNewsletterSentResult(elements);
+  elements.status.hidden = false;
+}
+
+function renderNewsletterSentUnavailable(elements, locale, hidden = false) {
+  if (!newsletterSentElementsReady(elements)) return;
+  elements.region.hidden = hidden;
+  elements.results.hidden = true;
+  clearNewsletterSentResult(elements);
+  elements.status.textContent = hidden
+    ? ''
+    : elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
+      || (locale === 'es' ? 'El total informado de emails enviados no está disponible.' : 'The reported emails-sent total is unavailable.');
+  elements.status.hidden = hidden;
+}
+
+function renderNewsletterSent(snapshot, locale, language, elements, newsletterCard) {
+  if (!newsletterSentElementsReady(elements)) return;
+  if (language === 'es' || newsletterCard?.hidden) {
+    renderNewsletterSentUnavailable(elements, locale, true);
+    return;
+  }
+
+  const group = snapshot?.newsletterEmailsSent;
+  if (!group) {
+    renderNewsletterSentUnavailable(elements, locale);
+    return;
+  }
+
+  elements.region.hidden = false;
+  elements.value.textContent = new Intl.NumberFormat(locale).format(group.sent);
+  elements.coverage.textContent = group.publication.label;
+  elements.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
+  elements.results.hidden = false;
+  elements.status.hidden = true;
+  elements.status.textContent = '';
 }
 
 const qualificationCopy = {
@@ -896,6 +987,7 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
 
 function renderActivity(snapshot, locale, language, elements) {
   updateRecordedTotalAvailability(snapshot, language, elements);
+  renderNewsletterSent(snapshot, locale, language, elements.newsletterEmailsSent, elements.cards.newsletter?.card);
   renderNewsletterEmail(snapshot, locale, language, elements);
   renderViews(snapshot, locale, language, elements);
   renderSearch(snapshot, locale, language, elements);
@@ -919,6 +1011,7 @@ async function loadContentStats(section) {
     card.status.hidden = false;
     card.card.setAttribute('aria-busy', 'true');
   }
+  if (newsletterSentElementsReady(elements.newsletterEmailsSent)) renderNewsletterSentLoading(elements.newsletterEmailsSent);
   if (newsletterEmailElementsReady(elements.newsletterEmailOpens)) renderNewsletterEmailLoading(elements.newsletterEmailOpens);
   if (newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)) renderNewsletterEmailLoading(elements.newsletterEmailVerifiedClicks);
   if (viewsElementsReady(elements)) renderViewsLoading(elements.views);

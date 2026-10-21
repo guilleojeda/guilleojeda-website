@@ -2255,6 +2255,26 @@ function isValidNewsletterGroup(group) {
   return Number.isSafeInteger(group.subscribers) && group.subscribers >= 0;
 }
 
+function isValidNewsletterEmailsSentGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "publication", "sent"]) ||
+      group.definitionVersion !== 1 || group.basis !== "cumulative" || typeof group.collectedAt !== "string") {
+    return false;
+  }
+  const collected = Date.parse(group.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt ||
+      typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId) ||
+      !exactKeys(group.publication, ["id", "label", "language"]) ||
+      group.publication.id !== NEWSLETTER_PUBLICATION.id || group.publication.label !== NEWSLETTER_PUBLICATION.label ||
+      group.publication.language !== "en") {
+    return false;
+  }
+  return Number.isSafeInteger(group.sent) && group.sent >= 0;
+}
+
+function sanitizeNewsletterEmailsSentGroup(group) {
+  return isValidNewsletterEmailsSentGroup(group) ? group : null;
+}
+
 function isValidNewsletterEngagementRecord(record, valueKey) {
   if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", valueKey]) ||
       record.basis !== "period" || typeof record.collectedAt !== "string") {
@@ -2501,13 +2521,15 @@ function validateOutput(output) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const families = Object.keys(output.groups);
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
   if (families.length < 1 || families.some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   for (const family of families) {
     const valid = family === "newsletter"
       ? isValidNewsletterGroup(output.groups[family])
+      : family === "newsletterEmailsSent"
+        ? isValidNewsletterEmailsSentGroup(output.groups[family])
       : family === "articleViews"
         ? isValidArticleViewsGroup(output.groups[family])
         : family === "directoryViews"
@@ -2554,7 +2576,7 @@ async function readPreviousAggregate(bucket, key) {
       !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
   if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2584,6 +2606,11 @@ async function readPreviousAggregate(bucket, key) {
     if (family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks") {
       const sanitized = sanitizeNewsletterEngagementGroup(previous.groups[family],
         family === "newsletterEmailOpens" ? "opens" : "clicks");
+      if (sanitized) groups[family] = sanitized;
+      continue;
+    }
+    if (family === "newsletterEmailsSent") {
+      const sanitized = sanitizeNewsletterEmailsSentGroup(previous.groups[family]);
       if (sanitized) groups[family] = sanitized;
       continue;
     }
