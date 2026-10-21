@@ -503,7 +503,7 @@ function checkContentStatsShell(page, html) {
   mustContainText(builderTitle.html, locale === 'en'
     ? 'Builder Center views — recorded total'
     : 'Vistas en Builder Center — total registrado', `${locale} Builder Center row title`);
-  assert.match(normalizedText(builderViewsDisclosure), /recorded|counter|total/i, `${locale} Builder Center disclosure identifies source-recorded activity`);
+  assert.match(disclosureText, /recorded|counter|total/i, `${locale} Builder Center disclosure identifies source-recorded activity`);
   mustContain(builderViewsRegion.html, 'aria-labelledby="content-stats-builder-views-title"', `${locale} Builder Center row is named by its title`);
   for (const field of ['status', 'result', 'value', 'coverage', 'since', 'collected-date']) {
     const attribute = `data-stats-builder-views-${field}`;
@@ -521,9 +521,9 @@ function checkContentStatsShell(page, html) {
     assert.match(normalizedText(builderViewsRegion.html), /collected|last (?:successful )?(?:collection|update)/i, 'English Builder Center metadata labels the last collection date');
   } else {
     assert.match(normalizedText(builderStatus.html), /cargando.*Builder Center/i, 'Spanish Builder Center status has localized loading copy');
-    assert.match(builderViewsRegion.html, /data-stats-builder-views-unavailable=["'][^"']*(?:no disponible|no disponibles|no se pueden)/i, 'Spanish Builder Center row has localized unavailable copy');
+    assert.match(builderViewsRegion.html, /data-stats-builder-views-unavailable=["'][^"']*(?:no disponible|no disponibles|no est[aá]n disponibles|no se pueden)/i, 'Spanish Builder Center row has localized unavailable copy');
     assert.match(normalizedText(builderViewsRegion.html), /cobertura|fuente/i, 'Spanish Builder Center metadata labels source coverage');
-    assert.match(normalizedText(builderViewsRegion.html), /desde|inicia|comienza/i, 'Spanish Builder Center metadata labels the tracking start date');
+    assert.match(normalizedText(builderViewsRegion.html), /desde|inicio|inicia|comienza/i, 'Spanish Builder Center metadata labels the tracking start date');
     assert.match(normalizedText(builderViewsRegion.html), /recopil|ultima (?:recopilacion|actualizacion)|fecha de (?:recopilacion|actualizacion)/i, 'Spanish Builder Center metadata labels the last collection date');
   }
   assert.match(builderStatus.html, /\shidden(?:\s|=|>)/i, `${locale} Builder Center loading status starts hidden without JavaScript`);
