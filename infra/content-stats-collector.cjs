@@ -1329,15 +1329,20 @@ async function requestDirectoryOutboundClickReport(analytics, accessToken, range
 async function collectGooglePeriods(ranges, requestRecord) {
   const eligiblePeriods = ranges.map(({ period }) => period);
   if (ranges.length === 0) return { group: null, failedPeriods: [], eligiblePeriods };
+  // Keep concurrency within one fixed, bounded family; callers still run families sequentially.
+  const outcomes = await Promise.allSettled(ranges.map(async (range) => requestRecord(range)));
   const records = {};
   const failedPeriods = [];
   let failureCode;
-  for (const range of ranges) {
-    try {
-      records[range.period] = await requestRecord(range);
-    } catch (error) {
+  for (let index = 0; index < ranges.length; index += 1) {
+    const outcome = outcomes[index];
+    const period = ranges[index].period;
+    if (outcome.status === "fulfilled") {
+      records[period] = outcome.value;
+    } else {
+      const { reason: error } = outcome;
       if (!(error instanceof CollectorError)) throw error;
-      failedPeriods.push(range.period);
+      failedPeriods.push(period);
       failureCode ??= error.code;
     }
   }
@@ -1426,28 +1431,7 @@ async function requestGoogleSearchReport(searchConsole, accessToken, range, coll
 
 async function collectArticleSearchClicks(searchConsole, accessToken, collectedAt, now) {
   const ranges = supportedGoogleSearchRanges(searchConsole, now);
-  const eligiblePeriods = ranges.map(({ period }) => period);
-  if (ranges.length === 0) return { group: null, failedPeriods: [], eligiblePeriods };
-
-  const records = {};
-  const failedPeriods = [];
-  let failureCode;
-  for (const range of ranges) {
-    try {
-      records[range.period] = await requestGoogleSearchReport(searchConsole, accessToken, range, collectedAt);
-    } catch (error) {
-      if (!(error instanceof CollectorError)) throw error;
-      failedPeriods.push(range.period);
-      failureCode ??= error.code;
-    }
-  }
-
-  return {
-    group: Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null,
-    failedPeriods,
-    eligiblePeriods,
-    ...(failureCode ? { failureCode } : {})
-  };
+  return collectGooglePeriods(ranges, (range) => requestGoogleSearchReport(searchConsole, accessToken, range, collectedAt));
 }
 
 async function collectGoogleMetrics(configuration, env, collectedAt, now) {
@@ -1531,6 +1515,10 @@ async function fetchBuilderPage(source, cursor, page) {
   if (cursor !== "") url.searchParams.set("cursor", cursor);
   const envelope = await fetchJson(url.toString(), source.id, page);
   if (!isObject(envelope) || !Array.isArray(envelope.articles)) throw fail("BUILDER_ENVELOPE_INVALID");
+  if (!Number.isSafeInteger(envelope.resultsSize) || envelope.resultsSize < 0 ||
+      envelope.resultsSize !== envelope.articles.length) {
+    throw fail("BUILDER_ENVELOPE_INVALID");
+  }
   if (Object.hasOwn(envelope, "cursor") && typeof envelope.cursor !== "string") {
     throw fail("BUILDER_ENVELOPE_INVALID");
   }

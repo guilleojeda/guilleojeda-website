@@ -201,6 +201,10 @@ The CI role can upload templates through its existing site-object permission and
 
 EventBridge Scheduler invokes the collector daily at **09:15 America/Argentina/Cordoba**, with no flexible window. The Node 24 Lambda has a five-minute timeout and 30-day log retention. Provider requests have a ten-second deadline and one transient retry; Caylent pagination is capped at 100 pages of 10 records, and Builder Center at 20 cursor pages of 50 records. Short or empty Builder pages with a cursor still continue. Builder article bodies are not fetched for counts. Reaching the cap fails the refresh rather than publishing an incomplete count. Scheduler delivery and Lambda asynchronous execution each allow one retry within one hour.
 
+Builder Center's `resultsSize` must match the number of articles returned on each page; missing or contradictory metadata fails the Articles group instead of publishing an incomplete inventory. The cursor still determines whether another page is required.
+
+Google reports run concurrently across the at most six periods of each metric family. Families remain sequential, limiting one invocation to six active reports for a property. With the existing retry limits, stalled reports across all three GA4 families take 60 seconds rather than a serial 360 seconds, which would exceed the Lambda runtime. Each period keeps its own failure and retention behavior.
+
 The collector uses shared regional Lambda concurrency. Each invocation recomputes current groups, retains supported failed groups when fresh siblings publish, and replaces the complete aggregate object. If invocations overlap, the one that finishes last can publish an older complete snapshot.
 
 The stack exposes `ContentStatsFunctionName`, `ContentStatsScheduleName` and `ContentStatsScheduleGroupName`. Inspect the current stack outputs and schedule before operating it. After infrastructure and normal site/configuration publication, invoke the actual deployed function for initial output or to verify a repair:
