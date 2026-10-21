@@ -376,6 +376,31 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosure, /ingl[eé]s/i, 'Spanish source disclosure identifies the supported content language');
   }
   const disclosureText = normalizedText(disclosure);
+  // Guard source facts here; direct bilingual verification assesses the full explanation.
+  const builderViewsDisclosureFacts = locale === 'en' ? [
+    [/builder center/i, 'Builder Center source'],
+    [/january\s+6,?\s+2026|2026-01-06/, 'January 6, 2026 tracking boundary'],
+    [/24[- ]hours?/i, '24-hour source counting window'],
+    [/own visits?|author.{0,40}visits?|visits?.{0,40}author/i, 'author-visit rule'],
+    [/repeat|return/i, 'repeat-visit meaning'],
+    [/republication|republished/i, 'republication coverage'],
+    [/recorded|counter/i, 'recorded counter basis'],
+    [/not.{0,40}unique|unique.{0,40}not/i, 'unique-reader limitation'],
+    [/not.{0,60}(?:complete lifetime|lifetime total)|incomplete.{0,40}lifetime/i, 'complete-lifetime limitation']
+  ] : [
+    [/builder center/i, 'fuente Builder Center'],
+    [/6 de enero de 2026|2026-01-06/, 'inicio del registro el 6 de enero de 2026'],
+    [/24[- ]horas?/i, 'ventana de conteo de 24 horas'],
+    [/visitas?.{0,40}(?:propias?|autor|guille)|(?:propias?|autor|guille).{0,40}visitas?/i, 'regla de visitas del autor'],
+    [/repet|regresa|vuelve|retorno/i, 'significado de las visitas repetidas'],
+    [/republicaciones?|articulos? republicados?/i, 'cobertura de republicaciones'],
+    [/registrad|contador/i, 'base del contador registrado'],
+    [/no.{0,40}(?:personas? unic|visitantes? unic)/i, 'limite de personas unicas'],
+    [/no.{0,60}(?:historial completo|total de por vida|toda la vida)/i, 'limite del historial completo']
+  ];
+  for (const [pattern, fact] of builderViewsDisclosureFacts) {
+    assert.match(disclosureText, pattern, `${locale} source disclosure explains ${fact}`);
+  }
   const articleCountDisclosure = disclosureText.split(/[.!?]/).find((sentence) =>
     /Simple AWS/i.test(sentence)
       && (locale === 'en' ? /article\s+counts?|counts?\s+(?:of\s+)?articles/i : /conteo\s+de\s+art[ií]culos|art[ií]culos\s+(?:contados|incluyen)/i).test(sentence));
@@ -460,12 +485,65 @@ function checkContentStatsShell(page, html) {
   const countResults = extractElement(articlesCard.html, null, 'data-stats-results');
   const viewsRegion = extractElement(articlesCard.html, null, 'data-stats-views');
   const searchRegion = extractElement(articlesCard.html, null, 'data-stats-search');
+  const builderViewsRegion = extractElement(articlesCard.html, null, 'data-stats-builder-views');
   assert.ok(countResults, `${locale} Articles needs its cumulative count results`);
   assert.ok(viewsRegion, `${locale} Articles needs an independent views region`);
   assert.ok(viewsRegion.start > countResults.start && viewsRegion.start >= countResults.end, `${locale} views region must sit outside and after count results`);
+  assert.ok(builderViewsRegion, `${locale} Articles needs a separate Builder Center recorded-views row`);
+  assert.ok(builderViewsRegion.start > countResults.start && builderViewsRegion.start >= countResults.end, `${locale} Builder Center views must sit outside count results`);
+  assert.ok(builderViewsRegion.end <= viewsRegion.start || viewsRegion.end <= builderViewsRegion.start, `${locale} Builder Center views and GA4 Views must remain independent rows`);
   assert.ok(searchRegion, `${locale} Articles needs an independent Search clicks region`);
   assert.ok(searchRegion.start > countResults.start && searchRegion.start >= countResults.end, `${locale} Search region must sit outside and after count results`);
   assert.ok(searchRegion.end <= viewsRegion.start || viewsRegion.end <= searchRegion.start, `${locale} Search and Views regions must remain independent siblings`);
+  assert.ok(builderViewsRegion.end <= searchRegion.start || searchRegion.end <= builderViewsRegion.start, `${locale} Builder Center views and Search clicks must remain independent rows`);
+  const builderTitle = extractElement(builderViewsRegion.html, 'h4', 'id', 'content-stats-builder-views-title')
+    ?? extractElement(builderViewsRegion.html, 'h3', 'id', 'content-stats-builder-views-title')
+    ?? extractElement(builderViewsRegion.html, 'p', 'id', 'content-stats-builder-views-title');
+  assert.ok(builderTitle, `${locale} Builder Center row needs its own visible title`);
+  mustContainText(builderTitle.html, locale === 'en'
+    ? 'Builder Center views — recorded total'
+    : 'Vistas en Builder Center — total registrado', `${locale} Builder Center row title`);
+  assert.match(disclosureText, /recorded|counter|total/i, `${locale} Builder Center disclosure identifies source-recorded activity`);
+  mustContain(builderViewsRegion.html, 'aria-labelledby="content-stats-builder-views-title"', `${locale} Builder Center row is named by its title`);
+  for (const field of ['status', 'result', 'value', 'coverage', 'since', 'collected-date']) {
+    const attribute = `data-stats-builder-views-${field}`;
+    assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(builderViewsRegion.html), `${locale} Builder Center row needs ${field}`);
+  }
+  const builderStatus = extractElement(builderViewsRegion.html, null, 'data-stats-builder-views-status');
+  assert.ok(builderStatus, `${locale} Builder Center row needs a loading and unavailable status`);
+  mustContain(builderStatus.html, 'role="status"', `${locale} Builder Center status has a status role`);
+  mustContain(builderStatus.html, 'aria-live="polite"', `${locale} Builder Center status announces updates politely`);
+  if (locale === 'en') {
+    assert.match(normalizedText(builderStatus.html), /loading.*Builder Center/i, 'English Builder Center status has localized loading copy');
+    assert.match(builderViewsRegion.html, /data-stats-builder-views-unavailable=["'][^"']*(?:unavailable|not available)/i, 'English Builder Center row has localized unavailable copy');
+    assert.match(normalizedText(builderViewsRegion.html), /coverage|source/i, 'English Builder Center metadata labels source coverage');
+    assert.match(normalizedText(builderViewsRegion.html), /since|tracking starts?|tracking begins/i, 'English Builder Center metadata labels the tracking start date');
+    assert.match(normalizedText(builderViewsRegion.html), /collected|last (?:successful )?(?:collection|update)/i, 'English Builder Center metadata labels the last collection date');
+  } else {
+    assert.match(normalizedText(builderStatus.html), /cargando.*Builder Center/i, 'Spanish Builder Center status has localized loading copy');
+    assert.match(builderViewsRegion.html, /data-stats-builder-views-unavailable=["'][^"']*(?:no disponible|no disponibles|no est[aá]n disponibles|no se pueden)/i, 'Spanish Builder Center row has localized unavailable copy');
+    assert.match(normalizedText(builderViewsRegion.html), /cobertura|fuente/i, 'Spanish Builder Center metadata labels source coverage');
+    assert.match(normalizedText(builderViewsRegion.html), /desde|inicio|inicia|comienza/i, 'Spanish Builder Center metadata labels the tracking start date');
+    assert.match(normalizedText(builderViewsRegion.html), /recopil|ultima (?:recopilacion|actualizacion)|fecha de (?:recopilacion|actualizacion)/i, 'Spanish Builder Center metadata labels the last collection date');
+  }
+  assert.match(builderStatus.html, /\shidden(?:\s|=|>)/i, `${locale} Builder Center loading status starts hidden without JavaScript`);
+  const builderResult = extractElement(builderViewsRegion.html, null, 'data-stats-builder-views-result');
+  assert.ok(builderResult, `${locale} Builder Center row needs its independent result region`);
+  assert.match(builderResult.html, /\shidden(?:\s|=|>)/i, `${locale} Builder Center result starts hidden without JavaScript`);
+  const builderCount = extractElement(builderResult.html, 'p', 'role', 'status');
+  assert.ok(builderCount, `${locale} Builder Center value needs an accessible result label`);
+  mustContain(builderCount.html, 'aria-live="polite"', `${locale} Builder Center value announces updates politely`);
+  mustContain(builderCount.html, 'aria-atomic="true"', `${locale} Builder Center value is announced as one result`);
+  const builderValue = extractElement(builderCount.html, null, 'data-stats-builder-views-value');
+  assert.ok(builderValue, `${locale} Builder Center accessible result needs its value`);
+  assert.equal(normalizedText(builderValue.html), '', `${locale} Builder Center result has no static placeholder number`);
+  for (const field of ['coverage', 'since', 'collected-date']) {
+    const value = extractElement(builderResult.html, null, `data-stats-builder-views-${field}`);
+    assert.ok(value, `${locale} Builder Center result needs its own ${field} metadata`);
+    assert.equal(normalizedText(value.html), '', `${locale} Builder Center ${field} is empty before JavaScript loads`);
+  }
+  assert.ok(!/data-stats-builder-views-(?:interval|period|start-date|end-date)\b/i.test(builderViewsRegion.html), `${locale} Builder Center recorded total must not imply selected-period dates`);
+  assert.match(builderViewsRegion.html, /^<[^>]+\saria-busy=["']false["'](?:\s|>)/i, `${locale} Builder Center row is not permanently busy without JavaScript`);
   for (const field of ['status', 'results', 'value', 'coverage', 'interval', 'collected-date', 'qualifications']) {
     const attribute = `data-stats-views-${field}`;
     assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(viewsRegion.html), `${locale} views region needs ${field}`);

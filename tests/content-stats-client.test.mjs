@@ -141,6 +141,18 @@ function newsletterSentGroup({
   return { definitionVersion, basis, collectedAt: groupCollectedAt, scopeId, publication, sent };
 }
 
+function builderArticleViewsGroup({
+  views = { all: 120, en: 72, es: 48 },
+  collectedAt: groupCollectedAt = '2026-09-16T00:00:00.000Z',
+  scopeId = '9'.repeat(64),
+  source = { ...builderCenter },
+  startDate = '2026-01-06',
+  definitionVersion = 1,
+  basis = 'recorded-total'
+} = {}) {
+  return { definitionVersion, basis, collectedAt: groupCollectedAt, scopeId, source, startDate, views };
+}
+
 function snapshotWithNewsletter(options = {}) {
   const data = threeGroupSnapshot();
   data.groups.newsletter = newsletterGroup(options);
@@ -255,6 +267,11 @@ function articleViewsRecords() {
 function snapshotWithArticleViews({ records = articleViewsRecords(), definitionVersion = 1 } = {}) {
   const data = snapshotWithNewsletter();
   data.groups.articleViews = { definitionVersion, records };
+  return data;
+}
+
+function snapshotWithBuilderArticleViews({ data = snapshotWithArticleViews(), group = builderArticleViewsGroup() } = {}) {
+  data.groups.builderArticleViews = group;
   return data;
 }
 
@@ -494,6 +511,20 @@ const newsletterSentCopy = {
   }
 };
 
+const builderArticleViewsCopy = {
+  en: {
+    label: 'Builder Center views — recorded total',
+    loading: 'Loading Builder Center recorded views…',
+    unavailable: 'Builder Center recorded views are unavailable.',
+    unit: 'views'
+  },
+  es: {
+    label: 'Vistas en Builder Center — total registrado',
+    loading: 'Cargando vistas registradas de Builder Center…',
+    unavailable: 'Las vistas registradas de Builder Center no están disponibles.'
+  }
+};
+
 function makeCard(kind, locale) {
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
@@ -647,6 +678,34 @@ function makeNewsletterSentMetric(locale, card) {
   return { region, label, status, results, value, coverage, collectedDate };
 }
 
+function makeBuilderArticleViews(locale, card) {
+  const copy = builderArticleViewsCopy[locale];
+  const region = card.appendChild(new SemanticElement({
+    dataset: { statsBuilderViews: '', statsBuilderViewsUnavailable: copy.unavailable },
+    attributes: { 'aria-labelledby': 'content-stats-builder-views-title' }
+  }));
+  const label = region.appendChild(new SemanticElement({
+    attributes: { id: 'content-stats-builder-views-title' },
+    textContent: copy.label
+  }));
+  const status = region.appendChild(new SemanticElement({
+    dataset: { statsBuilderViewsStatus: '' },
+    attributes: { role: 'status', 'aria-live': 'polite' },
+    textContent: copy.loading,
+    hidden: true
+  }));
+  const result = region.appendChild(new SemanticElement({
+    dataset: { statsBuilderViewsResult: '' },
+    attributes: { 'aria-live': 'polite', 'aria-atomic': 'true' },
+    hidden: true
+  }));
+  const value = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsValue: '' } }));
+  const coverage = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsCoverage: '' } }));
+  const since = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsSince: '' } }));
+  const collectedDate = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsCollectedDate: '' } }));
+  return { region, label, status, result, value, coverage, since, collectedDate };
+}
+
 function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, includeViews = true, includeSearch = true } = {}) {
   const section = new SemanticElement({
     dataset: {
@@ -681,6 +740,7 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
   cards.newsletter.emailOpens = makeNewsletterEmailMetric('opens', locale, cards.newsletter.card);
   cards.newsletter.emailVerifiedClicks = makeNewsletterEmailMetric('clicks', locale, cards.newsletter.card);
   cards.newsletter.sent = makeNewsletterSentMetric(locale, cards.newsletter.card);
+  cards.articles.builderViews = makeBuilderArticleViews(locale, cards.articles.card);
   cards.directoryViews = makeDirectoryViews(locale);
   section.appendChild(cards.directoryViews.card);
   cards.directoryOutboundClicks = makeDirectoryOutboundClicks(locale, cards.directoryViews.card);
@@ -725,6 +785,10 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
 
 function expectedDate(locale, timestamp = collectedAt) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+}
+
+function expectedDateOnly(locale, date) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
 function assertUnavailable(page, locale, kind = 'articles') {
@@ -883,6 +947,36 @@ function assertNewsletterSentVisible(page, locale, expectedValue, collectedAt) {
   assert.match(sent.label.textContent, locale === 'en' ? /emails sent.*reported total/i : /emails enviados.*total informado/i);
   assert.equal(sent.coverage.textContent, 'Simple AWS');
   assert.equal(sent.collectedDate.textContent, expectedDate(locale, collectedAt));
+}
+
+function assertBuilderViewsUnavailable(page, locale, { hidden = false } = {}) {
+  const builder = page.cards.articles.builderViews;
+  assert.equal(builder.region.hidden, hidden, 'Builder Center availability follows only its own content-language selection');
+  assert.equal(builder.result.hidden, true, 'unavailable Builder Center results stay hidden');
+  for (const [name, field] of Object.entries({ value: builder.value, coverage: builder.coverage, since: builder.since, collectedDate: builder.collectedDate })) {
+    assert.equal(field.textContent, '', `unavailable Builder Center views clear ${name}`);
+  }
+  assert.equal(builder.status.hidden, hidden, 'Builder Center status follows row visibility');
+  if (hidden) {
+    assert.equal(builder.status.textContent, '', 'a hidden Builder Center row clears its status');
+  } else if (locale === 'en') {
+    assert.match(builder.status.textContent, /unavailable|not available/i, 'English unavailable copy is clear');
+  } else {
+    assert.match(builder.status.textContent, /no disponible|no disponibles|no se pueden/i, 'Spanish unavailable copy is clear');
+  }
+}
+
+function assertBuilderViewsVisible(page, locale, language, group = page.data.groups.builderArticleViews) {
+  const builder = page.cards.articles.builderViews;
+  assert.equal(builder.region.hidden, false, `${language} Builder Center views remain independently visible`);
+  assert.equal(builder.status.hidden, true, 'available Builder Center views clear loading or unavailable status');
+  assert.equal(builder.status.textContent, '', 'available Builder Center views clear stale status text');
+  assert.equal(builder.result.hidden, false, 'available Builder Center views reveal their result');
+  assert.equal(builder.value.textContent, new Intl.NumberFormat(locale).format(group.views[language]));
+  assert.equal(builder.coverage.textContent, group.source.label, 'Builder Center coverage comes from its source metadata');
+  assert.equal(builder.since.textContent, expectedDateOnly(locale, group.startDate), 'Builder Center keeps its own fixed tracking start date');
+  assert.equal(builder.collectedDate.textContent, expectedDate(locale, group.collectedAt), 'Builder Center shows its actual collection date');
+  assert.match(builder.label.textContent, locale === 'en' ? /Builder Center views.*recorded total/i : /Vistas en Builder Center.*total registrado/i);
 }
 
 function assertSearchUnavailable(page, locale) {
@@ -3127,4 +3221,242 @@ test('invalid directory timezone metadata isolates its periods and preserves hea
   assert.match(page.cards.directoryViews.interval.textContent, /Etc\/GMT\+2/);
   assert.equal(page.cards.articles.count.textContent, '11');
   assert.equal(page.fetchCount, 1);
+});
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} Builder Center recorded views stay independent of GA4 periods and content language`, async () => {
+    const group = builderArticleViewsGroup();
+    const page = createPage({ locale, data: snapshotWithBuilderArticleViews({ group }) });
+    const builder = page.cards.articles.builderViews;
+
+    assert.equal(builder.status.hidden, false, 'the independent row announces loading while the shared snapshot is fetched');
+    assert.match(builder.status.textContent, locale === 'en' ? /loading.*Builder Center/i : /cargando.*Builder Center/i);
+    assert.equal(builder.result.hidden, true, 'the initial result stays hidden');
+    assert.equal(builder.value.textContent, '', 'the initial value has no placeholder number');
+    assert.equal(builder.coverage.textContent, '', 'the initial source is empty');
+    assert.equal(builder.since.textContent, '', 'the initial tracking date is empty');
+    assert.equal(builder.collectedDate.textContent, '', 'the initial collection date is empty');
+    await page.settle();
+
+    assertBuilderViewsVisible(page, locale, 'all', group);
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assertViewsVisible(page, locale, '12m');
+    assert.equal(page.periodSelector.disabled, false);
+    assert.equal(page.periodOptions.total.disabled, false, 'the healthy GA4 total independently enables Recorded total');
+
+    for (const period of articleViewPeriods) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assert.equal(page.periodSelector.value, period);
+      assertViewsVisible(page, locale, period);
+      assertBuilderViewsVisible(page, locale, 'all', group);
+    }
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'the independent row does not reset GA4-supported Recorded total during English filtering');
+    assertBuilderViewsVisible(page, locale, 'en', group);
+    assert.equal(page.cards.articles.count.textContent, '7');
+    for (const period of articleViewPeriods) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertViewsVisible(page, locale, period);
+      assertBuilderViewsVisible(page, locale, 'en', group);
+    }
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertBuilderViewsVisible(page, locale, 'es', group);
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assertViewsUnavailable(page, locale);
+    assert.equal(page.periodOptions.total.disabled, true, 'Builder Center does not supply an activity-period total');
+    assert.equal(page.periodSelector.value, '12m', 'Spanish filtering retains the existing unsupported-total reset behavior');
+    for (const period of articleSearchPeriods) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assertBuilderViewsVisible(page, locale, 'es', group);
+      assertViewsUnavailable(page, locale);
+      assert.equal(page.cards.articles.count.textContent, '4');
+    }
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assertBuilderViewsVisible(page, locale, 'all', group);
+    assertViewsVisible(page, locale, 'ytd');
+    assert.equal(page.periodOptions.total.disabled, false, 'returning to All restores GA4-supported Recorded total');
+    assert.equal(page.fetchCount, 1, 'language and period changes reuse one aggregate request');
+    assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+    assert.equal(page.location.href, 'https://guilleojeda.com/', 'local filtering does not navigate');
+  });
+}
+
+test('Builder Center views work alone when article counts and GA4 views are missing', async () => {
+  const group = builderArticleViewsGroup();
+  const page = createPage({
+    locale: 'en',
+    data: { schemaVersion: 1, groups: { builderArticleViews: group } }
+  });
+  page.periodSelector.value = 'total';
+  await page.settle();
+
+  assertBuilderViewsVisible(page, 'en', 'all', group);
+  assertUnavailable(page, 'en', 'articles');
+  assertViewsUnavailable(page, 'en');
+  assert.equal(page.periodOptions.total.disabled, true, 'Builder Center does not enable Recorded total');
+  assert.equal(page.periodSelector.value, '12m', 'the existing control resets an unsupported Recorded total');
+
+  page.selector.value = 'en';
+  page.selector.dispatch('change');
+  assertBuilderViewsVisible(page, 'en', 'en', group);
+  assertUnavailable(page, 'en', 'articles');
+  page.selector.value = 'es';
+  page.selector.dispatch('change');
+  assertBuilderViewsVisible(page, 'en', 'es', group);
+  assertUnavailable(page, 'en', 'articles');
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Builder Center and GA4 views remain available when article counts are missing', async () => {
+  const group = builderArticleViewsGroup();
+  const data = snapshotWithArticleViews();
+  delete data.groups.articles;
+  data.groups.builderArticleViews = group;
+  const page = createPage({ locale: 'en', data });
+  await page.settle();
+
+  assertUnavailable(page, 'en', 'articles');
+  assertBuilderViewsVisible(page, 'en', 'all', group);
+  assertViewsVisible(page, 'en', '12m');
+  assert.equal(page.periodOptions.total.disabled, false, 'GA4 keeps its supported total available without article counts');
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Builder Center views remain available when article counts exist and GA4 views are missing', async () => {
+  const group = builderArticleViewsGroup();
+  const data = snapshotWithNewsletter();
+  data.groups.builderArticleViews = group;
+  const page = createPage({ locale: 'en', data });
+  page.periodSelector.value = 'total';
+  await page.settle();
+
+  assert.equal(page.cards.articles.count.textContent, '11');
+  assertBuilderViewsVisible(page, 'en', 'all', group);
+  assertViewsUnavailable(page, 'en');
+  assert.equal(page.periodOptions.total.disabled, true, 'Builder Center does not supply GA4 or another period total');
+  assert.equal(page.periodSelector.value, '12m', 'the existing fallback still resets an unsupported total');
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Builder Center recorded zero stays visible for All, English, and Spanish content', async () => {
+  const group = builderArticleViewsGroup({ views: { all: 0, en: 0, es: 0 } });
+  const data = snapshotWithBuilderArticleViews({ group });
+  data.groups.articles.counts = { all: 0, en: 0, es: 0 };
+  const page = createPage({ locale: 'es', data });
+  await page.settle();
+
+  for (const [language, expectedCount] of [['all', '0'], ['en', '0'], ['es', '0']]) {
+    page.selector.value = language;
+    page.selector.dispatch('change');
+    assertBuilderViewsVisible(page, 'es', language, group);
+    assert.equal(page.cards.articles.count.textContent, expectedCount, 'valid zero article counts remain measured values');
+  }
+  assert.equal(page.fetchCount, 1);
+});
+
+test('missing Builder Center data stays unavailable without rejecting healthy existing families', async () => {
+  const page = createPage({ locale: 'en', data: snapshotWithArticleViews() });
+  await page.settle();
+
+  assertBuilderViewsUnavailable(page, 'en');
+  assert.equal(page.cards.articles.count.textContent, '11');
+  assertViewsVisible(page, 'en', '12m');
+  assert.equal(page.periodOptions.total.disabled, false, 'existing GA4 data still enables its own total');
+  assert.equal(page.fetchCount, 1);
+});
+
+const invalidBuilderArticleViewsGroups = [
+  ['future definition version', (group) => { group.definitionVersion = 2; }],
+  ['wrong basis', (group) => { group.basis = 'cumulative'; }],
+  ['noncanonical collection timestamp', (group) => { group.collectedAt = '2026-09-16T00:00:00Z'; }],
+  ['nonlowercase scope hash', (group) => { group.scopeId = 'A'.repeat(64); }],
+  ['malformed scope hash', (group) => { group.scopeId = 'builder-center'; }],
+  ['wrong source id', (group) => { group.source.id = 'other'; }],
+  ['wrong source label', (group) => { group.source.label = 'Other'; }],
+  ['provider identifier in source', (group) => { group.source.providerId = 'private-id'; }],
+  ['wrong tracking start date', (group) => { group.startDate = '2026-01-07'; }],
+  ['mismatched language sum', (group) => { group.views.all = 121; }],
+  ['negative language value', (group) => { group.views.en = -1; }],
+  ['fractional language value', (group) => { group.views.es = 1.5; }],
+  ['unsafe integer language value', (group) => { group.views.en = Number.MAX_SAFE_INTEGER + 1; }],
+  ['string language value', (group) => { group.views.es = '48'; }],
+  ['missing language value', (group) => { delete group.views.es; }],
+  ['extra field in group', (group) => { group.providerId = 'private-id'; }],
+  ['extra field in language counts', (group) => { group.views.fr = 1; }]
+];
+
+for (const [description, mutate] of invalidBuilderArticleViewsGroups) {
+  test(`invalid Builder Center recorded views reject ${description} without affecting healthy siblings`, async () => {
+    const group = builderArticleViewsGroup();
+    mutate(group);
+    const page = createPage({ locale: 'en', data: snapshotWithBuilderArticleViews({ group }) });
+    await page.settle();
+
+    assertBuilderViewsUnavailable(page, 'en');
+    assert.equal(page.cards.articles.count.textContent, '11', 'invalid Builder Center metadata does not hide article counts');
+    assertViewsVisible(page, 'en', '12m');
+    assert.equal(page.periodOptions.total.disabled, false, 'invalid Builder Center metadata cannot disable a healthy GA4 total');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const [failure, options] of [
+  ['network failure', { fetchError: new Error('synthetic fetch failure') }],
+  ['HTTP failure', { responseOk: false }],
+  ['invalid root document', { data: null }]
+]) {
+  test(`Builder Center loading and ${failure} clear stale values and provenance`, async () => {
+    const page = createPage({ locale: 'en', data: snapshotWithBuilderArticleViews(), ...options });
+    const builder = page.cards.articles.builderViews;
+    assert.equal(builder.status.hidden, false, 'the row shows loading while the shared request is pending');
+    assert.match(builder.status.textContent, /loading.*Builder Center/i);
+    assert.equal(builder.result.hidden, true);
+    assert.equal(builder.value.textContent, '');
+
+    builder.result.hidden = false;
+    builder.value.textContent = '9999';
+    builder.coverage.textContent = 'Stale source';
+    builder.since.textContent = 'Stale start';
+    builder.collectedDate.textContent = 'Stale date';
+    await page.settle();
+
+    assertBuilderViewsUnavailable(page, 'en');
+    assert.equal(page.fetchCount, 1, 'a failed shared request does not poll for this metric');
+  });
+}
+
+test('Builder Center displays retained and refreshed snapshots with each page’s own collection date', async () => {
+  const retainedGroup = builderArticleViewsGroup({
+    views: { all: 37, en: 20, es: 17 },
+    collectedAt: '2026-01-07T00:00:00.000Z'
+  });
+  const retainedPage = createPage({
+    locale: 'en',
+    data: snapshotWithBuilderArticleViews({ group: retainedGroup })
+  });
+  await retainedPage.settle();
+  assertBuilderViewsVisible(retainedPage, 'en', 'all', retainedGroup);
+
+  const refreshedGroup = builderArticleViewsGroup({
+    views: { all: 124, en: 73, es: 51 },
+    collectedAt: '2026-09-20T00:00:00.000Z'
+  });
+  const refreshedPage = createPage({
+    locale: 'en',
+    data: snapshotWithBuilderArticleViews({ group: refreshedGroup })
+  });
+  await refreshedPage.settle();
+  assertBuilderViewsVisible(refreshedPage, 'en', 'all', refreshedGroup);
+  assertBuilderViewsVisible(retainedPage, 'en', 'all', retainedGroup);
+  assert.equal(retainedPage.fetchCount, 1);
+  assert.equal(refreshedPage.fetchCount, 1);
 });
