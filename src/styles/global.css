@@ -745,6 +745,7 @@ a:hover {
 }
 
 .content-stats-views-count [data-stats-views-value],
+.content-stats-views-count [data-stats-builder-views-value],
 .content-stats-directory-views-count [data-stats-directory-views-value],
 .content-stats-directory-outbound-clicks-count [data-stats-directory-outbound-clicks-value],
 .content-stats-newsletter-email-count [data-stats-newsletter-email-opens-value],
