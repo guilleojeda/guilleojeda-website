@@ -538,6 +538,29 @@ function makeNewsletterGroup(selection, subscribers, collectedAt) {
   };
 }
 
+function newsletterEmailsSentScopeFingerprint(selection) {
+  const scope = {
+    definitionVersion: 1,
+    family: "newsletterEmailsSent",
+    policy: "beehiiv-publication-total-sent-v1",
+    publication: { ...NEWSLETTER_PUBLICATION, language: "en" },
+    providerPublicationId: selection.publicationId,
+    source: { providerMetric: "total_sent" }
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function makeNewsletterEmailsSentGroup(selection, sent, collectedAt) {
+  return {
+    definitionVersion: 1,
+    basis: "cumulative",
+    collectedAt,
+    scopeId: newsletterEmailsSentScopeFingerprint(selection),
+    publication: { ...NEWSLETTER_PUBLICATION, language: "en" },
+    sent
+  };
+}
+
 async function readBeehiivApiKey(env) {
   const secretId = requireString(env.BEEHIIV_API_KEY_SECRET_ARN, "NEWSLETTER_CREDENTIAL_INVALID");
   let response;
@@ -562,10 +585,9 @@ async function readBeehiivApiKey(env) {
   return secret.apiKey;
 }
 
-async function collectNewsletter(value, env, collectedAt) {
-  const selection = validateNewsletterSelection(value);
+async function collectNewsletter(selection, env, collectedAt) {
   const apiKey = await readBeehiivApiKey(env);
-  const url = `${BEEHIIV_API_ENDPOINT}${encodeURIComponent(selection.publicationId)}?expand=stat_active_subscriptions`;
+  const url = `${BEEHIIV_API_ENDPOINT}${encodeURIComponent(selection.publicationId)}?expand=stats`;
   const envelope = await fetchJson(url, selection.id, 1, {
     headers: { accept: "application/json", authorization: `Bearer ${apiKey}` },
     redirect: "error"
@@ -575,8 +597,23 @@ async function collectNewsletter(value, env, collectedAt) {
     throw fail("NEWSLETTER_RESPONSE_INVALID");
   }
   const subscribers = envelope.data.stats.active_subscriptions;
-  if (!Number.isSafeInteger(subscribers) || subscribers < 0) throw fail("NEWSLETTER_RESPONSE_INVALID");
-  return makeNewsletterGroup(selection, subscribers, collectedAt);
+  const validSubscribers = Number.isSafeInteger(subscribers) && subscribers >= 0;
+  const result = {
+    newsletter: validSubscribers
+      ? makeNewsletterGroup(selection, subscribers, collectedAt)
+      : null,
+    newsletterFailure: validSubscribers ? null : "NEWSLETTER_RESPONSE_INVALID"
+  };
+
+  if (selection.language === "en") {
+    const sent = envelope.data.stats.total_sent;
+    const validSent = Number.isSafeInteger(sent) && sent >= 0;
+    result.newsletterEmailsSent = validSent
+      ? makeNewsletterEmailsSentGroup(selection, sent, collectedAt)
+      : null;
+    result.newsletterEmailsSentFailure = validSent ? null : "NEWSLETTER_RESPONSE_INVALID";
+  }
+  return result;
 }
 
 function newsletterEngagementScopeFingerprint(selection, family, providerMetric) {
@@ -2683,11 +2720,20 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
       ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8 || configuration.schemaVersion === 9 || configuration.schemaVersion === 10) &&
         configuration.newsletter !== undefined)) {
+    let newsletterSelection;
     try {
-      groups.newsletter = await collectNewsletter(configuration.newsletter, env, collectedAt);
+      newsletterSelection = validateNewsletterSelection(configuration.newsletter);
+      const newsletter = await collectNewsletter(newsletterSelection, env, collectedAt);
+      if (newsletter.newsletter) groups.newsletter = newsletter.newsletter;
+      else failures.newsletter = newsletter.newsletterFailure;
+      if (newsletterSelection.language === "en") {
+        if (newsletter.newsletterEmailsSent) groups.newsletterEmailsSent = newsletter.newsletterEmailsSent;
+        else failures.newsletterEmailsSent = newsletter.newsletterEmailsSentFailure;
+      }
     } catch (error) {
       if (!(error instanceof CollectorError)) throw error;
       failures.newsletter = error.code;
+      if (newsletterSelection?.language === "en") failures.newsletterEmailsSent = error.code;
     }
   }
 
