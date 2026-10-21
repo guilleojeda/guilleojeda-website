@@ -27,6 +27,7 @@
     "publicationId": "pub_ed281676-a90b-4ea4-8399-5bd595846499",
     "language": "en"
   },
+  "newsletterEngagements": true,
   "analytics": {
     "id": "simple-aws",
     "propertyId": "373694636",
