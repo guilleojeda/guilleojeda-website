@@ -2967,7 +2967,7 @@ test("newsletter source-scope changes never relabel a prior count under new publ
   await harness.handler({}, {});
   const afterSelectorFailure = await readPut(harness.putCalls[1]);
   assert.deepEqual(afterSelectorFailure.groups.newsletter, first, "a failed refresh keeps every prior newsletter field unchanged even when configuration has changed");
-  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv")[1].url, "https://api.beehiiv.com/v2/publications/publication-b%2Fencoded?expand=stat_active_subscriptions");
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv")[1].url, "https://api.beehiiv.com/v2/publications/publication-b%2Fencoded?expand=stats");
 
   failProvider = false;
   subscribers = 19;
