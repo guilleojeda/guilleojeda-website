@@ -3282,7 +3282,7 @@ for (const locale of ['en', 'es']) {
     page.selector.value = 'all';
     page.selector.dispatch('change');
     assertBuilderViewsVisible(page, locale, 'all', group);
-    assertViewsVisible(page, locale, '12m');
+    assertViewsVisible(page, locale, 'ytd');
     assert.equal(page.periodOptions.total.disabled, false, 'returning to All restores GA4-supported Recorded total');
     assert.equal(page.fetchCount, 1, 'language and period changes reuse one aggregate request');
     assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
