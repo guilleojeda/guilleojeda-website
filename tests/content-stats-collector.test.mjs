@@ -180,6 +180,13 @@ function phaseTwelveInput({ baseInput, directoryAnalytics, recordedSince = "2024
   return input;
 }
 
+function phaseThirteenInput({ baseInput, ...options } = {}) {
+  const input = baseInput === undefined ? phaseTwelveInput(options) : structuredClone(baseInput);
+  input.schemaVersion = 10;
+  input.newsletterEngagements = true;
+  return input;
+}
+
 function cloudyArticle({
   id = "cloudy-id",
   slug = id,
@@ -554,6 +561,7 @@ function phaseEightApiFetch({
   builderPages,
   postsResponder,
   newsletterResponder,
+  engagementResponder,
   tokenResponder,
   reportResponder,
   searchResponder
@@ -565,6 +573,7 @@ function phaseEightApiFetch({
     articleFetcher,
     postsResponder,
     newsletterResponder,
+    engagementResponder,
     tokenResponder,
     reportResponder,
     searchResponder
@@ -934,6 +943,7 @@ function phaseFiveApiFetch({
   reportResponder,
   searchResponder,
   newsletterResponder,
+  engagementResponder,
   postsResponder,
   articleFetcher,
   timeZone = googleTimeZone
@@ -942,6 +952,28 @@ function phaseFiveApiFetch({
   const attempts = new Map();
   return async (input, init = {}) => {
     const url = new URL(String(input));
+    if (url.hostname === "api.beehiiv.com" && url.pathname.endsWith("/engagements")) {
+      const request = {
+        kind: "beehiiv-engagements",
+        url: url.toString(),
+        method: init.method,
+        headers: init.headers ?? {},
+        redirect: init.redirect,
+        signal: init.signal
+      };
+      const attempt = (attempts.get(request.url) ?? 0) + 1;
+      attempts.set(request.url, attempt);
+      requestLog.push(request);
+      if (typeof engagementResponder === "function") return engagementResponder({ request, attempt });
+      if (engagementResponder !== undefined) return responseFromFixture(engagementResponder);
+      return jsonResponse(beehiivEngagementsEnvelope([], {
+        publicationId: decodeURIComponent(url.pathname.split("/").at(-2)),
+        granularity: url.searchParams.get("granularity"),
+        emailType: url.searchParams.get("email_type"),
+        startDate: url.searchParams.get("start_date"),
+        numberOfDays: Number(url.searchParams.get("number_of_days"))
+      }));
+    }
     const kind = url.origin === "https://oauth2.googleapis.com" && url.pathname === "/token"
       ? "google-oauth"
       : url.hostname === "analyticsdata.googleapis.com" && url.pathname.endsWith(":runReport")
@@ -2296,6 +2328,93 @@ function newsletterEnvelope(publicationId = beehiivPublicationId, subscribers = 
   return { data: { id: publicationId, stats: { active_subscriptions: subscribers } } };
 }
 
+function beehiivEngagementsEnvelope(data, {
+  publicationId = beehiivPublicationId,
+  granularity = "day",
+  emailType = "post",
+  startDate,
+  numberOfDays
+} = {}) {
+  return {
+    data,
+    publication_id: publicationId,
+    granularity,
+    email_type: emailType,
+    start_date: startDate,
+    number_of_days: numberOfDays
+  };
+}
+
+function addUtcDays(date, days) {
+  return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function engagementRow(date, index, extra = {}) {
+  const outsideUnion = date < "2025-10-18" || date > "2026-10-17";
+  return {
+    date,
+    total_opens: outsideUnion ? 1_000_000 + Math.abs(index) : index + 1,
+    total_verified_clicks: outsideUnion ? 2_000_000 + Math.abs(index) : index % 11,
+    total_clicks: 8_000_000 - index,
+    unique_opens: 9_000_000 + index,
+    unique_clicks: 10_000_000 + index,
+    unique_verified_clicks: 11_000_000 + index,
+    privateResponseCanary: "synthetic-beehiiv-private-daily-canary",
+    post_title: "synthetic-private-per-post-title",
+    ...extra
+  };
+}
+
+function engagementRowsForRequest(request, extraForDate = () => ({})) {
+  const url = new URL(request.url);
+  const startDate = url.searchParams.get("start_date");
+  const numberOfDays = Number(url.searchParams.get("number_of_days"));
+  const unionStart = Date.parse("2025-10-18T00:00:00.000Z");
+  return Array.from({ length: numberOfDays + 1 }, (_, offset) => {
+    const date = addUtcDays(startDate, offset);
+    const index = Math.floor((Date.parse(`${date}T00:00:00.000Z`) - unionStart) / 86_400_000);
+    return engagementRow(date, index, extraForDate(date, index));
+  });
+}
+
+function mutateIntendedEngagementDate(request, envelope, date, mutate) {
+  const url = new URL(request.url);
+  const startDate = url.searchParams.get("start_date");
+  const intendedDays = Number(url.searchParams.get("number_of_days"));
+  const offset = Math.floor((Date.parse(`${date}T00:00:00.000Z`) - Date.parse(`${startDate}T00:00:00.000Z`)) / 86_400_000);
+  if (offset >= 0 && offset < intendedDays) {
+    const row = envelope.data.find((candidate) => candidate.date === date);
+    if (row) mutate(row, envelope.data);
+  }
+}
+
+function beehiivEngagementRequests(requestLog) {
+  return requestLog.filter(({ kind }) => kind === "beehiiv-engagements");
+}
+
+function assertBeehiivEngagementRequests(harness, requests, publicationId = beehiivPublicationId) {
+  assert.ok(requests.length > 0, "the enabled engagement selector must make provider requests");
+  for (const request of requests) {
+    const url = new URL(request.url);
+    assert.equal(url.origin, "https://api.beehiiv.com");
+    assert.equal(url.pathname, `/v2/publications/${encodeURIComponent(publicationId)}/engagements`);
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      start_date: url.searchParams.get("start_date"),
+      number_of_days: url.searchParams.get("number_of_days"),
+      granularity: "day",
+      email_type: "post"
+    });
+    assert.match(url.searchParams.get("start_date"), /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(Number(url.searchParams.get("number_of_days")) >= 1);
+    assert.ok(Number(url.searchParams.get("number_of_days")) <= 31);
+    assert.equal(request.method, "GET");
+    assert.equal(newsletterRequestHeader(request, "authorization"), `Bearer ${beehiivApiKey}`);
+    assert.equal(request.redirect, "error");
+    assert.ok(request.signal);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 5_000);
+  }
+}
+
 function beehiivPostsEnvelope(data, {
   limit = 100,
   page = 1,
@@ -3626,10 +3745,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 9 are rejected as unsupported", async () => {
+test("schema versions newer than input 10 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseSixInput(), schemaVersion: 10 },
+    input: { ...phaseSixInput(), schemaVersion: 11 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");
@@ -6849,4 +6968,731 @@ test("outbound-click YTD is omitted when the closed-day lag still ends in the pr
   assert.equal(currentReports.length, 8, "only four eligible periods are requested for each metric");
   assert.equal(currentReports.some((request) => reportRange(request).startDate === "2026-01-01"), false,
     "no YTD request is made before the lag reaches January 1");
+});
+
+const phaseThirteenRanges = {
+  "7d": ["2026-10-11", "2026-10-17"],
+  "30d": ["2026-09-18", "2026-10-17"],
+  "90d": ["2026-07-20", "2026-10-17"],
+  "12m": ["2025-10-18", "2026-10-17"],
+  ytd: ["2026-01-01", "2026-10-17"]
+};
+
+function phaseThirteenExpectedValue(date, metric) {
+  const index = Math.floor((Date.parse(`${date}T00:00:00.000Z`) - Date.parse("2025-10-18T00:00:00.000Z")) / 86_400_000);
+  if (date < "2025-10-18" || date > "2026-10-17") {
+    return metric === "opens" ? 1_000_000 + Math.abs(index) : 2_000_000 + Math.abs(index);
+  }
+  return metric === "opens" ? index + 1 : index % 11;
+}
+
+function sumPhaseThirteenDates(startDate, endDate, metric, { omitDates = [], zeroRange = null } = {}) {
+  const omitted = new Set(omitDates);
+  let total = 0;
+  for (let date = startDate; date <= endDate; date = addUtcDays(date, 1)) {
+    if (omitted.has(date)) continue;
+    if (metric === "clicks" && zeroRange && date >= zeroRange[0] && date <= zeroRange[1]) continue;
+    total += phaseThirteenExpectedValue(date, metric);
+  }
+  return total;
+}
+
+function phaseThirteenEnvelopeForRequest(request, extraForDate = () => ({})) {
+  const url = new URL(request.url);
+  const rows = engagementRowsForRequest(request, extraForDate);
+  return beehiivEngagementsEnvelope(rows, {
+    publicationId: decodeURIComponent(url.pathname.split("/").at(-2)),
+    granularity: url.searchParams.get("granularity"),
+    emailType: url.searchParams.get("email_type"),
+    startDate: url.searchParams.get("start_date"),
+    numberOfDays: Number(url.searchParams.get("number_of_days"))
+  });
+}
+
+function phaseThirteenFetch({ requestLog = [], engagementResponder, newsletterResponder, reportResponder,
+  searchResponder, postsResponder, cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [], totalPosts: 0 })]]) } = {}) {
+  return phaseEightApiFetch({
+    requestLog,
+    cloudyPages,
+    engagementResponder,
+    newsletterResponder,
+    reportResponder,
+    searchResponder,
+    postsResponder
+  });
+}
+
+test("input10 validates its exact engagement opt-in before provider work", async () => {
+  const malformed = [
+    (() => { const input = phaseThirteenInput({ baseInput: phaseFourInput() }); delete input.newsletterEngagements; return input; })(),
+    phaseThirteenInput({ baseInput: phaseFourInput() }),
+    (() => { const input = phaseThirteenInput({ baseInput: phaseFourInput() }); input.newsletter.language = "es"; return input; })(),
+    (() => { const input = phaseThirteenInput({ baseInput: phaseFourInput() }); delete input.sources; return input; })(),
+    (() => { const input = phaseThirteenInput({ baseInput: phaseFourInput() }); delete input.curated; return input; })(),
+    (() => { const input = phaseThirteenInput({ baseInput: phaseFourInput() }); delete input.newsletter; return input; })(),
+    (() => { const input = phaseThirteenInput({ baseInput: phaseFourInput() }); input.unexpected = true; return input; })(),
+    (() => { const input = phaseTwelveInput({ baseInput: phaseFourInput() }); input.newsletterEngagements = true; return input; })()
+  ];
+  malformed[1].newsletterEngagements = false;
+  for (const input of malformed) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseThirteenFetch({ requestLog }) });
+    const previous = '{"schemaVersion":1,"groups":{"articles":{"collectedAt":"2026-10-15T12:00:00.000Z"}}}';
+    harness.objects.set(outputKey, previous);
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      assert.notEqual(error.code, "INPUT_VERSION_UNSUPPORTED",
+        "invalid input10 must reach strict input10 validation instead of the old unsupported-version gate");
+      return true;
+    });
+    assert.equal(harness.putCalls.length, 0);
+    assert.equal(harness.objects.get(outputKey), previous);
+    assert.deepEqual(requestLog, [], "invalid input10 fails before any provider access");
+    assert.deepEqual(harness.secretCalls, [], "invalid input10 does not read Beehiiv credentials");
+  }
+});
+
+test("legacy input1-9 shapes make no newsletter-engagement requests", async () => {
+  const legacyInputs = [
+    sourceInput(), phaseTwoInput(), phaseThreeInput(), phaseFourInput(), phaseFiveInput(), phaseSixInput(),
+    phaseNineInput(), phaseTenInput(), phaseTwelveInput()
+  ];
+  for (const input of legacyInputs) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseThirteenFetch({ requestLog }) });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(beehiivEngagementRequests(requestLog), [], `input${input.schemaVersion} has no new engagement work`);
+    assert.equal(Object.hasOwn(output.groups, "newsletterEmailOpens"), false);
+    assert.equal(Object.hasOwn(output.groups, "newsletterEmailVerifiedClicks"), false);
+  }
+});
+
+test("input10 derives both metrics from one clipped daily dataset and preserves all eight existing families", async () => {
+  const requestLog = [];
+  const legacyRequestLog = [];
+  const allFamiliesInput = phaseTwelveInput({
+    directoryAnalytics: phaseNineDirectoryAnalytics({ outboundClicks: true })
+  });
+  const cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]);
+  const omittedDate = "2026-10-14";
+  const clock = createClock("2026-10-20T12:00:00.000Z");
+  const newsletterResponder = ({ request }) => {
+    const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    return jsonResponse(newsletterEnvelope(publicationId, 20));
+  };
+  const reportResponder = ({ request }) => {
+    const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+    const metricName = request.json.metrics[0]?.name;
+    return jsonResponse(ga4Report({
+      views: metricName === "eventCount" ? 23 : isDirectory ? 31 : 41,
+      metricName,
+      timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+    }));
+  };
+  const legacyHarness = createHarness({
+    input: allFamiliesInput,
+    clock: createClock("2026-10-20T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({ requestLog: legacyRequestLog, cloudyPages, newsletterResponder, reportResponder })
+  });
+  await legacyHarness.handler({}, {});
+  const legacy = await readPut(legacyHarness.putCalls[0]);
+  assert.deepEqual(beehiivEngagementRequests(legacyRequestLog), [], "input9 remains disabled under the same provider fixtures");
+
+  const harness = createHarness({
+    input: phaseThirteenInput({ baseInput: allFamiliesInput }),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      cloudyPages,
+      newsletterResponder,
+      reportResponder,
+      engagementResponder: ({ request }) => {
+        const envelope = phaseThirteenEnvelopeForRequest(request, (date) =>
+          date >= "2026-10-11" && date <= "2026-10-17" ? { total_verified_clicks: 0 } : {});
+        envelope.data = envelope.data.filter(({ date }) => date !== omittedDate);
+        return jsonResponse(envelope);
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const engagementRequests = beehiivEngagementRequests(requestLog);
+  assertBeehiivEngagementRequests(harness, engagementRequests);
+  assert.equal(engagementRequests.length, 12, "the 365-day union fits twelve shared chunks, not one fetch per metric/window");
+  const chunks = engagementRequests
+    .map((request) => new URL(request.url).searchParams)
+    .sort((left, right) => left.get("start_date").localeCompare(right.get("start_date")));
+  let nextStart = "2025-10-18";
+  for (const params of chunks) {
+    assert.equal(params.get("start_date"), nextStart);
+    const intendedDays = Number(params.get("number_of_days"));
+    assert.ok(intendedDays >= 1 && intendedDays <= 31);
+    nextStart = addUtcDays(nextStart, intendedDays);
+  }
+  assert.equal(nextStart, "2026-10-18", "intended chunks cover the 12m/YTD union exactly once");
+
+  const familyNames = Object.keys(first.groups).sort();
+  assert.deepEqual(familyNames, [
+    "articleSearchClicks", "articleViews", "articles", "directoryOutboundClicks", "directoryViews",
+    "newsletter", "newsletterEmailOpens", "newsletterEmailVerifiedClicks", "talks", "books"
+  ].sort());
+  assert.equal(first.groups.newsletter.subscribers, 20, "the existing subscriber family remains independent");
+  for (const [groupName, valueKey, metric] of [
+    ["newsletterEmailOpens", "opens", "opens"],
+    ["newsletterEmailVerifiedClicks", "clicks", "clicks"]
+  ]) {
+    const group = first.groups[groupName];
+    assert.deepEqual(Object.keys(group).sort(), ["definitionVersion", "records"]);
+    assert.equal(group.definitionVersion, 1);
+    assert.deepEqual(Object.keys(group.records).sort(), ["12m", "30d", "7d", "90d", "ytd"]);
+    for (const [period, [startDate, endDate]] of Object.entries(phaseThirteenRanges)) {
+      const record = group.records[period];
+      assert.deepEqual(Object.keys(record).sort(), [
+        "basis", "collectedAt", "endDate", "publication", "scopeId", "startDate", "timeZone", valueKey
+      ].sort());
+      assert.equal(record.basis, "period");
+      assert.equal(record.collectedAt, "2026-10-20T12:00:00.000Z");
+      assert.equal(record.scopeId.length, 64);
+      assert.match(record.scopeId, /^[a-f0-9]{64}$/);
+      assert.deepEqual(record.publication, { id: "simple-aws", label: "Simple AWS", language: "en" });
+      assert.equal(record.timeZone, "UTC");
+      assert.equal(record.startDate, startDate);
+      assert.equal(record.endDate, endDate);
+      const zeroRange = metric === "clicks" ? ["2026-10-11", "2026-10-17"] : null;
+      assert.equal(record[valueKey], sumPhaseThirteenDates(startDate, endDate, metric, {
+        omitDates: [omittedDate], zeroRange
+      }));
+    }
+    assert.equal(Object.hasOwn(group.records, "total"), false, "email events do not gain a cumulative total");
+  }
+  assert.notEqual(first.groups.newsletterEmailOpens.records["7d"].scopeId,
+    first.groups.newsletterEmailVerifiedClicks.records["7d"].scopeId, "each metric has a separate scope");
+  for (const oldGroup of ["articles", "books", "talks", "newsletter", "articleViews", "articleSearchClicks",
+    "directoryViews", "directoryOutboundClicks"]) {
+    assert.ok(first.groups[oldGroup], `${oldGroup} remains in the ten-family output`);
+    assert.deepEqual(first.groups[oldGroup], legacy.groups[oldGroup],
+      `${oldGroup} retains the exact existing values, dates, and scopes from the same input9 run`);
+  }
+  assert.equal(first.groups.newsletterEmailVerifiedClicks.records["7d"].clicks, 0,
+    "present rows with explicit zero values produce measured zero");
+  assert.ok(first.groups.newsletterEmailOpens.records["7d"].opens < 2_000_000,
+    "the provider's extra boundary date is clipped from the intended range");
+  assert.equal(first.groups.newsletterEmailOpens.records["7d"].opens,
+    sumPhaseThirteenDates(...phaseThirteenRanges["7d"], "opens", { omitDates: [omittedDate] }),
+    "a sparse nonempty period sums returned dates without a completeness claim");
+  assertNoNewsletterCanaries(harness,
+    beehiivApiKey,
+    "synthetic-beehiiv-private-daily-canary",
+    "synthetic-private-per-post-title",
+    beehiivSecretExtraFieldCanary);
+
+  const firstOpenScope = first.groups.newsletterEmailOpens.records["7d"].scopeId;
+  const firstClickScope = first.groups.newsletterEmailVerifiedClicks.records["7d"].scopeId;
+  const rotatedKey = "synthetic-rotated-beehiiv-api-key-canary";
+  harness.setSecretResponse(beehiivSecretArn, { SecretString: JSON.stringify({ apiKey: rotatedKey }) });
+  clock.set("2026-10-21T12:00:00.000Z");
+  await harness.handler({}, {});
+  const second = await readPut(harness.putCalls[1]);
+  const secondOpen = second.groups.newsletterEmailOpens.records["7d"];
+  const secondClick = second.groups.newsletterEmailVerifiedClicks.records["7d"];
+  assert.notEqual(secondOpen.opens, first.groups.newsletterEmailOpens.records["7d"].opens,
+    "a later invocation recomputes provider events rather than adding yesterday's total");
+  assert.equal(secondOpen.opens, sumPhaseThirteenDates("2026-10-12", "2026-10-18", "opens", {
+    omitDates: [omittedDate]
+  }), "the new record is exactly the current provider sum, not a prior-plus-current accumulation");
+  assert.equal(secondClick.clicks, sumPhaseThirteenDates("2026-10-12", "2026-10-18", "clicks", {
+    omitDates: [omittedDate], zeroRange: ["2026-10-11", "2026-10-17"]
+  }));
+  assert.equal(secondOpen.scopeId, firstOpenScope, "clock and key rotation do not salt the metric scope");
+  assert.equal(secondClick.scopeId, firstClickScope);
+  assert.equal(secondOpen.collectedAt, "2026-10-21T12:00:00.000Z");
+  const laterRequests = beehiivEngagementRequests(requestLog).slice(12);
+  assert.equal(laterRequests.length, 12);
+  assert.equal(newsletterRequestHeader(laterRequests[0], "authorization"), `Bearer ${rotatedKey}`);
+  for (const request of laterRequests) assert.equal(harness.abortSignalRecords.find(({ signal }) =>
+    signal === request.signal)?.milliseconds, 5_000);
+  assert.equal(bodyText(harness.putCalls[1].Body).includes(rotatedKey), false);
+  assert.equal(harness.logs.join("\n").includes(rotatedKey), false);
+
+  const changedPublication = phaseThirteenInput();
+  changedPublication.newsletter.publicationId = "synthetic-next-publication-id";
+  harness.setInput(changedPublication);
+  clock.set("2026-10-22T12:00:00.000Z");
+  await harness.handler({}, {});
+  const third = await readPut(harness.putCalls[2]);
+  assert.notEqual(third.groups.newsletterEmailOpens.records["7d"].scopeId, firstOpenScope,
+    "a changed selected publication changes the metric scope");
+  assert.notEqual(third.groups.newsletterEmailVerifiedClicks.records["7d"].scopeId, firstClickScope);
+});
+
+test("input10 isolates malformed selected values and common chunk failures to affected periods, then removes both families when disabled", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T12:00:00.000Z");
+  let invalidJanuaryOpen = false;
+  let failFirstChunk = false;
+  const failedChunkStart = "2025-10-20";
+  let failSubscribers = false;
+  const harness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      newsletterResponder: () => failSubscribers
+        ? jsonResponse({ error: "synthetic subscriber failure" }, 403)
+        : jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      engagementResponder: ({ request }) => {
+        const url = new URL(request.url);
+        if (failFirstChunk && url.searchParams.get("start_date") === failedChunkStart) {
+          return jsonResponse({ error: "synthetic unavailable chunk" }, 403);
+        }
+        const envelope = phaseThirteenEnvelopeForRequest(request);
+        if (invalidJanuaryOpen) {
+          mutateIntendedEngagementDate(request, envelope, "2026-01-15", (row) => { row.total_opens = null; });
+        }
+        return jsonResponse(envelope);
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  invalidJanuaryOpen = true;
+  clock.set("2026-10-21T12:00:00.000Z");
+  await harness.handler({}, {});
+  const metricFailure = await readPut(harness.putCalls[1]);
+  assert.deepEqual(metricFailure.groups.newsletterEmailOpens.records["12m"],
+    initial.groups.newsletterEmailOpens.records["12m"], "invalid opens retain their eligible prior record verbatim");
+  assert.deepEqual(metricFailure.groups.newsletterEmailOpens.records.ytd,
+    initial.groups.newsletterEmailOpens.records.ytd, "only periods containing the invalid day retain opens");
+  assert.equal(metricFailure.groups.newsletterEmailOpens.records["90d"].collectedAt, "2026-10-21T12:00:00.000Z");
+  assert.equal(metricFailure.groups.newsletterEmailVerifiedClicks.records.ytd.collectedAt, "2026-10-21T12:00:00.000Z",
+    "a malformed opens value does not invalidate the click metric");
+  assert.equal(metricFailure.groups.newsletter.collectedAt, "2026-10-21T12:00:00.000Z",
+    "an email-metric failure does not suppress current subscribers");
+  assert.equal(metricFailure.groups.articles.collectedAt, "2026-10-21T12:00:00.000Z");
+
+  invalidJanuaryOpen = false;
+  failFirstChunk = true;
+  clock.set("2026-10-22T12:00:00.000Z");
+  await harness.handler({}, {});
+  const commonFailure = await readPut(harness.putCalls[2]);
+  for (const groupName of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.deepEqual(commonFailure.groups[groupName].records["12m"],
+      metricFailure.groups[groupName].records["12m"], "the shared failed chunk retains its exact affected period");
+    assert.equal(commonFailure.groups[groupName].records.ytd.collectedAt, "2026-10-22T12:00:00.000Z",
+      "a failure before YTD starts does not block healthy shorter source windows or YTD");
+    assert.equal(commonFailure.groups[groupName].records["7d"].collectedAt, "2026-10-22T12:00:00.000Z");
+  }
+
+  failFirstChunk = false;
+  clock.set("2026-10-23T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[3]);
+  for (const groupName of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(recovered.groups[groupName].records["12m"].collectedAt, "2026-10-23T12:00:00.000Z",
+      "a healthy retry refreshes a previously failed interval with new provenance");
+    assert.equal(recovered.groups[groupName].records["12m"].startDate, "2025-10-21");
+    assert.notDeepEqual(recovered.groups[groupName].records["12m"], commonFailure.groups[groupName].records["12m"]);
+  }
+
+  failSubscribers = true;
+  clock.set("2026-10-24T12:00:00.000Z");
+  await harness.handler({}, {});
+  const subscriberFailure = await readPut(harness.putCalls[4]);
+  assert.deepEqual(subscriberFailure.groups.newsletter, recovered.groups.newsletter,
+    "a failed subscriber refresh retains the exact current-subscriber record");
+  assert.equal(subscriberFailure.groups.newsletterEmailOpens.records["7d"].collectedAt, "2026-10-24T12:00:00.000Z",
+    "the engagement family refreshes while subscriber retrieval fails");
+
+  const disabledInput = phaseTwelveInput({ baseInput: phaseFourInput() });
+  harness.setInput(disabledInput);
+  const requestCount = beehiivEngagementRequests(requestLog).length;
+  clock.set("2026-10-25T12:00:00.000Z");
+  await harness.handler({}, {});
+  const disabled = await readPut(harness.putCalls[5]);
+  assert.equal(Object.hasOwn(disabled.groups, "newsletterEmailOpens"), false);
+  assert.equal(Object.hasOwn(disabled.groups, "newsletterEmailVerifiedClicks"), false,
+    "removing the selected source removes both email families even with a failed subscriber refresh");
+  assert.equal(beehiivEngagementRequests(requestLog).length, requestCount,
+    "input9 does not make engagement requests after removal");
+  assert.deepEqual(disabled.groups.newsletter, subscriberFailure.groups.newsletter,
+    "subscriber failure retains only the unchanged subscriber family");
+});
+
+test("input10 sanitizes malformed prior email periods while retaining valid records and refreshing the other eight families", async () => {
+  const clock = createClock("2026-10-20T12:00:00.000Z");
+  let failEngagements = false;
+  const newsletterResponder = ({ request }) => {
+    const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    return jsonResponse(newsletterEnvelope(publicationId, 20));
+  };
+  const reportResponder = ({ request }) => {
+    const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
+    const metricName = request.json.metrics[0]?.name;
+    return jsonResponse(ga4Report({
+      views: metricName === "eventCount" ? 23 : isDirectory ? 31 : 41,
+      metricName,
+      timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+    }));
+  };
+  const harness = createHarness({
+    input: phaseThirteenInput({
+      directoryAnalytics: phaseNineDirectoryAnalytics({ outboundClicks: true })
+    }),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]),
+      newsletterResponder,
+      reportResponder,
+      engagementResponder: ({ request }) => failEngagements
+        ? jsonResponse({ error: "synthetic engagement outage" }, 403)
+        : jsonResponse(phaseThirteenEnvelopeForRequest(request))
+    })
+  });
+
+  await harness.handler({}, {});
+  const healthy = await readPut(harness.putCalls[0]);
+  const prior = structuredClone(healthy);
+  prior.groups.newsletterEmailOpens.records["30d"].scopeId = "malformed-scope";
+  prior.groups.newsletterEmailVerifiedClicks.records["90d"].clicks = -1;
+  harness.objects.set(outputKey, JSON.stringify(prior));
+  failEngagements = true;
+  clock.set("2026-10-21T12:00:00.000Z");
+  await harness.handler({}, {});
+  const refreshed = await readPut(harness.putCalls[1]);
+
+  const expectedOpens = structuredClone(prior.groups.newsletterEmailOpens);
+  delete expectedOpens.records["30d"];
+  const expectedClicks = structuredClone(prior.groups.newsletterEmailVerifiedClicks);
+  delete expectedClicks.records["90d"];
+  assert.deepEqual(refreshed.groups.newsletterEmailOpens, expectedOpens,
+    "valid opens periods survive verbatim and the malformed record is omitted");
+  assert.deepEqual(refreshed.groups.newsletterEmailVerifiedClicks, expectedClicks,
+    "click records are sanitized independently from opens");
+  for (const family of ["articles", "books", "talks", "newsletter", "articleViews", "articleSearchClicks",
+    "directoryViews", "directoryOutboundClicks"]) {
+    assert.ok(refreshed.groups[family], `${family} remains publishable during an engagement outage`);
+  }
+  assert.equal(refreshed.groups.newsletter.collectedAt, "2026-10-21T12:00:00.000Z");
+  assert.equal(refreshed.groups.articleViews.records["7d"].collectedAt, "2026-10-21T12:00:00.000Z");
+});
+
+test("input10 distinguishes an empty period from explicit zeros and retries only transient engagement errors", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-20T12:00:00.000Z");
+  let emptySevenDays = false;
+  let failTransiently = false;
+  const transientAttempts = new Map();
+  const harness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      engagementResponder: ({ request }) => {
+        const url = new URL(request.url);
+        const startDate = url.searchParams.get("start_date");
+        const attempt = (transientAttempts.get(startDate) ?? 0) + 1;
+        transientAttempts.set(startDate, attempt);
+        if (failTransiently && attempt === 1) {
+          return jsonResponse({ error: "synthetic temporary failure" }, 503);
+        }
+        const envelope = phaseThirteenEnvelopeForRequest(request, (date) =>
+          date >= "2026-10-11" && date <= "2026-10-17" ? { total_verified_clicks: 0 } : {});
+        if (emptySevenDays) envelope.data = envelope.data.filter(({ date }) => date < "2026-10-12" || date > "2026-10-18");
+        return jsonResponse(envelope);
+      }
+    })
+  });
+  failTransiently = true;
+  await harness.handler({}, {});
+  const initial = await readPut(harness.putCalls[0]);
+  const requestsAfterRetry = beehiivEngagementRequests(requestLog);
+  assert.equal(requestsAfterRetry.length, 24, "twelve chunks with one transient retry each stay within 24 attempts");
+  assert.deepEqual([...new Set(requestsAfterRetry.map(({ url }) => new URL(url).searchParams.get("start_date")))].length, 12);
+  for (const count of transientAttempts.values()) assert.equal(count, 2, "each failed chunk retries exactly once");
+  for (const request of requestsAfterRetry) {
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 5_000);
+  }
+  assert.equal(initial.groups.newsletterEmailVerifiedClicks.records["7d"].clicks, 0,
+    "daily rows with integer zero values remain a measured period zero");
+
+  failTransiently = false;
+  emptySevenDays = true;
+  clock.set("2026-10-21T12:00:00.000Z");
+  await harness.handler({}, {});
+  const withPrior = await readPut(harness.putCalls[1]);
+  assert.deepEqual(withPrior.groups.newsletterEmailOpens.records["7d"],
+    initial.groups.newsletterEmailOpens.records["7d"], "an entirely empty window retains eligible prior history");
+  assert.deepEqual(withPrior.groups.newsletterEmailVerifiedClicks.records["7d"],
+    initial.groups.newsletterEmailVerifiedClicks.records["7d"], "both metrics retain their prior records for an empty window");
+
+  const noPriorLog = [];
+  const noPrior = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog: noPriorLog,
+      engagementResponder: ({ request }) => {
+        const envelope = phaseThirteenEnvelopeForRequest(request, (date) =>
+          date >= "2026-10-11" && date <= "2026-10-17" ? { total_verified_clicks: 0 } : {});
+        envelope.data = envelope.data.filter(({ date }) => date < "2026-10-12" || date > "2026-10-18");
+        return jsonResponse(envelope);
+      }
+    })
+  });
+  await noPrior.handler({}, {});
+  const emptyOutput = await readPut(noPrior.putCalls[0]);
+  assert.equal(Object.hasOwn(emptyOutput.groups.newsletterEmailOpens.records, "7d"), false,
+    "an empty new period is unavailable rather than a guessed zero");
+  assert.equal(Object.hasOwn(emptyOutput.groups.newsletterEmailVerifiedClicks.records, "7d"), false);
+});
+
+test("input10 validates echoed metadata, dates, duplicate rows and selected integer metrics", async () => {
+  const invalidEnvelopes = [
+    ["publication identity", (value) => { value.publication_id = "different-publication"; }],
+    ["granularity", (value) => { value.granularity = "week"; }],
+    ["email type", (value) => { value.email_type = "automation"; }],
+    ["start date", (value) => { value.start_date = "2025-10-19"; }],
+    ["requested count", (value) => { value.number_of_days += 1; }],
+    ["non-array data", (value) => { value.data = {}; }],
+    ["duplicate row", (value) => { value.data.push(structuredClone(value.data[0])); }],
+    ["impossible row date", (value) => { value.data[0].date = "2025-02-30"; }],
+    ["non-ISO row date", (value) => { value.data[0].date = "2025-10-8"; }],
+    ["foreign row date", (value, request) => { value.data[0].date = addUtcDays(new URL(request.url).searchParams.get("start_date"), 40); }],
+    ["too many rows", (value) => { value.data = Array.from({ length: 33 }, (_, index) => engagementRow(addUtcDays("2025-10-18", index), index)); }]
+  ];
+  for (const [description, corrupt] of invalidEnvelopes) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+      clock: createClock("2026-10-20T12:00:00.000Z"),
+      fetchFn: phaseThirteenFetch({
+        requestLog,
+        engagementResponder: ({ request }) => {
+          const url = new URL(request.url);
+          const envelope = phaseThirteenEnvelopeForRequest(request);
+          if (url.searchParams.get("start_date") === "2025-10-18") corrupt(envelope, request);
+          return jsonResponse(envelope);
+        }
+      })
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups.newsletterEmailOpens.records, "12m"), false,
+      `${description} makes the intersecting 12m record unavailable without a prior value`);
+    assert.equal(Object.hasOwn(output.groups.newsletterEmailVerifiedClicks.records, "12m"), false);
+    assert.ok(output.groups.newsletterEmailOpens.records.ytd,
+      `${description} in the first October chunk does not invalidate a disjoint YTD window`);
+  }
+
+  const invalidValues = [
+    ["missing", ({ row }) => { delete row.total_opens; }],
+    ["null", ({ row }) => { row.total_opens = null; }],
+    ["boolean", ({ row }) => { row.total_opens = true; }],
+    ["string", ({ row }) => { row.total_opens = "5"; }],
+    ["fraction", ({ row }) => { row.total_opens = 1.5; }],
+    ["negative", ({ row }) => { row.total_opens = -1; }],
+    ["overflow", ({ row }) => {
+      row.total_opens = Number.MAX_SAFE_INTEGER;
+    }]
+  ];
+  for (const [description, corrupt] of invalidValues) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+      clock: createClock("2026-10-20T12:00:00.000Z"),
+      fetchFn: phaseThirteenFetch({
+        requestLog,
+        engagementResponder: ({ request }) => {
+          const envelope = phaseThirteenEnvelopeForRequest(request);
+          mutateIntendedEngagementDate(request, envelope, "2026-01-15", (row, rows) => corrupt({ row, rows }));
+          return jsonResponse(envelope);
+        }
+      })
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups.newsletterEmailOpens.records, "12m"), false,
+      `${description} invalidates the period containing its date`);
+    assert.equal(Object.hasOwn(output.groups.newsletterEmailOpens.records, "ytd"), false,
+      `${description} invalidates opens for YTD without creating a placeholder record`);
+    assert.ok(output.groups.newsletterEmailVerifiedClicks.records.ytd,
+      `${description} does not suppress the sibling metric`);
+    assert.ok(output.groups.newsletterEmailOpens.records["90d"],
+      `${description} does not affect a period that does not contain January 15`);
+  }
+
+  const invalidClickHarness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock: createClock("2026-10-20T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      engagementResponder: ({ request }) => {
+        const envelope = phaseThirteenEnvelopeForRequest(request);
+        mutateIntendedEngagementDate(request, envelope, "2026-01-15", (row) => { row.total_verified_clicks = null; });
+        return jsonResponse(envelope);
+      }
+    })
+  });
+  await invalidClickHarness.handler({}, {});
+  const invalidClickOutput = await readPut(invalidClickHarness.putCalls[0]);
+  assert.ok(invalidClickOutput.groups.newsletterEmailOpens.records.ytd,
+    "a malformed verified-click value leaves the open metric healthy");
+  assert.equal(Object.hasOwn(invalidClickOutput.groups.newsletterEmailVerifiedClicks.records, "ytd"), false);
+  assert.equal(Object.hasOwn(invalidClickOutput.groups.newsletterEmailVerifiedClicks.records, "12m"), false);
+  assert.ok(invalidClickOutput.groups.newsletterEmailVerifiedClicks.records["90d"]);
+});
+
+test("input10 does not retry invalid requests, authorization errors or redirects and retries a network failure once", async () => {
+  for (const status of [400, 401, 403]) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+      clock: createClock("2026-10-20T12:00:00.000Z"),
+      fetchFn: phaseThirteenFetch({
+        requestLog,
+        engagementResponder: ({ request }) => {
+          const url = new URL(request.url);
+          if (url.searchParams.get("start_date") === "2025-10-18") {
+            return jsonResponse({ error: "synthetic nontransient response" }, status);
+          }
+          return jsonResponse(phaseThirteenEnvelopeForRequest(request));
+        }
+      })
+    });
+    await harness.handler({}, {});
+    const requests = beehiivEngagementRequests(requestLog);
+    assert.equal(requests.length, 12, `HTTP ${status} does not retry its failed date chunk`);
+    assert.equal(requests.filter(({ url }) => new URL(url).searchParams.get("start_date") === "2025-10-18").length, 1);
+    assert.equal(requests[0].redirect, "error", "every provider read refuses redirects");
+    assert.equal(Object.hasOwn((await readPut(harness.putCalls[0])).groups.newsletterEmailOpens.records, "12m"), false);
+  }
+
+  const redirectLog = [];
+  const redirectHarness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock: createClock("2026-10-20T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      requestLog: redirectLog,
+      engagementResponder: ({ request }) => {
+        if (new URL(request.url).searchParams.get("start_date") === "2025-10-18") {
+          const error = new TypeError("fetch failed");
+          error.cause = new Error("unexpected redirect");
+          throw error;
+        }
+        return jsonResponse(phaseThirteenEnvelopeForRequest(request));
+      }
+    })
+  });
+  await redirectHarness.handler({}, {});
+  const redirectRequests = beehiivEngagementRequests(redirectLog);
+  assert.equal(redirectRequests.length, 12, "a redirect rejected by fetch redirect:error is not retried as a network fault");
+  assert.equal(redirectRequests.filter(({ url }) => new URL(url).searchParams.get("start_date") === "2025-10-18").length, 1);
+  assert.equal(redirectRequests[0].redirect, "error");
+
+  const networkLog = [];
+  const harness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock: createClock("2026-10-20T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      requestLog: networkLog,
+      engagementResponder: ({ request, attempt }) => {
+        if (new URL(request.url).searchParams.get("start_date") === "2025-10-18" && attempt === 1) {
+          const error = new TypeError("fetch failed");
+          error.cause = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+          throw error;
+        }
+        return jsonResponse(phaseThirteenEnvelopeForRequest(request));
+      }
+    })
+  });
+  await harness.handler({}, {});
+  const networkRequests = beehiivEngagementRequests(networkLog);
+  assert.equal(networkRequests.length, 13, "one network failure gets one retry");
+  assert.equal(networkRequests.filter(({ url }) => new URL(url).searchParams.get("start_date") === "2025-10-18").length, 2);
+  assert.equal(Object.hasOwn((await readPut(harness.putCalls[0])).groups.newsletterEmailOpens.records, "12m"), true);
+});
+
+test("input10 uses UTC calendar month/YTD boundaries and omits YTD before the reporting year starts", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-01-03T12:00:00.000Z");
+  const harness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request))
+    })
+  });
+
+  await harness.handler({}, {});
+  const beforeYear = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(beforeYear.groups.newsletterEmailOpens.records, "ytd"), false);
+  assert.equal(Object.hasOwn(beforeYear.groups.newsletterEmailVerifiedClicks.records, "ytd"), false);
+  assert.equal(beforeYear.groups.newsletterEmailOpens.records["12m"].startDate, "2025-01-01");
+  assert.equal(beforeYear.groups.newsletterEmailOpens.records["12m"].endDate, "2025-12-31");
+
+  clock.set("2026-01-04T12:00:00.000Z");
+  await harness.handler({}, {});
+  const firstYearDay = await readPut(harness.putCalls[1]);
+  assert.equal(firstYearDay.groups.newsletterEmailOpens.records.ytd.startDate, "2026-01-01");
+  assert.equal(firstYearDay.groups.newsletterEmailOpens.records.ytd.endDate, "2026-01-01");
+  assert.equal(firstYearDay.groups.newsletterEmailVerifiedClicks.records.ytd.endDate, "2026-01-01");
+});
+
+test("input10 keeps calendar-month arithmetic and clips a 366-day UTC union across February 29", async () => {
+  const monthClock = createClock("2025-03-03T12:00:00.000Z");
+  const monthHarness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock: monthClock,
+    fetchFn: phaseThirteenFetch({ engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request)) })
+  });
+  await monthHarness.handler({}, {});
+  const leapMonth = await readPut(monthHarness.putCalls[0]);
+  assert.equal(leapMonth.groups.newsletterEmailOpens.records["12m"].startDate, "2024-03-01");
+  assert.equal(leapMonth.groups.newsletterEmailOpens.records["12m"].endDate, "2025-02-28");
+
+  const leapLog = [];
+  const leapClock = createClock("2024-03-03T12:00:00.000Z");
+  const leapHarness = createHarness({
+    input: phaseThirteenInput({ baseInput: phaseFourInput() }),
+    clock: leapClock,
+    fetchFn: phaseThirteenFetch({
+      requestLog: leapLog,
+      engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request))
+    })
+  });
+  await leapHarness.handler({}, {});
+  const leapDayUnion = await readPut(leapHarness.putCalls[0]);
+  const leapRequests = beehiivEngagementRequests(leapLog);
+  assert.equal(leapRequests.length, 12, "a 366-day leap-year union still needs at most twelve chunks");
+  assert.equal(leapDayUnion.groups.newsletterEmailOpens.records["12m"].startDate, "2023-03-01");
+  assert.equal(leapDayUnion.groups.newsletterEmailOpens.records["12m"].endDate, "2024-02-29");
+  assert.equal(leapDayUnion.groups.newsletterEmailOpens.records["12m"].opens,
+    sumPhaseThirteenDates("2023-03-01", "2024-02-29", "opens"),
+    "the extra provider boundary date after February 29 is clipped");
+  assert.equal(leapDayUnion.groups.newsletterEmailVerifiedClicks.records["12m"].clicks,
+    sumPhaseThirteenDates("2023-03-01", "2024-02-29", "clicks"));
+});
+
+test("legacy input1 and input2 reject the reserved newsletter engagement flag before provider work", async () => {
+  for (const baseInput of [sourceInput(), phaseTwoInput()]) {
+    for (const flag of [true, false, null, "true"]) {
+      const input = structuredClone(baseInput);
+      input.newsletterEngagements = flag;
+      const requestLog = [];
+      const harness = createHarness({ input, fetchFn: phaseThirteenFetch({ requestLog }) });
+      const previous = '{"schemaVersion":1,"groups":{"articles":{"collectedAt":"2026-10-15T12:00:00.000Z"}}}';
+      harness.objects.set(outputKey, previous);
+
+      await assert.rejects(() => harness.handler({}, {}), (error) => {
+        assert.equal(error.code, "INPUT_SCHEMA_INVALID");
+        return true;
+      });
+      assert.deepEqual(requestLog, [], `input${baseInput.schemaVersion} rejects ${JSON.stringify(flag)} before provider access`);
+      assert.deepEqual(harness.secretCalls, [], `input${baseInput.schemaVersion} rejects ${JSON.stringify(flag)} before credential access`);
+      assert.equal(harness.putCalls.length, 0, "invalid legacy selectors never publish output");
+      assert.equal(harness.objects.get(outputKey), previous, "invalid legacy selectors preserve prior output bytes");
+    }
+  }
 });

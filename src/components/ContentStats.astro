@@ -10,7 +10,7 @@ const copy = locale === 'en'
   ? {
       kicker: 'Content statistics',
       title: 'Content & reach',
-      intro: 'Published articles, delivered talks and sessions, published books, current newsletter subscribers, and page views and external link clicks for the Dónde Aprendo AWS directory, with partial coverage of the wider body of work. Directory traffic and clicks remain separate from article readership and incoming Search. Activity measures follow the selected period; article counts stay cumulative and subscribers stay current.',
+      intro: 'Published articles, delivered talks and sessions, published books, current newsletter subscribers, email opens and verified email clicks, and page views and external link clicks for the Dónde Aprendo AWS directory, with partial coverage of the wider body of work. Directory traffic and clicks remain separate from article readership and incoming Search. Activity measures, including email metrics, follow the selected period; article counts stay cumulative and subscribers stay current.',
       filterLabel: 'Content language',
       periodLabel: 'Activity period',
       all: 'All',
@@ -25,7 +25,7 @@ const copy = locale === 'en'
         total: 'Recorded total'
       },
       cumulative: 'Cumulative total',
-      current: 'Current',
+      currentSubscribers: 'Current active subscribers',
       coverage: 'Coverage',
       lastCollected: 'Last updated',
       viewsLoading: 'Loading article views…',
@@ -84,12 +84,28 @@ const copy = locale === 'en'
       },
       sourcesSummary: 'Sources and counting',
       privacyLink: 'Statistics privacy and use',
-      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in each count. Article counts can include Simple AWS posts published on the web, by email or both, and can include Cloudy Things posts, including eligible originals and republications. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. Article views cover Simple AWS page views on its newsletter publication, a partial scope that differs from article-count coverage; repeated views can come from the same person. Page views for the Dónde Aprendo AWS directory cover the full directory and can repeat; they are reported separately from article views and do not represent unique readers. GA4-recorded outbound link clicks for Dónde Aprendo AWS include links to the publication and social channels, including footer links; one person can click more than once. They are reported separately from directory page views and incoming Search clicks. Recorded totals cover available activity from the displayed start date; earlier activity and gaps in tracking may be missing. Views are reported with a delay and may be revised later. Google Search Console clicks for Simple AWS cover canonical or Google-preferred article URLs and remain separate from Views. They are a partial reported measure: Google’s filtering and reporting limits may omit clicks, and clicks are not unique people or readers. Search clicks use their own interval and date, are delayed, and may be revised; they are not added to Analytics views. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
+      emailActivity: {
+        opens: {
+          label: 'Email opens',
+          unit: 'Email opens',
+          loading: 'Loading email opens…',
+          unavailable: 'Email opens are unavailable for this period.'
+        },
+        verifiedClicks: {
+          label: 'Verified email clicks',
+          unit: 'Verified email clicks',
+          loading: 'Loading verified email clicks…',
+          unavailable: 'Verified email clicks are unavailable for this period.'
+        },
+        interval: 'Reporting interval',
+        collected: 'Collected'
+      },
+      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in each count. Article counts can include Simple AWS posts published on the web, by email or both, and can include Cloudy Things posts, including eligible originals and republications. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. Article views cover Simple AWS page views on its newsletter publication, a partial scope that differs from article-count coverage; repeated views can come from the same person. Page views for the Dónde Aprendo AWS directory cover the full directory and can repeat; they are reported separately from article views and do not represent unique readers. GA4-recorded outbound link clicks for Dónde Aprendo AWS include links to the publication and social channels, including footer links; one person can click more than once. They are reported separately from directory page views and incoming Search clicks. Recorded totals cover available activity from the displayed start date; earlier activity and gaps in tracking may be missing. Views are reported with a delay and may be revised later. Google Search Console clicks for Simple AWS cover canonical or Google-preferred article URLs and remain separate from Views. They are a partial reported measure: Google’s filtering and reporting limits may omit clicks, and clicks are not unique people or readers. Search clicks use their own interval and date, are delayed, and may be revised; they are not added to Analytics views. Email opens are reported tracking-pixel events; privacy protections and automated loads can count as opens, and some reads may not register. Verified email clicks are Beehiiv-filtered click events; they can repeat and are not a count of unique people. Email figures cover currently available history returned by Beehiiv; tracking gaps may omit activity and reported values can change later. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
     }
   : {
       kicker: 'Estadísticas de contenido',
       title: 'Contenido y alcance',
-      intro: 'Artículos publicados, charlas y sesiones realizadas, libros publicados, suscriptores actuales del boletín y vistas de página y clics en enlaces externos del directorio Dónde Aprendo AWS, con cobertura parcial del conjunto más amplio de trabajo. El tráfico y los clics del directorio se mantienen separados de la lectura de artículos y de las búsquedas entrantes. Las medidas de actividad siguen el período seleccionado; el conteo de artículos es acumulado y los suscriptores son actuales.',
+      intro: 'Artículos publicados, charlas y sesiones realizadas, libros publicados, suscriptores actuales del boletín, aperturas y clics verificados en emails, y vistas de página y clics en enlaces externos del directorio Dónde Aprendo AWS, con cobertura parcial del conjunto más amplio de trabajo. El tráfico y los clics del directorio se mantienen separados de la lectura de artículos y de las búsquedas entrantes. Las medidas de actividad, incluidos los emails, siguen el período seleccionado; el conteo de artículos es acumulado y los suscriptores son actuales.',
       filterLabel: 'Idioma del contenido',
       periodLabel: 'Período de actividad',
       all: 'Todos',
@@ -104,7 +120,7 @@ const copy = locale === 'en'
         total: 'Total registrado'
       },
       cumulative: 'Total acumulado',
-      current: 'Suscriptores actuales',
+      currentSubscribers: 'Suscriptores actuales',
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
       viewsLoading: 'Cargando vistas de artículos…',
@@ -163,7 +179,23 @@ const copy = locale === 'en'
       },
       sourcesSummary: 'Fuentes y conteo',
       privacyLink: 'Privacidad y uso de las estadísticas',
-      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de cada conteo. El conteo de artículos puede incluir las publicaciones de Simple AWS difundidas en la web, por correo electrónico o en ambos, y puede incluir publicaciones de Cloudy Things, incluidos originales y republicaciones elegibles. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. Las vistas de artículos cubren las vistas de páginas de la publicación Simple AWS: es una cobertura parcial y distinta de la del conteo de artículos; una misma persona puede generar vistas repetidas. Las vistas de página del directorio Dónde Aprendo AWS cubren el directorio completo y también pueden repetirse; se informan por separado de las vistas de artículos y no representan lectores únicos. En Dónde Aprendo AWS, los clics en enlaces externos registrados por GA4 incluyen enlaces a la publicación y a redes sociales, incluidos los enlaces del pie de página; una persona puede hacer clic más de una vez. Se informan por separado de las vistas de página del directorio y de los clics de búsqueda entrantes. Los totales registrados muestran la actividad disponible desde la fecha indicada; puede faltar actividad anterior o de períodos sin seguimiento. Las vistas tienen demora y pueden revisarse más adelante. Los clics de Google Search Console de Simple AWS cubren URLs de artículos canónicas o preferidas por Google y se mantienen separados de las vistas. Son una medida parcial: los filtros y límites del informe pueden omitir clics; no representan personas únicas. Los clics de búsqueda tienen su propio intervalo y fecha, pueden tener demora y revisarse, y no se suman a las vistas de Analytics. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
+      emailActivity: {
+        opens: {
+          label: 'Aperturas de emails',
+          unit: 'Aperturas de emails',
+          loading: 'Cargando aperturas de emails…',
+          unavailable: 'No se pueden mostrar las aperturas de emails para este período.'
+        },
+        verifiedClicks: {
+          label: 'Clics verificados en emails',
+          unit: 'Clics verificados en emails',
+          loading: 'Cargando clics verificados en emails…',
+          unavailable: 'No se pueden mostrar los clics verificados en emails para este período.'
+        },
+        interval: 'Intervalo informado',
+        collected: 'Recopilado'
+      },
+      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de cada conteo. El conteo de artículos puede incluir las publicaciones de Simple AWS difundidas en la web, por correo electrónico o en ambos, y puede incluir publicaciones de Cloudy Things, incluidos originales y republicaciones elegibles. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. Las vistas de artículos cubren las vistas de páginas de la publicación Simple AWS: es una cobertura parcial y distinta de la del conteo de artículos; una misma persona puede generar vistas repetidas. Las vistas de página del directorio Dónde Aprendo AWS cubren el directorio completo y también pueden repetirse; se informan por separado de las vistas de artículos y no representan lectores únicos. En Dónde Aprendo AWS, los clics en enlaces externos registrados por GA4 incluyen enlaces a la publicación y a redes sociales, incluidos los enlaces del pie de página; una persona puede hacer clic más de una vez. Se informan por separado de las vistas de página del directorio y de los clics de búsqueda entrantes. Los totales registrados muestran la actividad disponible desde la fecha indicada; puede faltar actividad anterior o de períodos sin seguimiento. Las vistas tienen demora y pueden revisarse más adelante. Los clics de Google Search Console de Simple AWS cubren URLs de artículos canónicas o preferidas por Google y se mantienen separados de las vistas. Son una medida parcial: los filtros y límites del informe pueden omitir clics; no representan personas únicas. Los clics de búsqueda tienen su propio intervalo y fecha, pueden tener demora y revisarse, y no se suman a las vistas de Analytics. Las aperturas de emails son eventos informados mediante píxeles de seguimiento; las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, y algunas lecturas pueden no registrarse. Los clics verificados en emails cuentan eventos filtrados por Beehiiv; los clics pueden repetirse y no representan personas únicas. Las cifras de emails cubren el historial disponible que devuelve Beehiiv; los períodos sin seguimiento pueden omitir actividad y los valores informados pueden cambiar más adelante. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
     };
 
 const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
@@ -211,7 +243,7 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
           <article class="content-stats-card" data-stats-kind={kind} data-stats-unavailable={card.unavailable} aria-labelledby={`content-stats-${kind}-title`} aria-busy="false">
             <div class="content-stats-card-heading">
               <div>
-                <div class="work-kicker">{kind === 'newsletter' ? copy.current : copy.cumulative}</div>
+                {kind !== 'newsletter' && <div class="work-kicker">{copy.cumulative}</div>}
                 <h3 id={`content-stats-${kind}-title`}>{card.title}</h3>
               </div>
             </div>
@@ -221,7 +253,7 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
             <div class="content-stats-results" data-stats-results hidden>
               <p class="content-stats-count" data-stats-count-region role="status" aria-live="polite" aria-atomic="true">
                 <span data-stats-count></span>
-                <span data-stats-count-label>{card.unit}</span>
+                <span data-stats-count-label>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
               </p>
 
               <dl class="content-stats-meta">
@@ -236,6 +268,78 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
               </dl>
 
             </div>
+
+            {kind === 'newsletter' && (
+              <>
+                <div
+                  class="content-stats-newsletter-email"
+                  data-stats-newsletter-email-opens
+                  data-stats-newsletter-email-opens-unavailable={copy.emailActivity.opens.unavailable}
+                  aria-labelledby="content-stats-newsletter-email-opens-title"
+                >
+                  <h4 class="content-stats-newsletter-email-heading" id="content-stats-newsletter-email-opens-title">
+                    {copy.emailActivity.opens.label}
+                  </h4>
+                  <p class="content-stats-newsletter-email-status" data-stats-newsletter-email-opens-status role="status" aria-live="polite" hidden>
+                    {copy.emailActivity.opens.loading}
+                  </p>
+                  <div class="content-stats-newsletter-email-results" data-stats-newsletter-email-opens-results hidden>
+                    <p class="content-stats-newsletter-email-count" role="status" aria-live="polite" aria-atomic="true">
+                      <span data-stats-newsletter-email-opens-value></span>
+                      <span data-stats-newsletter-email-opens-unit>{copy.emailActivity.opens.unit}</span>
+                    </p>
+                    <dl class="content-stats-meta content-stats-newsletter-email-meta">
+                      <div>
+                        <dt>{copy.coverage}</dt>
+                        <dd data-stats-newsletter-email-opens-coverage></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.emailActivity.interval}</dt>
+                        <dd data-stats-newsletter-email-opens-interval></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.emailActivity.collected}</dt>
+                        <dd data-stats-newsletter-email-opens-collected-date></dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+
+                <div
+                  class="content-stats-newsletter-email"
+                  data-stats-newsletter-email-verified-clicks
+                  data-stats-newsletter-email-verified-clicks-unavailable={copy.emailActivity.verifiedClicks.unavailable}
+                  aria-labelledby="content-stats-newsletter-email-verified-clicks-title"
+                >
+                  <h4 class="content-stats-newsletter-email-heading" id="content-stats-newsletter-email-verified-clicks-title">
+                    {copy.emailActivity.verifiedClicks.label}
+                  </h4>
+                  <p class="content-stats-newsletter-email-status" data-stats-newsletter-email-verified-clicks-status role="status" aria-live="polite" hidden>
+                    {copy.emailActivity.verifiedClicks.loading}
+                  </p>
+                  <div class="content-stats-newsletter-email-results" data-stats-newsletter-email-verified-clicks-results hidden>
+                    <p class="content-stats-newsletter-email-count" role="status" aria-live="polite" aria-atomic="true">
+                      <span data-stats-newsletter-email-verified-clicks-value></span>
+                      <span data-stats-newsletter-email-verified-clicks-unit>{copy.emailActivity.verifiedClicks.unit}</span>
+                    </p>
+                    <dl class="content-stats-meta content-stats-newsletter-email-meta">
+                      <div>
+                        <dt>{copy.coverage}</dt>
+                        <dd data-stats-newsletter-email-verified-clicks-coverage></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.emailActivity.interval}</dt>
+                        <dd data-stats-newsletter-email-verified-clicks-interval></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.emailActivity.collected}</dt>
+                        <dd data-stats-newsletter-email-verified-clicks-collected-date></dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+              </>
+            )}
 
             {kind === 'articles' && (
               <div class="content-stats-views" data-stats-views data-stats-views-unavailable={copy.viewsUnavailable}>

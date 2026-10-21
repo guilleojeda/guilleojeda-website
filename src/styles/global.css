@@ -710,7 +710,8 @@ a:hover {
 
 .content-stats-views-count,
 .content-stats-directory-views-count,
-.content-stats-directory-outbound-clicks-count {
+.content-stats-directory-outbound-clicks-count,
+.content-stats-newsletter-email-count {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -723,7 +724,9 @@ a:hover {
 
 .content-stats-views-count [data-stats-views-value],
 .content-stats-directory-views-count [data-stats-directory-views-value],
-.content-stats-directory-outbound-clicks-count [data-stats-directory-outbound-clicks-value] {
+.content-stats-directory-outbound-clicks-count [data-stats-directory-outbound-clicks-value],
+.content-stats-newsletter-email-count [data-stats-newsletter-email-opens-value],
+.content-stats-newsletter-email-count [data-stats-newsletter-email-verified-clicks-value] {
   color: var(--forest-deep);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 700;

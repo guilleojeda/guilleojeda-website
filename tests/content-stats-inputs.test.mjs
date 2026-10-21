@@ -971,3 +971,93 @@ test('Cloudy Things keeps the base article sources and existing Simple AWS prere
   assert.throws(() => build(source), /source|simple|newsletter|input/i,
     'Cloudy Things needs no credential, but cannot bypass the separate Simple AWS newsletter prerequisite');
 });
+
+test('the exact newsletter engagement opt-in emits input10 without changing other selected families', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  source.articleConfig.newsletter = newsletterSelection();
+  source.articleConfig.analytics = analyticsSelection();
+  source.articleConfig.searchConsole = searchConsoleSelection();
+  source.articleConfig.directoryAnalytics = {
+    ...directoryAnalyticsClickSelection(),
+    recordedSince: '2024-01-21'
+  };
+  delete source.articleConfig.newsletterEngagements;
+  const legacy = build(source);
+  source.articleConfig.newsletterEngagements = true;
+  freeze(source);
+
+  const result = build(source);
+  assert.equal(legacy.schemaVersion, 9, 'the existing date and click selectors retain input9 without the opt-in');
+  assert.equal(result.schemaVersion, 10);
+  assert.deepEqual(result, {
+    ...legacy,
+    schemaVersion: 10,
+    newsletterEngagements: true
+  });
+  assert.deepEqual(result.newsletter, newsletterSelection());
+  assert.deepEqual(result.analytics, analyticsSelection(), 'article history remains selected');
+  assert.deepEqual(result.searchConsole, searchConsoleSelection());
+  assert.deepEqual(result.directoryAnalytics, {
+    ...directoryAnalyticsClickSelection(),
+    recordedSince: '2024-01-21'
+  });
+  assert.equal(Object.hasOwn(result.newsletter, 'newsletterEngagements'), false,
+    'engagement opt-in is a protected-input capability, not a new newsletter identity field');
+  assert.equal(Object.hasOwn(legacy, 'newsletterEngagements'), false,
+    'the existing generated projection does not grow an opt-in field when it is absent');
+});
+
+test('input10 engagement selection requires the exact true flag and an English newsletter', async () => {
+  const build = await inputBuilder();
+  const base = fixture();
+  const invalidFlags = [false, 1, 'true', null, undefined];
+  for (const flag of invalidFlags) {
+    const source = fixture();
+    source.articleConfig.newsletter = newsletterSelection();
+    if (flag !== undefined) source.articleConfig.newsletterEngagements = flag;
+    else source.articleConfig.newsletterEngagements = undefined;
+    assert.throws(() => build(source), /engagement|newsletter|flag|input/i,
+      `unsupported engagement selector ${JSON.stringify(flag)}`);
+  }
+
+  for (const selection of [undefined, { ...newsletterSelection(), language: 'es' }]) {
+    const source = structuredClone(base);
+    source.articleConfig.newsletterEngagements = true;
+    if (selection !== undefined) source.articleConfig.newsletter = selection;
+    assert.throws(() => build(source), /engagement|newsletter|English|language|input/i,
+      `engagements require the selected English newsletter: ${JSON.stringify(selection)}`);
+  }
+});
+
+test('input10 can omit optional Google families and keeps directory date and clicks independently optional', async () => {
+  const build = await inputBuilder();
+  const base = fixture();
+  base.articleConfig.newsletter = newsletterSelection();
+  base.articleConfig.newsletterEngagements = true;
+  const input10 = build(base);
+  assert.equal(input10.schemaVersion, 10);
+  assert.deepEqual(Object.keys(input10).sort(), [
+    'curated', 'definitionVersion', 'newsletter', 'newsletterEngagements', 'schemaVersion', 'sources'
+  ]);
+
+  for (const directoryAnalytics of [
+    directoryAnalyticsSelection(),
+    { ...directoryAnalyticsSelection(), outboundClicks: true },
+    { ...directoryAnalyticsSelection(), recordedSince: '2024-01-21' },
+    { ...directoryAnalyticsSelection(), outboundClicks: true, recordedSince: '2024-01-21' }
+  ]) {
+    const source = structuredClone(base);
+    source.articleConfig.directoryAnalytics = directoryAnalytics;
+    const result = build(source);
+    assert.equal(result.schemaVersion, 10);
+    assert.deepEqual(result.directoryAnalytics, directoryAnalytics);
+    assert.deepEqual(result.newsletter, base.articleConfig.newsletter);
+    assert.equal(result.newsletterEngagements, true);
+  }
+
+  const directoryOnlyOld = fixture();
+  directoryOnlyOld.articleConfig.directoryAnalytics = { ...directoryAnalyticsSelection(), recordedSince: '2024-01-21' };
+  assert.equal(build(directoryOnlyOld).schemaVersion, 9,
+    'legacy directory-only selections remain legal without a Newsletter or engagement opt-in');
+});

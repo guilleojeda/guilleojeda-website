@@ -46,6 +46,7 @@ const GOOGLE_ANALYTICS_ENDPOINT = "https://analyticsdata.googleapis.com/v1beta/p
 const GOOGLE_VIEWS_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd", "total"]);
 const DIRECTORY_VIEWS_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd", "total"]);
 const GOOGLE_SEARCH_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd"]);
+const NEWSLETTER_ENGAGEMENT_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd"]);
 const GOOGLE_VIEW_QUALIFICATIONS = new Set(["sampled", "thresholding", "other-row"]);
 const GOOGLE_ANALYTICS_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
 const GOOGLE_ANALYTICS_HOSTNAME = "newsletter.simpleaws.dev";
@@ -256,17 +257,20 @@ function validateDirectoryAnalyticsSelection(value, outboundClicksEnabled = fals
 
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(input.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(input.schemaVersion)) {
     throw fail("INPUT_VERSION_UNSUPPORTED");
   }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
+  if (input.schemaVersion !== 10 && Object.hasOwn(input, "newsletterEngagements")) {
+    throw fail("INPUT_SCHEMA_INVALID");
+  }
 
   if (input.schemaVersion === 1) {
     return { schemaVersion: 1, sources: [validateCaylentSource(input.source)] };
   }
 
   const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6 ||
-    input.schemaVersion === 7 || input.schemaVersion === 8 || input.schemaVersion === 9;
+    input.schemaVersion === 7 || input.schemaVersion === 8 || input.schemaVersion === 9 || input.schemaVersion === 10;
   const allowedSourceCounts = simpleAwsAllowed ? [2, 3, 4] : [2, 3];
   if (!Array.isArray(input.sources) || !allowedSourceCounts.includes(input.sources.length)) {
     throw fail("INPUT_SCHEMA_INVALID");
@@ -383,6 +387,45 @@ function validateInput(input) {
       ...(hasSearchConsole ? { searchConsole: validateSearchConsoleSelection(input.searchConsole) } : {}),
       directoryAnalytics: validateDirectoryAnalyticsSelection(input.directoryAnalytics, outboundClicksEnabled, recordedSinceEnabled),
       ...(outboundClicksEnabled ? { directoryOutboundClicks: true } : {})
+    };
+  }
+
+  if (input.schemaVersion === 10) {
+    const hasNewsletter = Object.hasOwn(input, "newsletter");
+    const hasAnalytics = Object.hasOwn(input, "analytics");
+    const hasSearchConsole = Object.hasOwn(input, "searchConsole");
+    const hasDirectoryAnalytics = Object.hasOwn(input, "directoryAnalytics");
+    const outboundClicksEnabled = hasDirectoryAnalytics && isObject(input.directoryAnalytics) &&
+      Object.hasOwn(input.directoryAnalytics, "outboundClicks");
+    const recordedSinceEnabled = hasDirectoryAnalytics && isObject(input.directoryAnalytics) &&
+      Object.hasOwn(input.directoryAnalytics, "recordedSince");
+    const expectedKeys = ["schemaVersion", "definitionVersion", "sources", "curated", "newsletter",
+      "newsletterEngagements"];
+    if (hasAnalytics) expectedKeys.push("analytics");
+    if (hasSearchConsole) expectedKeys.push("searchConsole");
+    if (hasDirectoryAnalytics) expectedKeys.push("directoryAnalytics");
+    if (input.newsletterEngagements !== true ||
+        !exactKeys(input, expectedKeys) ||
+        !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"]) ||
+        !hasNewsletter || hasSearchConsole && !hasAnalytics) {
+      throw fail("INPUT_SCHEMA_INVALID");
+    }
+    const newsletterSelection = validateNewsletterSelection(input.newsletter);
+    if (newsletterSelection.language !== "en") throw fail("NEWSLETTER_CONFIGURATION_INVALID");
+    const { sources } = configuredSources(input.newsletter);
+    return {
+      schemaVersion: 10,
+      sources,
+      curated: input.curated,
+      newsletter: newsletterSelection,
+      newsletterEngagements: true,
+      ...(hasAnalytics ? { analytics: validateAnalyticsSelection(input.analytics) } : {}),
+      ...(hasSearchConsole ? { searchConsole: validateSearchConsoleSelection(input.searchConsole) } : {}),
+      ...(hasDirectoryAnalytics ? {
+        directoryAnalytics: validateDirectoryAnalyticsSelection(input.directoryAnalytics,
+          outboundClicksEnabled, recordedSinceEnabled),
+        ...(outboundClicksEnabled ? { directoryOutboundClicks: true } : {})
+      } : {})
     };
   }
 
@@ -536,6 +579,203 @@ async function collectNewsletter(value, env, collectedAt) {
   return makeNewsletterGroup(selection, subscribers, collectedAt);
 }
 
+function newsletterEngagementScopeFingerprint(selection, family, providerMetric) {
+  const scope = {
+    definitionVersion: 1,
+    family,
+    policy: "beehiiv-post-email-reported-daily-events-v1",
+    publication: { ...NEWSLETTER_PUBLICATION, language: "en" },
+    providerPublicationId: selection.publicationId,
+    source: { emailType: "post", granularity: "day", providerMetric, timeZone: "UTC" }
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function newsletterEngagementRanges(now) {
+  const collectionDate = new Date(now).toISOString().slice(0, 10);
+  const endDate = addCalendarDays(collectionDate, -3);
+  const anchor = addCalendarDays(endDate, 1);
+  const byPeriod = {
+    "7d": { startDate: addCalendarDays(endDate, -6), endDate },
+    "30d": { startDate: addCalendarDays(endDate, -29), endDate },
+    "90d": { startDate: addCalendarDays(endDate, -89), endDate },
+    "12m": { startDate: addCalendarMonths(anchor, -12), endDate }
+  };
+  const yearStart = `${collectionDate.slice(0, 4)}-01-01`;
+  if (yearStart <= endDate) byPeriod.ytd = { startDate: yearStart, endDate };
+  return NEWSLETTER_ENGAGEMENT_PERIODS
+    .filter((period) => Object.hasOwn(byPeriod, period))
+    .map((period) => ({ period, ...byPeriod[period] }));
+}
+
+function newsletterEngagementChunks(ranges) {
+  const startDate = ranges.reduce((earliest, range) => range.startDate < earliest ? range.startDate : earliest,
+    ranges[0].startDate);
+  const endDate = ranges.reduce((latest, range) => range.endDate > latest ? range.endDate : latest,
+    ranges[0].endDate);
+  const chunks = [];
+  for (let start = startDate; start <= endDate;) {
+    const remaining = Math.floor((Date.parse(`${endDate}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000) + 1;
+    const numberOfDays = Math.min(31, remaining);
+    chunks.push({ startDate: start, endDate: addCalendarDays(start, numberOfDays - 1), numberOfDays });
+    start = addCalendarDays(start, numberOfDays);
+  }
+  return chunks;
+}
+
+async function requestNewsletterEngagementChunk(selection, apiKey, chunk) {
+  const url = new URL(`${BEEHIIV_API_ENDPOINT}${encodeURIComponent(selection.publicationId)}/engagements`);
+  url.searchParams.set("start_date", chunk.startDate);
+  url.searchParams.set("number_of_days", String(chunk.numberOfDays));
+  url.searchParams.set("granularity", "day");
+  url.searchParams.set("email_type", "post");
+  const envelope = await fetchJson(url.toString(), "simple-aws-email-engagements", chunk.startDate, {
+    headers: { accept: "application/json", authorization: `Bearer ${apiKey}` },
+    redirect: "error",
+    noRedirectRetry: true,
+    timeoutMs: 5_000
+  });
+  const boundaryDate = addCalendarDays(chunk.startDate, chunk.numberOfDays);
+  if (!isObject(envelope) || envelope.publication_id !== selection.publicationId ||
+      envelope.granularity !== "day" || envelope.email_type !== "post" ||
+      envelope.start_date !== chunk.startDate || envelope.number_of_days !== chunk.numberOfDays ||
+      !Array.isArray(envelope.data) || envelope.data.length > 32 ||
+      envelope.data.length > chunk.numberOfDays + 1) {
+    throw fail("BEEHIIV_ENGAGEMENT_RESPONSE_INVALID");
+  }
+
+  const dates = new Set();
+  const rows = [];
+  for (const row of envelope.data) {
+    if (!isObject(row) || !isRealIsoDate(row.date) || row.date < chunk.startDate || row.date > boundaryDate || dates.has(row.date)) {
+      throw fail("BEEHIIV_ENGAGEMENT_RESPONSE_INVALID");
+    }
+    dates.add(row.date);
+    if (row.date < chunk.endDate || row.date === chunk.endDate) rows.push(row);
+  }
+  return rows;
+}
+
+function isValidBeehiivEventCount(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function makeNewsletterEngagementMetricResult({ selection, family, valueKey, providerMetric, ranges,
+  rowsByDate, invalidMetricDates, failedChunks, collectedAt }) {
+  const records = {};
+  const failedPeriods = [];
+  let failureCode;
+  for (const range of ranges) {
+    const hasChunkFailure = failedChunks.some(({ startDate, endDate }) =>
+      startDate <= range.endDate && range.startDate <= endDate);
+    let hasInvalidMetric = false;
+    let total = 0;
+    let rowCount = 0;
+    if (!hasChunkFailure) {
+      for (let date = range.startDate; date <= range.endDate; date = addCalendarDays(date, 1)) {
+        if (invalidMetricDates.has(date)) {
+          hasInvalidMetric = true;
+          continue;
+        }
+        const row = rowsByDate.get(date);
+        if (!row) continue;
+        const value = row[providerMetric];
+        if (!isValidBeehiivEventCount(value)) {
+          hasInvalidMetric = true;
+          continue;
+        }
+        const next = total + value;
+        if (!Number.isSafeInteger(next)) {
+          hasInvalidMetric = true;
+          continue;
+        }
+        total = next;
+        rowCount += 1;
+      }
+    }
+    if (hasChunkFailure || hasInvalidMetric || rowCount === 0) {
+      failedPeriods.push(range.period);
+      failureCode ??= hasChunkFailure ? "BEEHIIV_ENGAGEMENT_REPORT_FAILED"
+        : hasInvalidMetric ? "BEEHIIV_ENGAGEMENT_METRIC_INVALID" : "BEEHIIV_ENGAGEMENT_REPORT_EMPTY";
+      continue;
+    }
+    records[range.period] = {
+      basis: "period",
+      collectedAt,
+      scopeId: newsletterEngagementScopeFingerprint(selection, family, providerMetric),
+      publication: { ...NEWSLETTER_PUBLICATION, language: "en" },
+      timeZone: "UTC",
+      startDate: range.startDate,
+      endDate: range.endDate,
+      [valueKey]: total
+    };
+  }
+  return {
+    group: Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null,
+    failedPeriods,
+    eligiblePeriods: ranges.map(({ period }) => period),
+    ...(failureCode ? { failureCode } : {})
+  };
+}
+
+async function collectNewsletterEngagements(value, env, collectedAt, now) {
+  const selection = validateNewsletterSelection(value);
+  const ranges = newsletterEngagementRanges(now);
+  const failedResult = (code) => ({
+    group: null,
+    failedPeriods: ranges.map(({ period }) => period),
+    eligiblePeriods: ranges.map(({ period }) => period),
+    failureCode: code
+  });
+  let apiKey;
+  try {
+    apiKey = await readBeehiivApiKey(env);
+  } catch (error) {
+    if (!(error instanceof CollectorError)) throw error;
+    return {
+      opens: failedResult(error.code),
+      verifiedClicks: failedResult(error.code)
+    };
+  }
+
+  const chunks = newsletterEngagementChunks(ranges);
+  const rowsByDate = new Map();
+  const invalidOpenDates = new Set();
+  const invalidClickDates = new Set();
+  const failedChunks = [];
+  let failureCode;
+  for (const chunk of chunks) {
+    try {
+      const rows = await requestNewsletterEngagementChunk(selection, apiKey, chunk);
+      for (const row of rows) {
+        const openValid = isValidBeehiivEventCount(row.total_opens);
+        const clickValid = isValidBeehiivEventCount(row.total_verified_clicks);
+        if (!openValid) invalidOpenDates.add(row.date);
+        if (!clickValid) invalidClickDates.add(row.date);
+        rowsByDate.set(row.date, row);
+      }
+    } catch (error) {
+      if (!(error instanceof CollectorError)) throw error;
+      failedChunks.push(chunk);
+      failureCode ??= error.code;
+    }
+  }
+
+  const opens = makeNewsletterEngagementMetricResult({
+    selection, family: "newsletterEmailOpens", valueKey: "opens", providerMetric: "total_opens",
+    ranges, rowsByDate, invalidMetricDates: invalidOpenDates, failedChunks, collectedAt
+  });
+  const verifiedClicks = makeNewsletterEngagementMetricResult({
+    selection, family: "newsletterEmailVerifiedClicks", valueKey: "clicks", providerMetric: "total_verified_clicks",
+    ranges, rowsByDate, invalidMetricDates: invalidClickDates, failedChunks, collectedAt
+  });
+  if (failureCode) {
+    opens.failureCode ??= failureCode;
+    verifiedClicks.failureCode ??= failureCode;
+  }
+  return { opens, verifiedClicks };
+}
+
 function scopeFingerprint(sources) {
   const sourceSelectors = sources.map((source) => {
     if (source.id === "caylent") return { id: source.id, authorId: source.authorId, language: source.language };
@@ -590,12 +830,15 @@ async function fetchJson(url, sourceId, page, options = {}) {
       const requestOptions = {
         method: options.method ?? "GET",
         headers: options.headers ?? { accept: "application/json" },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
       };
       if (Object.hasOwn(options, "body")) requestOptions.body = options.body;
       if (options.redirect !== undefined) requestOptions.redirect = options.redirect;
       response = await fetch(url, requestOptions);
-    } catch {
+    } catch (error) {
+      if (options.noRedirectRetry === true && options.redirect === "error" && isRejectedRedirect(error)) {
+        throw fail("SOURCE_REDIRECT_REJECTED");
+      }
       if (attempt < MAX_TRANSIENT_RETRIES) {
         log("warn", { event: "content_stats_source_retry", sourceId, page, reason: "network" });
         continue;
@@ -623,6 +866,15 @@ async function fetchJson(url, sourceId, page, options = {}) {
   }
 
   throw fail("SOURCE_NETWORK_FAILED");
+}
+
+function isRejectedRedirect(error) {
+  let current = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current.message === "string" && /unexpected redirect/i.test(current.message)) return true;
+    current = current.cause;
+  }
+  return false;
 }
 
 function formatIsoDate(year, month, day) {
@@ -1163,7 +1415,7 @@ async function collectArticleSearchClicks(searchConsole, accessToken, collectedA
 
 async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const supportsDirectoryAnalytics = configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
-    configuration.schemaVersion === 9;
+    configuration.schemaVersion === 9 || configuration.schemaVersion === 10;
   const directoryEnabled = supportsDirectoryAnalytics && configuration.directoryAnalytics !== undefined;
   const directoryOutboundClicksEnabled = configuration.directoryOutboundClicks === true && directoryEnabled;
   const articleViewsEnabled = configuration.analytics !== undefined;
@@ -1174,7 +1426,7 @@ async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const outboundClickRanges = directoryOutboundClicksEnabled ? directoryRanges : [];
   const outboundClickEligiblePeriods = outboundClickRanges.map(({ period }) => period);
   const searchRanges = (configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
-    configuration.schemaVersion === 9) && configuration.searchConsole !== undefined
+    configuration.schemaVersion === 9 || configuration.schemaVersion === 10) && configuration.searchConsole !== undefined
     ? supportedGoogleSearchRanges(configuration.searchConsole, now)
     : [];
   const searchEligiblePeriods = searchRanges.map(({ period }) => period);
@@ -2003,6 +2255,45 @@ function isValidNewsletterGroup(group) {
   return Number.isSafeInteger(group.subscribers) && group.subscribers >= 0;
 }
 
+function isValidNewsletterEngagementRecord(record, valueKey) {
+  if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", valueKey]) ||
+      record.basis !== "period" || typeof record.collectedAt !== "string") {
+    return false;
+  }
+  const collected = Date.parse(record.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== record.collectedAt ||
+      typeof record.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(record.scopeId) ||
+      !exactKeys(record.publication, ["id", "label", "language"]) ||
+      record.publication.id !== NEWSLETTER_PUBLICATION.id || record.publication.label !== NEWSLETTER_PUBLICATION.label ||
+      record.publication.language !== "en" || record.timeZone !== "UTC" ||
+      !isRealIsoDate(record.startDate) || !isRealIsoDate(record.endDate) || record.startDate > record.endDate) {
+    return false;
+  }
+  return Number.isSafeInteger(record[valueKey]) && record[valueKey] >= 0;
+}
+
+function sanitizeNewsletterEngagementGroup(group, valueKey) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 || !isObject(group.records)) {
+    return null;
+  }
+  const records = {};
+  for (const period of NEWSLETTER_ENGAGEMENT_PERIODS) {
+    if (Object.hasOwn(group.records, period) && isValidNewsletterEngagementRecord(group.records[period], valueKey)) {
+      records[period] = group.records[period];
+    }
+  }
+  return Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null;
+}
+
+function isValidNewsletterEngagementGroup(group, valueKey) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 ||
+      !isObject(group.records) || Object.keys(group.records).length === 0) {
+    return false;
+  }
+  return Object.entries(group.records).every(([period, record]) =>
+    NEWSLETTER_ENGAGEMENT_PERIODS.includes(period) && isValidNewsletterEngagementRecord(record, valueKey));
+}
+
 function isValidArticleViewRecord(record, period) {
   if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", "views", "qualifications"])) {
     return false;
@@ -2210,7 +2501,7 @@ function validateOutput(output) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const families = Object.keys(output.groups);
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
   if (families.length < 1 || families.some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2225,7 +2516,11 @@ function validateOutput(output) {
             ? isValidDirectoryOutboundClicksGroup(output.groups[family])
             : family === "articleSearchClicks"
               ? isValidArticleSearchClicksGroup(output.groups[family])
-              : isValidGroup(output.groups[family], family);
+              : family === "newsletterEmailOpens"
+                ? isValidNewsletterEngagementGroup(output.groups[family], "opens")
+                : family === "newsletterEmailVerifiedClicks"
+                  ? isValidNewsletterEngagementGroup(output.groups[family], "clicks")
+                  : isValidGroup(output.groups[family], family);
     if (!valid) throw fail("OUTPUT_SCHEMA_INVALID");
   }
 }
@@ -2259,7 +2554,7 @@ async function readPreviousAggregate(bucket, key) {
       !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
   if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2283,6 +2578,12 @@ async function readPreviousAggregate(bucket, key) {
     }
     if (family === "articleSearchClicks") {
       const sanitized = sanitizeArticleSearchClicksGroup(previous.groups[family]);
+      if (sanitized) groups[family] = sanitized;
+      continue;
+    }
+    if (family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks") {
+      const sanitized = sanitizeNewsletterEngagementGroup(previous.groups[family],
+        family === "newsletterEmailOpens" ? "opens" : "clicks");
       if (sanitized) groups[family] = sanitized;
       continue;
     }
@@ -2333,6 +2634,8 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let directoryViewsResult;
   let directoryOutboundClicksResult;
   let articleSearchClicksResult;
+  let newsletterEmailOpensResult;
+  let newsletterEmailVerifiedClicksResult;
   try {
     articleCollection = await collectPublications(configuration.sources, now, env);
     groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
@@ -2351,7 +2654,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   }
 
   if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
-      ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8 || configuration.schemaVersion === 9) &&
+      ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8 || configuration.schemaVersion === 9 || configuration.schemaVersion === 10) &&
         configuration.newsletter !== undefined)) {
     try {
       groups.newsletter = await collectNewsletter(configuration.newsletter, env, collectedAt);
@@ -2361,7 +2664,31 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     }
   }
 
-  if (configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
+  if (configuration.newsletterEngagements === true) {
+    const eligiblePeriods = newsletterEngagementRanges(now).map(({ period }) => period);
+    const failedResult = (code) => ({ group: null, failedPeriods: eligiblePeriods, eligiblePeriods, failureCode: code });
+    try {
+      const result = await collectNewsletterEngagements(configuration.newsletter, env, collectedAt, now);
+      newsletterEmailOpensResult = result.opens;
+      newsletterEmailVerifiedClicksResult = result.verifiedClicks;
+    } catch (error) {
+      if (!(error instanceof CollectorError)) throw error;
+      newsletterEmailOpensResult = failedResult(error.code);
+      newsletterEmailVerifiedClicksResult = failedResult(error.code);
+    }
+    if (newsletterEmailOpensResult.group) groups.newsletterEmailOpens = newsletterEmailOpensResult.group;
+    if (newsletterEmailOpensResult.failedPeriods.length > 0) {
+      failures.newsletterEmailOpens = newsletterEmailOpensResult.failureCode ?? "BEEHIIV_ENGAGEMENT_REPORT_FAILED";
+    }
+    if (newsletterEmailVerifiedClicksResult.group) {
+      groups.newsletterEmailVerifiedClicks = newsletterEmailVerifiedClicksResult.group;
+    }
+    if (newsletterEmailVerifiedClicksResult.failedPeriods.length > 0) {
+      failures.newsletterEmailVerifiedClicks = newsletterEmailVerifiedClicksResult.failureCode ?? "BEEHIIV_ENGAGEMENT_REPORT_FAILED";
+    }
+  }
+
+  if (configuration.schemaVersion === 5 || configuration.schemaVersion === 6 || configuration.schemaVersion === 10 ||
       ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8 || configuration.schemaVersion === 9) &&
         configuration.directoryAnalytics !== undefined)) {
     try {
@@ -2435,18 +2762,24 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     previousGroups = await readPreviousAggregate(env.bucket, env.outputKey);
     if (previousGroups) {
       for (const family of Object.keys(failures)) {
-        if (family === "articleViews" || family === "directoryViews" || family === "directoryOutboundClicks" || family === "articleSearchClicks") {
+        if (family === "articleViews" || family === "directoryViews" || family === "directoryOutboundClicks" ||
+            family === "articleSearchClicks" || family === "newsletterEmailOpens" ||
+            family === "newsletterEmailVerifiedClicks") {
           const result = family === "articleViews"
             ? articleViewsResult
             : family === "directoryViews" ? directoryViewsResult
-              : family === "directoryOutboundClicks" ? directoryOutboundClicksResult : articleSearchClicksResult;
+              : family === "directoryOutboundClicks" ? directoryOutboundClicksResult
+                : family === "articleSearchClicks" ? articleSearchClicksResult
+                  : family === "newsletterEmailOpens" ? newsletterEmailOpensResult : newsletterEmailVerifiedClicksResult;
           const prior = previousGroups[family];
           const eligiblePeriods = new Set(result?.eligiblePeriods ?? []);
           const timeZone = family === "articleViews"
             ? configuration.analytics.timeZone
             : family === "directoryViews" || family === "directoryOutboundClicks"
-              ? configuration.directoryAnalytics.timeZone : GOOGLE_SEARCH_TIME_ZONE;
-          const currentYtdStart = `${localDateAt(timeZone, now).slice(0, 4)}-01-01`;
+              ? configuration.directoryAnalytics.timeZone
+              : family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks" ? "UTC" : GOOGLE_SEARCH_TIME_ZONE;
+          const currentYtdStart = `${(timeZone === "UTC" ? new Date(now).toISOString().slice(0, 10)
+            : localDateAt(timeZone, now)).slice(0, 4)}-01-01`;
           const records = { ...(groups[family]?.records ?? {}) };
           for (const period of result?.failedPeriods ?? []) {
             if (!eligiblePeriods.has(period) || !prior || !Object.hasOwn(prior.records, period)) continue;
@@ -2499,7 +2832,7 @@ async function handler() {
     const now = Date.parse(collectedAt);
     return configuration.schemaVersion === 3 || configuration.schemaVersion === 4 || configuration.schemaVersion === 5 ||
       configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
-      configuration.schemaVersion === 9
+      configuration.schemaVersion === 9 || configuration.schemaVersion === 10
       ? await collectIndependentGroups(configuration, env, collectedAt, now)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {
