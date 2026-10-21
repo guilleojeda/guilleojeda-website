@@ -543,6 +543,7 @@ function checkContentStatsShell(page, html) {
     assert.equal(normalizedText(value.html), '', `${locale} Builder Center ${field} is empty before JavaScript loads`);
   }
   assert.ok(!/data-stats-builder-views-(?:interval|period|start-date|end-date)\b/i.test(builderViewsRegion.html), `${locale} Builder Center recorded total must not imply selected-period dates`);
+  assert.match(builderViewsRegion.html, /^<[^>]+\saria-busy=["']false["'](?:\s|>)/i, `${locale} Builder Center row is not permanently busy without JavaScript`);
   for (const field of ['status', 'results', 'value', 'coverage', 'interval', 'collected-date', 'qualifications']) {
     const attribute = `data-stats-views-${field}`;
     assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(viewsRegion.html), `${locale} views region needs ${field}`);
