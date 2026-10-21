@@ -1820,7 +1820,7 @@ test("input 3 scopes ignore ordering and unrelated family changes while remote a
   let listedBuilderArticles = [builderArticle({ id: "remote-one", title: "Remote Work One" })];
   const requests = [];
   const fetchFn = builderApiFetch({
-    builderPages: new Map([["", () => jsonResponse({ articles: listedBuilderArticles, resultsSize: 1 })]]),
+    builderPages: new Map([["", () => jsonResponse({ articles: listedBuilderArticles, resultsSize: listedBuilderArticles.length })]]),
     requestLog: requests
   });
   const harness = createHarness({
@@ -8171,4 +8171,461 @@ test("input4 dispatches sent using the normalized English newsletter language an
   assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 3,
     "each collection invocation uses the existing single publication request");
   assert.equal(harness.secretCalls.length, 3, "the sent family adds no secret read");
+});
+
+test("Builder rejects invalid resultsSize metadata and retains a valid prior Articles family", async () => {
+  const invalidCounts = [
+    { label: "larger positive count", include: true, value: 13 },
+    { label: "zero count with a returned row", include: true, value: 0 },
+    { label: "string count", include: true, value: "1" },
+    { label: "negative count", include: true, value: -1 },
+    { label: "unsafe integer", include: true, value: Number.MAX_SAFE_INTEGER + 1 },
+    { label: "missing count", include: false }
+  ];
+  const previousArticles = priorGroup({
+    collectedAt: "2026-10-15T12:00:00.000Z",
+    scopeId: "5".repeat(64),
+    counts: { all: 53, en: 41, es: 12 }
+  });
+
+  for (const [index, invalid] of invalidCounts.entries()) {
+    const builderPage = { articles: [builderArticle({ id: `bad-results-size-${index}` })] };
+    if (invalid.include) builderPage.resultsSize = invalid.value;
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseThreeInput({ curated: {
+        talks: [talkFact(`healthy-talk-${index}`)],
+        books: [bookFact(`healthy-book-${index}`)]
+      } }),
+      fetchFn: builderApiFetch({
+        caylentPages: new Map([[0, { results: [] }]]),
+        builderPages: new Map([["", builderPage]]),
+        requestLog
+      })
+    });
+    harness.objects.set(outputKey, JSON.stringify({ schemaVersion: 1, groups: { articles: previousArticles } }));
+
+    await harness.handler({}, {});
+
+    assert.equal(harness.putCalls.length, 1, `${invalid.label}: healthy curated siblings still publish`);
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(JSON.stringify(output.groups.articles), JSON.stringify(previousArticles),
+      `${invalid.label}: the complete prior Articles family remains verbatim`);
+    assert.deepEqual(output.groups.articles.counts, { all: 53, en: 41, es: 12 });
+    assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
+    assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
+    assert.equal(requestLog.filter(({ kind }) => kind === "builder-list").length, 1);
+  }
+
+  const noPriorLog = [];
+  const noPrior = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("healthy-talk-without-prior")],
+      books: [bookFact("healthy-book-without-prior")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [builderArticle({ id: "bad-without-prior" })], resultsSize: 13 }]]),
+      requestLog: noPriorLog
+    })
+  });
+
+  await noPrior.handler({}, {});
+
+  assert.equal(noPrior.putCalls.length, 1);
+  const withoutPriorOutput = await readPut(noPrior.putCalls[0]);
+  assert.equal(Object.hasOwn(withoutPriorOutput.groups, "articles"), false,
+    "a failed first inventory is unavailable instead of an invented zero count");
+  assert.deepEqual(withoutPriorOutput.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(withoutPriorOutput.groups.books.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(noPriorLog.filter(({ kind }) => kind === "builder-list").length, 1);
+});
+
+test("Builder recovers after a bad page and continues through valid short and empty cursor pages", async () => {
+  const requestLog = [];
+  const firstRow = builderArticle({ id: "recovered-builder-row", title: "Recovered Builder inventory" });
+  const builderPages = new Map([["", { articles: [firstRow], resultsSize: 13 }]]);
+  const previousArticles = priorGroup({
+    collectedAt: "2026-10-15T12:00:00.000Z",
+    scopeId: "6".repeat(64),
+    counts: { all: 53, en: 41, es: 12 }
+  });
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: {
+      talks: [talkFact("recovery-talk")],
+      books: [bookFact("recovery-book")]
+    } }),
+    fetchFn: builderApiFetch({
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages,
+      requestLog
+    })
+  });
+  harness.objects.set(outputKey, JSON.stringify({ schemaVersion: 1, groups: { articles: previousArticles } }));
+
+  await harness.handler({}, {});
+
+  const afterFailure = await readPut(harness.putCalls[0]);
+  assert.equal(JSON.stringify(afterFailure.groups.articles), JSON.stringify(previousArticles));
+  assert.deepEqual(afterFailure.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(afterFailure.groups.books.counts, { all: 1, en: 1, es: 0 });
+
+  builderPages.set("", { articles: [firstRow], cursor: "short-page-cursor", resultsSize: 1 });
+  builderPages.set("short-page-cursor", { articles: [], cursor: "empty-page-cursor", resultsSize: 0 });
+  builderPages.set("empty-page-cursor", { articles: [], resultsSize: 0 });
+  await harness.handler({}, {});
+
+  const recovered = await readPut(harness.putCalls[1]);
+  assert.deepEqual(recovered.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(recovered.groups.talks.counts, { all: 1, en: 1, es: 0 });
+  assert.deepEqual(recovered.groups.books.counts, { all: 1, en: 1, es: 0 });
+  const builderRequests = requestLog.filter(({ kind }) => kind === "builder-list");
+  assert.deepEqual(builderRequests.slice(1).map(({ cursor, cursorParameterPresent }) => [cursor, cursorParameterPresent]), [
+    ["", false],
+    ["short-page-cursor", true],
+    ["empty-page-cursor", true]
+  ], "short and empty pages continue while the terminal empty page ends enumeration");
+});
+
+async function flushGooglePeriodMicrotasks() {
+  for (let index = 0; index < 80; index += 1) await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function runHandlerWithVirtualAbortDeadlines(handlerPromise, timers, getTime, setTime) {
+  let outcome;
+  handlerPromise.then(
+    (value) => { outcome = { value }; },
+    (error) => { outcome = { error }; }
+  );
+
+  for (let step = 0; !outcome && step < 100; step += 1) {
+    await flushGooglePeriodMicrotasks();
+    if (outcome) break;
+
+    const pendingTimers = timers.filter(({ settled, signal }) => !settled && !signal.aborted);
+    if (pendingTimers.length === 0) continue;
+    const nextDeadline = Math.min(...pendingTimers.map(({ deadline }) => deadline));
+    setTime(nextDeadline);
+    for (const timer of pendingTimers) {
+      if (timer.deadline <= nextDeadline) timer.controller.abort(new Error("synthetic virtual timeout"));
+    }
+  }
+
+  assert.ok(outcome, "the handler must settle after all recorded request deadlines");
+  if (Object.hasOwn(outcome, "error")) throw outcome.error;
+  return { value: outcome.value, elapsed: getTime() };
+}
+
+function googlePeriodFamily(request) {
+  const url = new URL(request.url);
+  const propertyId = url.pathname.match(/\/properties\/(\d+):runReport$/)?.[1];
+  if (propertyId !== directoryGooglePropertyId) return "articleViews";
+  return request.json.metrics[0]?.name === "eventCount" ? "directoryOutboundClicks" : "directoryViews";
+}
+
+function healthyGoogleReport(request) {
+  const family = googlePeriodFamily(request);
+  const metricName = request.json.metrics[0]?.name;
+  const directory = family !== "articleViews";
+  const views = metricName === "eventCount" ? 5 : directory ? 6 : 4;
+  return jsonResponse(ga4Report({
+    views,
+    metricName,
+    timeZone: directory ? directoryTimeZone : googleTimeZone
+  }));
+}
+
+test("a stalled Analytics endpoint times out in parallel by family and still publishes healthy siblings", async () => {
+  const directoryAnalytics = phaseNineDirectoryAnalytics({ outboundClicks: true, recordedSince: "2024-01-21" });
+  const analytics = phaseFiveAnalytics({ recordedSince: "2024-01-01" });
+  const cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]);
+  const previousInput = phaseThirteenInput({
+    analytics,
+    directoryAnalytics,
+    curated: { talks: [talkFact("before-google-stall")], books: [bookFact("before-google-stall")] }
+  });
+  const previousLog = [];
+  const previousHarness = createHarness({
+    input: previousInput,
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      requestLog: previousLog,
+      cloudyPages,
+      engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request)),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17, 100)),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      reportResponder: ({ request }) => healthyGoogleReport(request)
+    })
+  });
+  await previousHarness.handler({}, {});
+  const previous = await readPut(previousHarness.putCalls[0]);
+  for (const family of ["articleViews", "directoryViews", "directoryOutboundClicks"]) {
+    assert.equal(Object.keys(previous.groups[family].records).length, 6, `${family} supplies prior records for all eligible periods`);
+  }
+
+  const currentInput = phaseThirteenInput({
+    analytics,
+    directoryAnalytics,
+    curated: {
+      talks: [talkFact("before-google-stall"), talkFact("after-google-stall")],
+      books: [bookFact("before-google-stall"), bookFact("after-google-stall")]
+    }
+  });
+  const requestLog = [];
+  let subscribers = 29;
+  let sent = 120;
+  let virtualNow = 0;
+  const virtualTimers = [];
+  const timerBySignal = new Map();
+  const originalAbortTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = (milliseconds) => {
+    const controller = new AbortController();
+    const timer = {
+      controller,
+      signal: controller.signal,
+      milliseconds,
+      deadline: virtualNow + milliseconds,
+      settled: false
+    };
+    virtualTimers.push(timer);
+    timerBySignal.set(timer.signal, timer);
+    return timer.signal;
+  };
+
+  const activeByProperty = new Map();
+  const activeFamilyByProperty = new Map();
+  const peakByProperty = new Map();
+  const familyStarts = [];
+  const concurrencyViolations = [];
+  const phaseFetch = phaseThirteenFetch({
+    requestLog,
+    cloudyPages,
+    engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request)),
+    newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, subscribers, sent)),
+    postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+    reportResponder: ({ request }) => {
+      const family = googlePeriodFamily(request);
+      const propertyId = new URL(request.url).pathname.match(/\/properties\/(\d+):runReport$/)?.[1];
+      familyStarts.push({ family, propertyId, at: virtualNow });
+      const activeFamily = activeFamilyByProperty.get(propertyId);
+      if (activeFamily !== undefined && activeFamily !== family) {
+        concurrencyViolations.push(`overlap:${activeFamily}:${family}`);
+      }
+      activeFamilyByProperty.set(propertyId, family);
+      const active = (activeByProperty.get(propertyId) ?? 0) + 1;
+      activeByProperty.set(propertyId, active);
+      peakByProperty.set(propertyId, Math.max(peakByProperty.get(propertyId) ?? 0, active));
+
+      return new Promise((_resolve, reject) => {
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          const remaining = activeByProperty.get(propertyId) - 1;
+          activeByProperty.set(propertyId, remaining);
+          if (remaining === 0) {
+            activeByProperty.delete(propertyId);
+            activeFamilyByProperty.delete(propertyId);
+          }
+        };
+        request.signal.addEventListener("abort", () => {
+          finish();
+          reject(new Error("synthetic Analytics endpoint stall"));
+        }, { once: true });
+        if (request.signal.aborted) {
+          finish();
+          reject(new Error("synthetic Analytics endpoint stall"));
+        }
+      });
+    },
+    searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 55 }))
+  });
+  const stalledHarness = createHarness({
+    input: currentInput,
+    clock: createClock("2026-10-17T12:00:00.000Z"),
+    fetchFn: async (input, init) => {
+      const timer = timerBySignal.get(init.signal);
+      try {
+        return await phaseFetch(input, init);
+      } finally {
+        if (timer) timer.settled = true;
+      }
+    }
+  });
+  stalledHarness.objects.set(outputKey, JSON.stringify(previous));
+
+  try {
+    let run;
+    try {
+      run = await runHandlerWithVirtualAbortDeadlines(
+        stalledHarness.handler({}, {}),
+        virtualTimers,
+        () => virtualNow,
+        (value) => { virtualNow = value; }
+      );
+    } catch (error) {
+      throw error;
+    }
+    assert.equal(run.elapsed, 60_000, "three six-period GA4 families each consume two overlapping ten-second attempts");
+    assert.ok(run.elapsed < 300_000, "healthy siblings publish inside the existing Lambda runtime budget");
+  } finally {
+    AbortSignal.timeout = originalAbortTimeout;
+  }
+
+  assert.equal(stalledHarness.abortSignalRecords.length, virtualTimers.length,
+    "the virtual scheduler accounts for each actual request timeout created by the handler");
+  const googleReports = googleRequests(requestLog, "google-report");
+  assert.equal(googleReports.length, 36, "six reports in each of three failed families retry once");
+  assert.deepEqual(Object.fromEntries(["articleViews", "directoryViews", "directoryOutboundClicks"].map((family) => [
+    family,
+    familyStarts.filter((start) => start.family === family).length
+  ])), { articleViews: 12, directoryViews: 12, directoryOutboundClicks: 12 });
+  assert.deepEqual([...new Set(familyStarts.map(({ family }) => family))], [
+    "articleViews", "directoryViews", "directoryOutboundClicks"
+  ], "Google families stay sequential while periods run together within each family");
+  assert.deepEqual([...new Set(familyStarts.filter(({ family }) => family === "articleViews").map(({ at }) => at))], [0, 10_000],
+    "all article periods start together and retry together at their recorded deadlines");
+  assert.deepEqual([...new Set(familyStarts.filter(({ family }) => family === "directoryViews").map(({ at }) => at))], [20_000, 30_000]);
+  assert.deepEqual([...new Set(familyStarts.filter(({ family }) => family === "directoryOutboundClicks").map(({ at }) => at))], [40_000, 50_000]);
+  assert.equal(peakByProperty.size, 2, "the selected reports cover the article and directory properties");
+  for (const [propertyId, peak] of peakByProperty) {
+    assert.equal(peak, 6, `all six periods start together for property ${propertyId}, without exceeding the quota bound`);
+  }
+  assert.deepEqual(concurrencyViolations, [], "directory Views and click families never overlap for one property");
+  assert.equal(googleRequests(requestLog, "google-search").length, 5, "healthy Search still refreshes every supported period");
+  for (const request of [...googleReports, ...googleRequests(requestLog, "google-search")]) {
+    assert.equal(stalledHarness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000,
+      "Google report and Search requests keep their actual ten-second timeout");
+  }
+  assert.deepEqual(stalledHarness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
+  assert.equal(googleRequests(requestLog, "google-oauth").length, 1, "the invocation refreshes one shared Google token");
+  assert.equal(stalledHarness.putCalls.length, 1, "one complete aggregate is written after the Google failures settle");
+
+  const output = await readPut(stalledHarness.putCalls[0]);
+  for (const family of ["articleViews", "directoryViews", "directoryOutboundClicks"]) {
+    assert.deepEqual(output.groups[family], previous.groups[family], `${family} keeps every exact prior period record`);
+  }
+  assert.equal(output.groups.articleSearchClicks.records["7d"].clicks, 55);
+  assert.equal(output.groups.articleSearchClicks.records["7d"].collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.ok(output.groups.articles, "the healthy article count remains available during the Google stall");
+  assert.equal(output.groups.articles.collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.deepEqual(output.groups.talks.counts, { all: 2, en: 2, es: 0 });
+  assert.equal(output.groups.talks.collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.deepEqual(output.groups.books.counts, { all: 2, en: 2, es: 0 });
+  assert.equal(output.groups.books.collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.equal(output.groups.newsletter.subscribers, 29);
+  assert.equal(output.groups.newsletter.collectedAt, "2026-10-17T12:00:00.000Z");
+  assert.equal(output.groups.newsletterEmailsSent.sent, 120);
+  assert.equal(output.groups.newsletterEmailsSent.collectedAt, "2026-10-17T12:00:00.000Z");
+  assertNoGoogleCanaries(stalledHarness, googleClientSecret, googleRefreshToken, googleResponseCanary);
+});
+
+test("Search periods settle out of order, retain only their own failures, and use range-order failure selection", async () => {
+  const clock = createClock("2026-10-16T04:30:00.000Z");
+  const requestLog = [];
+  const pendingSearch = [];
+  const previous = priorFullOutput();
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup();
+  const harness = createHarness({
+    input: phaseSixInput(),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => new Promise((resolve) => pendingSearch.push({ request, resolve }))
+    })
+  });
+  harness.objects.set(outputKey, JSON.stringify(previous));
+  let handlerOutcome;
+  const handlerCompletion = harness.handler({}, {}).then(
+    (value) => { handlerOutcome = { value }; },
+    (error) => { handlerOutcome = { error }; }
+  );
+
+  for (let step = 0; pendingSearch.length < 5 && step < 100; step += 1) await flushGooglePeriodMicrotasks();
+  assert.equal(pendingSearch.length, 5, "all five supported Search periods start before any response completes");
+  assert.equal(harness.putCalls.length, 0, "publication waits for every period in the Search family");
+  const requestStarts = pendingSearch.map(({ request }) => request.json.startDate);
+  assert.deepEqual(requestStarts, ["2026-10-06", "2026-09-13", "2026-07-15", "2025-10-13", "2026-01-01"]);
+
+  const completionOrder = [];
+  for (const { request, resolve } of [...pendingSearch].reverse()) {
+    const startDate = request.json.startDate;
+    completionOrder.push(startDate);
+    const response = startDate === "2026-09-13"
+      ? jsonResponse({ error: googleResponseCanary }, 403)
+      : startDate === "2025-10-13"
+        ? jsonResponse({ error: googleResponseCanary }, 404)
+        : jsonResponse(searchConsoleResponse({ clicks: 70 }));
+    resolve(response);
+    await flushGooglePeriodMicrotasks();
+  }
+  await handlerCompletion;
+
+  assert.deepEqual(completionOrder, ["2026-01-01", "2025-10-13", "2026-07-15", "2026-09-13", "2026-10-06"]);
+  assert.equal(handlerOutcome?.error, undefined);
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(output.groups.articleSearchClicks.records["30d"], previous.groups.articleSearchClicks.records["30d"]);
+  assert.deepEqual(output.groups.articleSearchClicks.records["12m"], previous.groups.articleSearchClicks.records["12m"]);
+  for (const period of ["7d", "90d", "ytd"]) {
+    assert.equal(output.groups.articleSearchClicks.records[period].clicks, 70);
+    assert.equal(output.groups.articleSearchClicks.records[period].collectedAt, "2026-10-16T04:30:00.000Z");
+  }
+  const successLog = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+  assert.equal(successLog.familyFailures.articleSearchClicks, "SOURCE_HTTP_403",
+    "the first failure follows supported-range order even when a later range failed earlier");
+  assert.equal(googleRequests(requestLog, "google-search").length, 5, "non-retryable failures do not launch duplicate Search requests");
+  assert.equal(harness.putCalls.length, 1);
+  assertNoGoogleCanaries(harness, googleResponseCanary);
+});
+
+test("an unexpected Search period error waits for other started periods and cannot publish", async () => {
+  const requestLog = [];
+  const pendingSearch = [];
+  const previous = priorFullOutput();
+  previous.groups.articleSearchClicks = priorArticleSearchClicksGroup();
+  const previousBytes = JSON.stringify(previous);
+  const harness = createHarness({
+    input: phaseSixInput(),
+    clock: createClock("2026-10-16T04:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => new Promise((resolve) => pendingSearch.push({ request, resolve }))
+    })
+  });
+  harness.objects.set(outputKey, previousBytes);
+  let handlerOutcome;
+  const handlerCompletion = harness.handler({}, {}).then(
+    (value) => { handlerOutcome = { value }; },
+    (error) => { handlerOutcome = { error }; }
+  );
+
+  for (let step = 0; pendingSearch.length < 5 && step < 100; step += 1) await flushGooglePeriodMicrotasks();
+  assert.equal(pendingSearch.length, 5, `all Search requests launch before the synthetic process error (handler=${JSON.stringify(handlerOutcome)})`);
+  let programmerErrorObserved = false;
+  const firstPeriod = pendingSearch.find(({ request }) => request.json.startDate === "2026-10-06");
+  const malformedRow = { keys: [] };
+  Object.defineProperty(malformedRow, "clicks", {
+    enumerable: true,
+    get() {
+      programmerErrorObserved = true;
+      throw new Error("synthetic Search validation programmer error");
+    }
+  });
+  firstPeriod.resolve(jsonResponse({ responseAggregationType: "byPage", rows: [malformedRow] }));
+  await flushGooglePeriodMicrotasks();
+  assert.equal(programmerErrorObserved, true, "the first period has reached validation and failed unexpectedly");
+  assert.equal(handlerOutcome, undefined, "the handler waits until every already-started period settles");
+  assert.equal(harness.putCalls.length, 0);
+
+  for (const { request, resolve } of pendingSearch) {
+    if (request === firstPeriod.request) continue;
+    resolve(jsonResponse(searchConsoleResponse({ clicks: 80 })));
+  }
+  await handlerCompletion;
+  assert.equal(handlerOutcome?.error?.code, "COLLECTION_FAILED", "an unexpected provider-processing error still aborts publication");
+  assert.equal(googleRequests(requestLog, "google-search").length, 5);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0);
+  assert.equal(harness.putCalls.length, 0);
+  assert.equal(harness.objects.get(outputKey), previousBytes, "the exact prior object survives the failed invocation");
 });
