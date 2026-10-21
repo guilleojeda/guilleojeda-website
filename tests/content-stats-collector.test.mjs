@@ -8704,7 +8704,13 @@ test("inputs 3 through 10 publish one exact Builder recorded-total family from t
 
   for (const input of inputs) {
     const requestLog = [];
-    const baseFetch = phaseThirteenFetch({ requestLog });
+    const baseFetch = phaseThirteenFetch({
+      requestLog,
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({
+        rows: [cloudyArticle({ id: "synthetic-phase15-ineligible-cloudy-row", author: "Another Author" })],
+        totalPosts: 1
+      })]])
+    });
     const { fetchFn, observed } = captureBuilderRequestOptions(baseFetch);
     const harness = createHarness({ input, fetchFn });
 
@@ -8729,7 +8735,7 @@ test("inputs 3 through 10 publish one exact Builder recorded-total family from t
     assert.ok(observed.every(({ headers }) =>
       !Object.keys(headers).some((name) => name.toLowerCase() === "authorization")),
     "the existing Builder author-list request remains unauthenticated");
-    const expectedSecretReads = input.schemaVersion < 4 ? 0 : input.schemaVersion <= 6 ? 1 : 2;
+    const expectedSecretReads = input.schemaVersion === 10 ? 3 : input.schemaVersion < 4 ? 0 : input.schemaVersion <= 6 ? 1 : 2;
     assert.equal(harness.secretCalls.length, expectedSecretReads,
       `input${input.schemaVersion} keeps its existing Beehiiv credential reads without a Builder credential read`);
     assert.equal(harness.parameterCalls.length, input.schemaVersion >= 5 ? 1 : 0,
