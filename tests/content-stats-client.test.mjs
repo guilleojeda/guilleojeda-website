@@ -130,9 +130,25 @@ function newsletterGroup({
   return { definitionVersion, basis, collectedAt: groupCollectedAt, scopeId, publication, subscribers };
 }
 
+function newsletterSentGroup({
+  sent = 4321,
+  collectedAt: groupCollectedAt = '2026-09-01T00:00:00.000Z',
+  scopeId = 'f'.repeat(64),
+  publication = { ...simpleAws, language: 'en' },
+  definitionVersion = 1,
+  basis = 'cumulative'
+} = {}) {
+  return { definitionVersion, basis, collectedAt: groupCollectedAt, scopeId, publication, sent };
+}
+
 function snapshotWithNewsletter(options = {}) {
   const data = threeGroupSnapshot();
   data.groups.newsletter = newsletterGroup(options);
+  return data;
+}
+
+function snapshotWithNewsletterSent({ data = snapshotWithNewsletter(), group = newsletterSentGroup() } = {}) {
+  data.groups.newsletterEmailsSent = group;
   return data;
 }
 
@@ -465,6 +481,19 @@ const newsletterEmailCopy = {
   }
 };
 
+const newsletterSentCopy = {
+  en: {
+    label: 'Emails sent — reported total',
+    loading: 'Loading reported emails sent…',
+    unavailable: 'The reported emails-sent total is unavailable.'
+  },
+  es: {
+    label: 'Emails enviados — total informado',
+    loading: 'Cargando el total informado de emails enviados…',
+    unavailable: 'El total informado de emails enviados no está disponible.'
+  }
+};
+
 function makeCard(kind, locale) {
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
@@ -600,6 +629,24 @@ function makeNewsletterEmailMetric(kind, locale, card) {
   return { region, label, status, results, value, unit, coverage, interval, collectedDate };
 }
 
+function makeNewsletterSentMetric(locale, card) {
+  const copy = newsletterSentCopy[locale];
+  const region = card.appendChild(new SemanticElement({
+    dataset: { statsNewsletterSent: '', statsNewsletterSentUnavailable: copy.unavailable }
+  }));
+  const label = region.appendChild(new SemanticElement({ textContent: copy.label }));
+  const status = region.appendChild(new SemanticElement({
+    dataset: { statsNewsletterSentStatus: '' },
+    textContent: copy.loading,
+    hidden: true
+  }));
+  const results = region.appendChild(new SemanticElement({ dataset: { statsNewsletterSentResults: '' }, hidden: true }));
+  const value = results.appendChild(new SemanticElement({ dataset: { statsNewsletterSentValue: '' } }));
+  const coverage = results.appendChild(new SemanticElement({ dataset: { statsNewsletterSentCoverage: '' } }));
+  const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsNewsletterSentCollectedDate: '' } }));
+  return { region, label, status, results, value, coverage, collectedDate };
+}
+
 function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, includeViews = true, includeSearch = true } = {}) {
   const section = new SemanticElement({
     dataset: {
@@ -633,6 +680,7 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
   }));
   cards.newsletter.emailOpens = makeNewsletterEmailMetric('opens', locale, cards.newsletter.card);
   cards.newsletter.emailVerifiedClicks = makeNewsletterEmailMetric('clicks', locale, cards.newsletter.card);
+  cards.newsletter.sent = makeNewsletterSentMetric(locale, cards.newsletter.card);
   cards.directoryViews = makeDirectoryViews(locale);
   section.appendChild(cards.directoryViews.card);
   cards.directoryOutboundClicks = makeDirectoryOutboundClicks(locale, cards.directoryViews.card);
@@ -808,6 +856,33 @@ function assertViewsVisible(page, locale, period) {
     if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
     if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
   }
+}
+
+function assertNewsletterSentUnavailable(page, locale, { hidden = false } = {}) {
+  const sent = page.cards.newsletter.sent;
+  assert.equal(sent.region.hidden, hidden, 'sent-total row follows content-language visibility');
+  assert.equal(sent.results.hidden, true, 'unavailable sent-total results stay hidden');
+  assert.equal(sent.value.textContent, '', 'unavailable sent total clears its previous value');
+  assert.equal(sent.coverage.textContent, '', 'unavailable sent total clears its publication');
+  assert.equal(sent.collectedDate.textContent, '', 'unavailable sent total clears its collection date');
+  assert.equal(sent.status.hidden, hidden, 'sent-total status follows content-language visibility');
+  if (!hidden) {
+    if (locale === 'en') assert.match(sent.status.textContent, /unavailable|not available/i);
+    else assert.match(sent.status.textContent, /no disponible|no disponibles|no se pueden/i);
+  } else {
+    assert.equal(sent.status.textContent, '', 'hidden sent-total status clears its message');
+  }
+}
+
+function assertNewsletterSentVisible(page, locale, expectedValue, collectedAt) {
+  const sent = page.cards.newsletter.sent;
+  assert.equal(sent.region.hidden, false, 'valid sent total is independently visible');
+  assert.equal(sent.status.hidden, true, 'valid sent total clears its loading or unavailable status');
+  assert.equal(sent.results.hidden, false, 'valid sent total reveals its result');
+  assert.equal(sent.value.textContent, new Intl.NumberFormat(locale).format(expectedValue));
+  assert.match(sent.label.textContent, locale === 'en' ? /emails sent.*reported total/i : /emails enviados.*total informado/i);
+  assert.equal(sent.coverage.textContent, 'Simple AWS');
+  assert.equal(sent.collectedDate.textContent, expectedDate(locale, collectedAt));
 }
 
 function assertSearchUnavailable(page, locale) {
@@ -2562,6 +2637,172 @@ for (const locale of ['en', 'es']) {
     }
   }
 }
+
+test('English newsletter sent total remains cumulative across five periods and Recorded total', async () => {
+  const collectedAt = '2024-02-15T00:00:00.000Z';
+  const data = snapshotWithNewsletterSent({
+    data: snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() }),
+    group: newsletterSentGroup({ sent: 4321, collectedAt })
+  });
+  const page = createPage({ locale: 'en', data });
+  await page.settle();
+
+  assert.equal(page.periodSelector.disabled, false, 'existing activity families own the shared period selector');
+  assert.equal(page.periodOptions.total.disabled, false, 'article views, not sent totals, support Recorded total');
+  for (const period of [...newsletterEmailPeriods, 'total']) {
+    page.periodSelector.value = period;
+    page.periodSelector.dispatch('change');
+    assert.equal(page.periodSelector.value, period, 'the sent total does not reset a shared activity-period selection');
+    assertNewsletterSentVisible(page, 'en', 4321, collectedAt);
+    assert.equal(page.cards.newsletter.count.textContent, '27', 'current subscribers stay independent of sent totals');
+    if (period === 'total') {
+      assertViewsVisible(page, 'en', 'total');
+      for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailUnavailable(page, 'en', spec);
+    } else {
+      assertViewsVisible(page, 'en', period);
+      for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, 'en', spec, period);
+    }
+  }
+  assert.equal(page.fetchCount, 1, 'the cumulative total and existing period metrics use one aggregate request');
+  assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+});
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} sent-only zero keeps Newsletter visible for All and English, then clears under Spanish filtering`, async () => {
+    const data = snapshotWithNewsletterSent({
+      data: snapshotWithNewsletter(),
+      group: newsletterSentGroup({ sent: 0, collectedAt: '2026-01-04T00:00:00.000Z' })
+    });
+    delete data.groups.newsletter;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.cards.newsletter.card.hidden, false, 'a valid sent total keeps the Newsletter card visible by itself');
+    assertNewsletterUnavailable(page, locale);
+    assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
+    assert.equal(page.periodOptions.total.disabled, true, 'the sent total does not enable shared Recorded total');
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'English content includes the sent total');
+    assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'the English sent total is hidden for Spanish content');
+    assert.equal(page.cards.newsletter.results.hidden, true);
+    assert.equal(page.cards.newsletter.count.textContent, '', 'filtering clears the missing subscriber count');
+    assert.equal(page.cards.newsletter.coverage.textContent, '', 'filtering clears subscriber coverage');
+    assert.equal(page.cards.newsletter.collectedDate.textContent, '', 'filtering clears the subscriber date');
+    assertNewsletterSentUnavailable(page, locale, { hidden: true });
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'All restores the sent-only Newsletter card');
+    assertNewsletterUnavailable(page, locale);
+    assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
+    assert.equal(page.fetchCount, 1, 'content-language changes reuse the one aggregate request');
+  });
+}
+
+test('missing newsletter sent data stays unavailable without hiding healthy newsletter siblings', async () => {
+  const data = snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() });
+  const page = createPage({ locale: 'en', data });
+  await page.settle();
+
+  assert.equal(page.cards.newsletter.card.hidden, false);
+  assertNewsletterSentUnavailable(page, 'en');
+  assert.equal(page.cards.newsletter.count.textContent, '27');
+  for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, 'en', spec, '12m');
+  assertViewsVisible(page, 'en', '12m');
+  assert.equal(page.fetchCount, 1);
+});
+
+const invalidNewsletterSentGroups = [
+  ['future definition version', (group) => { group.definitionVersion = 2; }],
+  ['period basis', (group) => { group.basis = 'recorded-total'; }],
+  ['noncanonical collection timestamp', (group) => { group.collectedAt = '2026-09-01T00:00:00Z'; }],
+  ['nonlowercase scope hash', (group) => { group.scopeId = 'F'.repeat(64); }],
+  ['malformed scope hash', (group) => { group.scopeId = 'not-a-sha256'; }],
+  ['wrong publication id', (group) => { group.publication.id = 'other'; }],
+  ['wrong publication label', (group) => { group.publication.label = 'Other'; }],
+  ['wrong publication language', (group) => { group.publication.language = 'es'; }],
+  ['negative sent value', (group) => { group.sent = -1; }],
+  ['fractional sent value', (group) => { group.sent = 1.5; }],
+  ['unsafe sent value', (group) => { group.sent = Number.MAX_SAFE_INTEGER + 1; }],
+  ['string sent value', (group) => { group.sent = '4321'; }],
+  ['null sent value', (group) => { group.sent = null; }],
+  ['boolean true sent value', (group) => { group.sent = true; }],
+  ['boolean false sent value', (group) => { group.sent = false; }],
+  ['missing sent field', (group) => { delete group.sent; }],
+  ['period field', (group) => { group.period = '12m'; }],
+  ['activity date field', (group) => { group.startDate = '2026-08-01'; }],
+  ['timezone field', (group) => { group.timeZone = 'UTC'; }],
+  ['records field', (group) => { group.records = {}; }],
+  ['provider identifier', (group) => { group.publication.providerId = 'secret-provider-id'; }],
+  ['other unexpected field', (group) => { group.future = true; }]
+];
+
+for (const [description, mutate] of invalidNewsletterSentGroups) {
+  test(`invalid newsletter sent ${description} clears only that family`, async () => {
+    const group = newsletterSentGroup();
+    mutate(group);
+    const data = snapshotWithNewsletterSent({
+      data: snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() }),
+      group
+    });
+    const page = createPage({ locale: 'en', data });
+    await page.settle();
+
+    assertNewsletterSentUnavailable(page, 'en');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'invalid sent data does not hide the Newsletter card');
+    assert.equal(page.cards.newsletter.count.textContent, '27', 'invalid sent data does not alter current subscribers');
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, 'en', spec, '12m');
+    assertViewsVisible(page, 'en', '12m');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+test('newsletter sent loading and fetch or root failures clear any stale result', async () => {
+  for (const options of [
+    { fetchError: new Error('synthetic fetch failure') },
+    { data: null }
+  ]) {
+    const page = createPage({
+      locale: 'en',
+      data: snapshotWithNewsletterSent(),
+      ...options
+    });
+    const sent = page.cards.newsletter.sent;
+    assert.equal(sent.status.hidden, false, 'the client shows a loading state while the shared request is pending');
+    assert.match(sent.status.textContent, /loading.*emails sent/i);
+    assert.equal(sent.results.hidden, true, 'the loading result stays hidden');
+    assert.equal(sent.value.textContent, '', 'loading has no placeholder number');
+
+    sent.results.hidden = false;
+    sent.value.textContent = '9999';
+    sent.coverage.textContent = 'Stale source';
+    sent.collectedDate.textContent = 'Stale date';
+    await page.settle();
+
+    assertNewsletterSentUnavailable(page, 'en');
+    assert.equal(page.fetchCount, 1, 'a failed request does not poll for the sent family');
+  }
+});
+
+test('newsletter sent value and date reflect the reported snapshot when retained or refreshed', async () => {
+  const retained = newsletterSentGroup({ sent: 3890, collectedAt: '2026-08-03T00:00:00.000Z' });
+  const retainedPage = createPage({ locale: 'en', data: snapshotWithNewsletterSent({ group: retained }) });
+  await retainedPage.settle();
+  assertNewsletterSentVisible(retainedPage, 'en', 3890, retained.collectedAt);
+
+  const refreshed = newsletterSentGroup({ sent: 4321, collectedAt: '2026-09-16T00:00:00.000Z' });
+  const refreshedPage = createPage({ locale: 'en', data: snapshotWithNewsletterSent({ group: refreshed }) });
+  await refreshedPage.settle();
+  assertNewsletterSentVisible(refreshedPage, 'en', 4321, refreshed.collectedAt);
+  assert.equal(retainedPage.fetchCount, 1);
+  assert.equal(refreshedPage.fetchCount, 1);
+});
 
 for (const locale of ['en', 'es']) {
   test(`${locale} snapshot fetch and root failures also finish the Search loading state`, async () => {

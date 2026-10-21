@@ -171,7 +171,6 @@ function checkContentStatsShell(page, html) {
   assert.ok(newsletterCardHeader, `${locale} newsletter card needs its own heading region`);
   mustNotContain(newsletterCardHeader.html, locale === 'en' ? 'current' : 'actual',
     `${locale} newsletter header must not describe email activity as current`);
-  mustNotContain(newsletterCard, locale === 'en' ? 'cumulative' : 'total acumulado', `${locale} newsletter card must not label current subscribers as a cumulative total`);
   for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
     const card = extractElement(statsHtml, 'article', 'data-stats-kind', kind)?.html;
     assert.ok(card, `${locale} ${kind} must have a distinct accessible card`);
@@ -186,6 +185,8 @@ function checkContentStatsShell(page, html) {
 
   const subscriberResults = extractElement(newsletterCard, null, 'data-stats-results');
   assert.ok(subscriberResults, `${locale} current subscribers need their existing results region`);
+  mustNotContain(subscriberResults.html, locale === 'en' ? 'cumulative' : 'total acumulado',
+    `${locale} current subscribers must not be labeled as a cumulative total`);
   const subscriberCountRegion = extractElement(subscriberResults.html, null, 'data-stats-count-region');
   assert.ok(subscriberCountRegion, `${locale} current subscribers need their own labeled count region`);
   if (locale === 'en') assert.match(normalizedText(subscriberCountRegion.html), /current|currently/i, 'English current label stays with the subscriber count');
@@ -223,6 +224,96 @@ function checkContentStatsShell(page, html) {
     const unavailableText = normalizedText(unavailable);
     if (locale === 'en') assert.match(unavailableText, /unavailable|not available/i, `English ${metric.attribute} unavailable copy is meaningful`);
     else assert.match(unavailableText, /no disponible|no disponibles|no se pueden/i, `Spanish ${metric.attribute} unavailable copy is meaningful`);
+  }
+
+  const sentAttribute = 'data-stats-newsletter-sent';
+  const sentRegion = extractElement(newsletterCard, null, sentAttribute);
+  assert.ok(sentRegion, `${locale} Newsletter needs a separate reported sent-total row`);
+  assert.ok(sentRegion.end <= subscriberResults.start || sentRegion.start >= subscriberResults.end,
+    `${locale} reported sent total must be outside current-subscriber results`);
+  for (const metric of newsletterEmailRegions) {
+    const emailRegion = extractElement(newsletterCard, null, metric.attribute);
+    assert.ok(emailRegion, `${locale} ${metric.attribute} remains available beside sent totals`);
+    assert.ok(sentRegion.end <= emailRegion.start || sentRegion.start >= emailRegion.end,
+      `${locale} reported sent total stays separate from email-activity metrics`);
+  }
+  for (const field of ['status', 'results', 'value', 'coverage', 'collected-date']) {
+    mustContain(sentRegion.html, `${sentAttribute}-${field}`, `${locale} reported sent total needs its ${field} selector`);
+  }
+  assert.ok(!new RegExp(`${sentAttribute}-(?:interval|start-date|end-date)\\b`, 'i').test(sentRegion.html),
+    `${locale} reported sent total must not imply a selected activity period or invented coverage dates`);
+  const sentText = normalizedText(sentRegion.html);
+  if (locale === 'en') assert.match(sentText, /emails? sent.{0,60}reported totals?/, 'English sent row says this is a reported total');
+  else assert.match(sentText, /emails? enviados?.{0,60}total informado/, 'Spanish sent row says this is a reported total');
+
+  const sentLabelReference = sentRegion.html.match(/\baria-labelledby=["']([^"']+)["']/i)?.[1];
+  const sentAccessibleName = sentRegion.html.match(/\baria-label=["']([^"']+)["']/i)?.[1];
+  assert.ok(sentLabelReference || sentAccessibleName, `${locale} reported sent-total row has an accessible name`);
+  if (sentLabelReference) {
+    assert.ok(new RegExp(`<[^>]*\\bid=["']${sentLabelReference}["'][^>]*>`, 'i').test(sentRegion.html),
+      `${locale} reported sent-total row references its own label`);
+  }
+  if (sentAccessibleName) {
+    assert.match(normalizedText(sentAccessibleName), locale === 'en' ? /emails? sent.*reported total/ : /emails? enviados?.*total informado/,
+      `${locale} reported sent-total accessible name is localized`);
+  }
+  const sentStatus = extractElement(sentRegion.html, null, `${sentAttribute}-status`);
+  assert.ok(sentStatus, `${locale} reported sent total needs its own loading and unavailable status`);
+  mustContain(sentStatus.html, 'role="status"', `${locale} sent-total status has a status role`);
+  mustContain(sentStatus.html, 'aria-live="polite"', `${locale} sent-total status announces updates politely`);
+  assert.match(normalizedText(sentStatus.html), locale === 'en' ? /loading.*emails? sent/ : /cargando.*emails? enviados?/,
+    `${locale} sent-total status has localized loading copy`);
+  assert.match(sentStatus.html, /\shidden(?:\s|=|>)/i, `${locale} sent-total loading copy starts hidden without JavaScript`);
+  const sentResults = extractElement(sentRegion.html, null, `${sentAttribute}-results`);
+  assert.ok(sentResults, `${locale} reported sent total needs its own results region`);
+  assert.match(sentResults.html, /\shidden(?:\s|=|>)/i, `${locale} sent-total results start hidden without JavaScript`);
+  const sentValue = extractElement(sentResults.html, null, `${sentAttribute}-value`);
+  assert.ok(sentValue, `${locale} reported sent total needs a value element`);
+  assert.equal(normalizedText(sentValue.html), '', `${locale} sent total has no initial placeholder number`);
+  const sentUnavailable = sentRegion.html.match(/data-stats-newsletter-sent-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
+  if (locale === 'en') assert.match(normalizedText(sentUnavailable), /unavailable|not available/, 'English sent-total unavailable copy is meaningful');
+  else assert.match(normalizedText(sentUnavailable), /no disponible|no disponibles|no se pueden/, 'Spanish sent-total unavailable copy is meaningful');
+
+  const sentDisclosureParagraph = [...sourcesDisclosure.html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => normalizedText(match[1]))
+    .find((paragraph) => locale === 'en'
+      ? /reported total|emails? sent/i.test(paragraph)
+      : /total informado|emails? enviados?/i.test(paragraph));
+  assert.ok(sentDisclosureParagraph, `${locale} sources disclosure explains the reported sent total`);
+  if (locale === 'en') {
+    assert.match(sentDisclosureParagraph, /provider|beehiiv/i, 'English disclosure identifies the provider-reported figure');
+    assert.match(sentDisclosureParagraph, /reported/i, 'English disclosure qualifies the provider figure as reported');
+    assert.match(sentDisclosureParagraph, /cumulative/i, 'English disclosure identifies the figure as cumulative');
+    assert.ok([
+      /(?:multiple|several|repeated|more than one)[\s\S]{0,50}(?:emails?|sends?)[\s\S]{0,80}(?:one|same|single)[\s\S]{0,30}(?:person|people|recipient|subscriber)/i,
+      /(?:one|same|single)[\s\S]{0,30}(?:person|people|recipient|subscriber)[\s\S]{0,80}(?:multiple|several|repeated|more than one)[\s\S]{0,50}(?:emails?|sends?)/i,
+      /(?:emails?|sends?)[\s\S]{0,50}(?:per|for each|to each)[\s\S]{0,30}(?:person|people|recipient|subscriber)/i,
+      /(?:emails?|sends?)[\s\S]{0,60}(?:can|may|might)[\s\S]{0,50}repeat/i
+    ].some((pattern) => pattern.test(sentDisclosureParagraph)),
+    'English disclosure says sends can repeat for one person');
+    assert.match(sentDisclosureParagraph, /history[\s\S]{0,100}(?:incomplete|partial|gaps?)|(?:incomplete|partial|gaps?)[\s\S]{0,100}history/i,
+      'English disclosure says available history can be partial');
+    assert.match(sentDisclosureParagraph, /(?:may|can|might|could)[\s\S]{0,80}(?:revis|chang|updat)|(?:revis|chang|updat)[\s\S]{0,80}(?:may|can|might|could)/i,
+      'English disclosure says the provider figure may be revised');
+    assert.match(sentDisclosureParagraph, /(?:not|does not|is not|independent of|separate from)[\s\S]{0,100}(?:(?:selected|chosen|activity|reporting)[\s\S]{0,40}period|period selection)|(?:(?:selected|chosen|activity|reporting)[\s\S]{0,40}period|period selection)[\s\S]{0,100}(?:not|does not|is not|independent)/i,
+      'English disclosure separates the total from the selected activity period');
+  } else {
+    assert.match(sentDisclosureParagraph, /proveedor|beehiiv/i, 'Spanish disclosure identifies the provider-reported figure');
+    assert.match(sentDisclosureParagraph, /informad|reportad/i, 'Spanish disclosure qualifies the provider figure as reported');
+    assert.match(sentDisclosureParagraph, /acumulad/i, 'Spanish disclosure identifies the figure as cumulative');
+    assert.ok([
+      /(?:varios|multiples|repetidos?|mas de uno)[\s\S]{0,50}(?:emails?|envios?)[\s\S]{0,80}(?:una misma|la misma|una sola|cada)[\s\S]{0,40}(?:personas?|destinatarios?|suscriptores?)/i,
+      /(?:una|la misma|cada)[\s\S]{0,30}(?:personas?|destinatarios?|suscriptores?)[\s\S]{0,80}(?:varios|multiples|repetidos?|mas de uno)[\s\S]{0,50}(?:emails?|envios?)/i,
+      /(?:emails?|envios?)[\s\S]{0,50}(?:por|para cada|a cada)[\s\S]{0,30}(?:personas?|destinatarios?|suscriptores?)/i,
+      /(?:emails?|envios?)[\s\S]{0,60}(?:pueden|puede|podrian|podria)[\s\S]{0,50}repet/i
+    ].some((pattern) => pattern.test(sentDisclosureParagraph)),
+    'Spanish disclosure says sends can repeat for one person');
+    assert.match(sentDisclosureParagraph, /historial[\s\S]{0,100}(?:incompleto|parcial|lagunas?)|(?:incompleto|parcial|lagunas?)[\s\S]{0,100}historial/i,
+      'Spanish disclosure says available history can be partial');
+    assert.match(sentDisclosureParagraph, /(?:puede|podria|pueden|podrian)[\s\S]{0,80}(?:revis|cambi|actualiz|correg)|(?:revis|cambi|actualiz|correg)[\s\S]{0,80}(?:puede|podria|pueden|podrian)/i,
+      'Spanish disclosure says the provider figure may be revised');
+    assert.match(sentDisclosureParagraph, /(?:no|independiente de|separado de)[\s\S]{0,100}(?:periodo de actividad|periodo seleccionado|periodo)|(?:periodo de actividad|periodo seleccionado|periodo)[\s\S]{0,100}(?:no|independiente|separado)/i,
+      'Spanish disclosure separates the total from the selected activity period');
   }
 
   const emailDisclosure = sourcesCopy;
