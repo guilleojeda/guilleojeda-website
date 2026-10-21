@@ -685,6 +685,7 @@ test('a directory history date selects input9 for Views-only and click-enabled s
 
   const clickSource = JSON.parse(readFileSync(new URL('../public/_content-stats/inputs.json', import.meta.url), 'utf8'));
   clickSource.sources[0].apiKey = 'synthetic-public-delivery-key';
+  delete clickSource.newsletterEngagements;
   const source = {
     articleConfig: clickSource,
     talks: JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8')),
@@ -858,6 +859,7 @@ test('the maintained four-source input8 can add Simple AWS available history wit
   const build = await inputBuilder();
   const articleConfig = JSON.parse(readFileSync(new URL('../public/_content-stats/inputs.json', import.meta.url), 'utf8'));
   articleConfig.sources[0].apiKey = 'synthetic-public-delivery-key';
+  delete articleConfig.newsletterEngagements;
   delete articleConfig.directoryAnalytics.recordedSince;
   const source = {
     articleConfig,
