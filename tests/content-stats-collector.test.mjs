@@ -3745,10 +3745,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 9 are rejected as unsupported", async () => {
+test("schema versions newer than input 10 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseSixInput(), schemaVersion: 10 },
+    input: { ...phaseSixInput(), schemaVersion: 11 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");
@@ -7070,6 +7070,10 @@ test("legacy input1-9 shapes make no newsletter-engagement requests", async () =
 test("input10 derives both metrics from one clipped daily dataset and preserves all eight existing families", async () => {
   const requestLog = [];
   const legacyRequestLog = [];
+  const allFamiliesInput = phaseTwelveInput({
+    directoryAnalytics: phaseNineDirectoryAnalytics({ outboundClicks: true })
+  });
+  const cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]);
   const omittedDate = "2026-10-14";
   const clock = createClock("2026-10-20T12:00:00.000Z");
   const newsletterResponder = ({ request }) => {
@@ -7086,19 +7090,20 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
     }));
   };
   const legacyHarness = createHarness({
-    input: phaseTwelveInput(),
+    input: allFamiliesInput,
     clock: createClock("2026-10-20T12:00:00.000Z"),
-    fetchFn: phaseThirteenFetch({ legacyRequestLog, newsletterResponder, reportResponder })
+    fetchFn: phaseThirteenFetch({ requestLog: legacyRequestLog, cloudyPages, newsletterResponder, reportResponder })
   });
   await legacyHarness.handler({}, {});
   const legacy = await readPut(legacyHarness.putCalls[0]);
   assert.deepEqual(beehiivEngagementRequests(legacyRequestLog), [], "input9 remains disabled under the same provider fixtures");
 
   const harness = createHarness({
-    input: phaseThirteenInput(),
+    input: phaseThirteenInput({ baseInput: allFamiliesInput }),
     clock,
     fetchFn: phaseThirteenFetch({
       requestLog,
+      cloudyPages,
       newsletterResponder,
       reportResponder,
       engagementResponder: ({ request }) => {
@@ -7332,9 +7337,12 @@ test("input10 sanitizes malformed prior email periods while retaining valid reco
     }));
   };
   const harness = createHarness({
-    input: phaseThirteenInput(),
+    input: phaseThirteenInput({
+      directoryAnalytics: phaseNineDirectoryAnalytics({ outboundClicks: true })
+    }),
     clock,
     fetchFn: phaseThirteenFetch({
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]),
       newsletterResponder,
       reportResponder,
       engagementResponder: ({ request }) => failEngagements
@@ -7665,4 +7673,26 @@ test("input10 keeps calendar-month arithmetic and clips a 366-day UTC union acro
     "the extra provider boundary date after February 29 is clipped");
   assert.equal(leapDayUnion.groups.newsletterEmailVerifiedClicks.records["12m"].clicks,
     sumPhaseThirteenDates("2023-03-01", "2024-02-29", "clicks"));
+});
+
+test("legacy input1 and input2 reject the reserved newsletter engagement flag before provider work", async () => {
+  for (const baseInput of [sourceInput(), phaseTwoInput()]) {
+    for (const flag of [true, false, null, "true"]) {
+      const input = structuredClone(baseInput);
+      input.newsletterEngagements = flag;
+      const requestLog = [];
+      const harness = createHarness({ input, fetchFn: phaseThirteenFetch({ requestLog }) });
+      const previous = '{"schemaVersion":1,"groups":{"articles":{"collectedAt":"2026-10-15T12:00:00.000Z"}}}';
+      harness.objects.set(outputKey, previous);
+
+      await assert.rejects(() => harness.handler({}, {}), (error) => {
+        assert.equal(error.code, "INPUT_SCHEMA_INVALID");
+        return true;
+      });
+      assert.deepEqual(requestLog, [], `input${baseInput.schemaVersion} rejects ${JSON.stringify(flag)} before provider access`);
+      assert.deepEqual(harness.secretCalls, [], `input${baseInput.schemaVersion} rejects ${JSON.stringify(flag)} before credential access`);
+      assert.equal(harness.putCalls.length, 0, "invalid legacy selectors never publish output");
+      assert.equal(harness.objects.get(outputKey), previous, "invalid legacy selectors preserve prior output bytes");
+    }
+  }
 });

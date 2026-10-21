@@ -2371,7 +2371,9 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} directory Recorded total remains selected through All and Spanish while email rows stay unavailable`, async () => {
-    const page = createPage({ locale, data: snapshotWithNewsletterEngagements({ data: snapshotWithDirectoryViews() }) });
+    const data = snapshotWithDirectoryViews();
+    data.groups.directoryViews.records.total = directoryViewsRecord('total');
+    const page = createPage({ locale, data: snapshotWithNewsletterEngagements({ data }) });
     await page.settle();
 
     page.periodSelector.value = 'total';
