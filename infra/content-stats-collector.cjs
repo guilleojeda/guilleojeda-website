@@ -56,6 +56,7 @@ const GOOGLE_SEARCH_ARTICLE_URL_PATTERN = String.raw`(?-i)^https://newsletter\.s
 const GOOGLE_SEARCH_TIME_ZONE = "America/Los_Angeles";
 const DIRECTORY_ANALYTICS_PUBLICATION = Object.freeze({ id: "donde-aprendo-aws", label: "Dónde Aprendo AWS" });
 const DIRECTORY_ANALYTICS_HOSTNAME = "dondeaprendoaws.com";
+const BUILDER_VIEWS_START_DATE = "2026-01-06";
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center",
@@ -454,6 +455,54 @@ function curatedScopeFingerprint(family, facts) {
     facts: selectors
   };
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function builderArticleViewsScopeFingerprint(source) {
+  const scope = {
+    definitionVersion: 1,
+    family: "builderArticleViews",
+    policy: "builder-center-eligible-publication-views-v1",
+    source: { id: "builder-center", label: SOURCE_LABELS["builder-center"] },
+    providerAuthorId: source.authorId,
+    metric: "viewsCount",
+    basis: "recorded-total",
+    startDate: BUILDER_VIEWS_START_DATE,
+    supportedLanguages: ["en", "es"]
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function makeBuilderArticleViewsGroup(source, candidates, collectedAt) {
+  const seen = new Map();
+  const views = { all: 0, en: 0, es: 0 };
+
+  for (const candidate of candidates) {
+    const { providerId, language, viewsCount } = candidate;
+    if (!Number.isSafeInteger(viewsCount) || viewsCount < 0) throw fail("BUILDER_VIEWS_INVALID");
+
+    const prior = seen.get(providerId);
+    if (prior) {
+      if (prior.language !== language || prior.viewsCount !== viewsCount) throw fail("BUILDER_VIEWS_INVALID");
+      continue;
+    }
+    seen.set(providerId, { language, viewsCount });
+
+    const languageTotal = views[language] + viewsCount;
+    const allTotal = views.all + viewsCount;
+    if (!Number.isSafeInteger(languageTotal) || !Number.isSafeInteger(allTotal)) throw fail("BUILDER_VIEWS_INVALID");
+    views[language] = languageTotal;
+    views.all = allTotal;
+  }
+
+  return {
+    definitionVersion: 1,
+    basis: "recorded-total",
+    collectedAt,
+    scopeId: builderArticleViewsScopeFingerprint(source),
+    source: { id: "builder-center", label: SOURCE_LABELS["builder-center"] },
+    startDate: BUILDER_VIEWS_START_DATE,
+    views
+  };
 }
 
 function validateCuratedFacts(family, value) {
@@ -2149,8 +2198,9 @@ async function collectCaylent(source, now) {
   throw fail("SOURCE_PAGE_CAP_REACHED");
 }
 
-async function collectBuilderCenter(source, now) {
+async function collectBuilderCenter(source, now, includeViews = false) {
   const publications = [];
+  const viewCandidates = [];
   const requestedCursors = new Set();
   let cursor = "";
 
@@ -2160,10 +2210,25 @@ async function collectBuilderCenter(source, now) {
     const { articles, nextCursor } = await fetchBuilderPage(source, cursor, page + 1);
     for (const record of articles) {
       const publication = eligibleBuilderPublication(record, source, now);
-      if (publication) publications.push(publication);
+      if (publication) {
+        publications.push(publication);
+        if (includeViews) {
+          viewCandidates.push({
+            providerId: publication.providerId,
+            language: publication.language,
+            viewsCount: record.viewsCount
+          });
+        }
+      }
     }
 
-    if (nextCursor === "") return { publications, pages: page + 1 };
+    if (nextCursor === "") {
+      return {
+        publications,
+        pages: page + 1,
+        ...(includeViews ? { viewCandidates } : {})
+      };
+    }
     if (requestedCursors.has(nextCursor)) throw fail("BUILDER_CURSOR_REPEATED");
     if (page === MAX_BUILDER_PAGES - 1) throw fail("BUILDER_PAGE_CAP_REACHED");
     cursor = nextCursor;
@@ -2172,13 +2237,17 @@ async function collectBuilderCenter(source, now) {
   throw fail("BUILDER_PAGE_CAP_REACHED");
 }
 
-async function collectPublications(sources, now, env) {
+async function collectPublications(sources, now, env, getBuilderCollection) {
   const publications = [];
   const pagesBySource = {};
   for (const source of sources) {
     let result;
     if (source.id === "caylent") result = await collectCaylent(source, now);
-    else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
+    else if (source.id === "builder-center") {
+      result = getBuilderCollection
+        ? await getBuilderCollection()
+        : await collectBuilderCenter(source, now);
+    }
     else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
     else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
     else throw fail("SOURCE_UNSUPPORTED");
@@ -2278,6 +2347,30 @@ function isValidNewsletterGroup(group) {
     return false;
   }
   return Number.isSafeInteger(group.subscribers) && group.subscribers >= 0;
+}
+
+function isValidBuilderArticleViewsGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "source", "startDate", "views"]) ||
+      group.definitionVersion !== 1 || group.basis !== "recorded-total" || typeof group.collectedAt !== "string") {
+    return false;
+  }
+  const collected = Date.parse(group.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt ||
+      typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId) ||
+      !exactKeys(group.source, ["id", "label"]) ||
+      group.source.id !== "builder-center" || group.source.label !== SOURCE_LABELS["builder-center"] ||
+      group.startDate !== BUILDER_VIEWS_START_DATE || !exactKeys(group.views, ["all", "en", "es"])) {
+    return false;
+  }
+  for (const count of Object.values(group.views)) {
+    if (!Number.isSafeInteger(count) || count < 0) return false;
+  }
+  const languageTotal = group.views.en + group.views.es;
+  return Number.isSafeInteger(languageTotal) && group.views.all === languageTotal;
+}
+
+function sanitizeBuilderArticleViewsGroup(group) {
+  return isValidBuilderArticleViewsGroup(group) ? group : null;
 }
 
 function isValidNewsletterEmailsSentGroup(group) {
@@ -2546,7 +2639,7 @@ function validateOutput(output) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
   const families = Object.keys(output.groups);
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks", "builderArticleViews"]);
   if (families.length < 1 || families.some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2557,6 +2650,8 @@ function validateOutput(output) {
         ? isValidNewsletterEmailsSentGroup(output.groups[family])
       : family === "articleViews"
         ? isValidArticleViewsGroup(output.groups[family])
+        : family === "builderArticleViews"
+          ? isValidBuilderArticleViewsGroup(output.groups[family])
         : family === "directoryViews"
           ? isValidDirectoryViewsGroup(output.groups[family])
           : family === "directoryOutboundClicks"
@@ -2601,7 +2696,7 @@ async function readPreviousAggregate(bucket, key) {
       !isObject(previous.groups) || Object.keys(previous.groups).length === 0) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
-  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks"]);
+  const supportedFamilies = new Set(["articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews", "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens", "newsletterEmailVerifiedClicks", "builderArticleViews"]);
   if (Object.keys(previous.groups).some((family) => !supportedFamilies.has(family))) {
     throw fail("OUTPUT_SCHEMA_INVALID");
   }
@@ -2610,6 +2705,11 @@ async function readPreviousAggregate(bucket, key) {
     if (!Object.hasOwn(previous.groups, family)) continue;
     if (family === "articleViews") {
       const sanitized = sanitizeArticleViewsGroup(previous.groups[family]);
+      if (sanitized) groups[family] = sanitized;
+      continue;
+    }
+    if (family === "builderArticleViews") {
+      const sanitized = sanitizeBuilderArticleViewsGroup(previous.groups[family]);
       if (sanitized) groups[family] = sanitized;
       continue;
     }
@@ -2681,6 +2781,18 @@ async function collectLegacy(configuration, env, collectedAt, now) {
 async function collectIndependentGroups(configuration, env, collectedAt, now) {
   const groups = {};
   const failures = {};
+  const builderSource = configuration.sources.find(({ id }) => id === "builder-center");
+  let builderCollection;
+  let builderCollectionPromise;
+  const getBuilderCollection = () => {
+    if (!builderCollectionPromise) {
+      builderCollectionPromise = collectBuilderCenter(builderSource, now, true).then((collection) => {
+        builderCollection = collection;
+        return collection;
+      });
+    }
+    return builderCollectionPromise;
+  };
   let articleCollection;
   let articleViewsResult;
   let directoryViewsResult;
@@ -2689,7 +2801,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let newsletterEmailOpensResult;
   let newsletterEmailVerifiedClicksResult;
   try {
-    articleCollection = await collectPublications(configuration.sources, now, env);
+    articleCollection = await collectPublications(configuration.sources, now, env, getBuilderCollection);
     groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
   } catch (error) {
     if (!(error instanceof CollectorError)) throw error;
@@ -2703,6 +2815,14 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
       if (!(error instanceof CollectorError)) throw error;
       failures[family] = error.code;
     }
+  }
+
+  try {
+    const collection = await getBuilderCollection();
+    groups.builderArticleViews = makeBuilderArticleViewsGroup(builderSource, collection.viewCandidates, collectedAt);
+  } catch (error) {
+    if (!(error instanceof CollectorError)) throw error;
+    failures.builderArticleViews = error.code;
   }
 
   if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
@@ -2862,7 +2982,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   log("info", {
     event: "content_stats_collection_succeeded",
     sourceIds: configuration.sources.map(({ id }) => id),
-    pagesBySource: articleCollection?.pagesBySource ?? {},
+    pagesBySource: articleCollection?.pagesBySource ?? (builderCollection ? { "builder-center": builderCollection.pages } : {}),
     ...(articleCollection ? { publicationCount: articleCollection.publications.length } : {}),
     families: Object.fromEntries(Object.entries(groups).map(([family, group]) => [family, {
       ...(group.counts ? { counts: group.counts } : {}),
