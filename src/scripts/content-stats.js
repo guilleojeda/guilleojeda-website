@@ -18,6 +18,8 @@ const allowedKeys = {
   publication: ['id', 'label', 'language'],
   articleViewsGroup: ['definitionVersion', 'records'],
   articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications'],
+  builderArticleViewsGroup: ['basis', 'collectedAt', 'definitionVersion', 'scopeId', 'source', 'startDate', 'views'],
+  builderArticleViews: ['all', 'en', 'es'],
   articleSearchClicksGroup: ['definitionVersion', 'records'],
   articleSearchClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks'],
   directoryViewsGroup: ['definitionVersion', 'records'],
@@ -40,6 +42,7 @@ const supportedArticleSourceSets = new Set([
 ]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
+const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
 const supportedDirectoryPublication = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' };
 
 function isRecord(value) {
@@ -162,6 +165,26 @@ function validateNewsletterSentGroup(value) {
     || value.publication.label !== supportedNewsletter.label
     || value.publication.language !== 'en'
     || !isNonnegativeCount(value.sent)) return null;
+
+  return value;
+}
+
+function validateBuilderArticleViews(value) {
+  if (!hasOnlyKeys(value, allowedKeys.builderArticleViewsGroup)
+    || value.definitionVersion !== 1
+    || value.basis !== 'recorded-total'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSha256(value.scopeId)
+    || !hasOnlyKeys(value.source, allowedKeys.source)
+    || value.source.id !== supportedBuilderArticleViewsSource.id
+    || value.source.label !== supportedBuilderArticleViewsSource.label
+    || value.startDate !== '2026-01-06'
+    || !hasOnlyKeys(value.views, allowedKeys.builderArticleViews)
+    || !isNonnegativeCount(value.views.all)
+    || !isNonnegativeCount(value.views.en)
+    || !isNonnegativeCount(value.views.es)
+    || !Number.isSafeInteger(value.views.en + value.views.es)
+    || value.views.all !== value.views.en + value.views.es) return null;
 
   return value;
 }
@@ -339,6 +362,7 @@ function validateSnapshot(value) {
     || !isRecord(value.groups)
     || !hasAllowedKeys(value.groups, [
       ...knownKinds,
+      'builderArticleViews',
       'articleViews',
       'articleSearchClicks',
       'directoryViews',
@@ -353,6 +377,9 @@ function validateSnapshot(value) {
       kind,
       Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
     ])),
+    builderArticleViews: Object.hasOwn(value.groups, 'builderArticleViews')
+      ? validateBuilderArticleViews(value.groups.builderArticleViews)
+      : null,
     newsletterEmailsSent: Object.hasOwn(value.groups, 'newsletterEmailsSent')
       ? validateNewsletterSentGroup(value.groups.newsletterEmailsSent)
       : null,
@@ -436,6 +463,17 @@ function getElements(section) {
     qualifications: viewsRegion.querySelector('[data-stats-views-qualifications]')
   } : null;
 
+  const builderViewsRegion = section.querySelector('[data-stats-builder-views]');
+  const builderViews = builderViewsRegion ? {
+    region: builderViewsRegion,
+    status: builderViewsRegion.querySelector('[data-stats-builder-views-status]'),
+    result: builderViewsRegion.querySelector('[data-stats-builder-views-result]'),
+    value: builderViewsRegion.querySelector('[data-stats-builder-views-value]'),
+    coverage: builderViewsRegion.querySelector('[data-stats-builder-views-coverage]'),
+    since: builderViewsRegion.querySelector('[data-stats-builder-views-since]'),
+    collectedDate: builderViewsRegion.querySelector('[data-stats-builder-views-collected-date]')
+  } : null;
+
   const searchRegion = section.querySelector('[data-stats-search]');
   const search = searchRegion ? {
     region: searchRegion,
@@ -481,6 +519,7 @@ function getElements(section) {
     newsletterEmailOpens: getNewsletterEmailElements(section, 'opens', 'newsletterEmailOpens', 'opens'),
     newsletterEmailVerifiedClicks: getNewsletterEmailElements(section, 'verified-clicks', 'newsletterEmailVerifiedClicks', 'clicks'),
     views,
+    builderViews,
     search,
     directoryViews,
     directoryOutboundClicks
@@ -703,6 +742,61 @@ function renderNewsletterSent(snapshot, locale, language, elements, newsletterCa
   elements.results.hidden = false;
   elements.status.hidden = true;
   elements.status.textContent = '';
+}
+
+function builderViewsElementsReady(elements) {
+  const builderViews = elements.builderViews;
+  return Boolean(builderViews?.region && builderViews.status && builderViews.result
+    && builderViews.value && builderViews.coverage && builderViews.since && builderViews.collectedDate);
+}
+
+function clearBuilderViewsResult(builderViews) {
+  builderViews.value.textContent = '';
+  builderViews.coverage.textContent = '';
+  builderViews.since.textContent = '';
+  builderViews.collectedDate.textContent = '';
+}
+
+function renderBuilderViewsLoading(builderViews) {
+  builderViews.region.hidden = false;
+  builderViews.result.hidden = true;
+  clearBuilderViewsResult(builderViews);
+  builderViews.status.hidden = false;
+  builderViews.region.setAttribute('aria-busy', 'true');
+}
+
+function renderBuilderViewsUnavailable(elements, locale) {
+  const { builderViews } = elements;
+  builderViews.region.hidden = false;
+  builderViews.result.hidden = true;
+  clearBuilderViewsResult(builderViews);
+  builderViews.status.textContent = builderViews.region.dataset.statsBuilderViewsUnavailable?.trim()
+    || (locale === 'es'
+      ? 'Las vistas registradas de Builder Center no están disponibles.'
+      : 'Builder Center recorded views are unavailable.');
+  builderViews.status.hidden = false;
+  builderViews.region.setAttribute('aria-busy', 'false');
+}
+
+function renderBuilderViews(snapshot, locale, language, elements) {
+  if (!builderViewsElementsReady(elements)) return;
+
+  const group = snapshot?.builderArticleViews;
+  if (!group) {
+    renderBuilderViewsUnavailable(elements, locale);
+    return;
+  }
+
+  const builderViews = elements.builderViews;
+  builderViews.region.hidden = false;
+  builderViews.value.textContent = new Intl.NumberFormat(locale).format(group.views[language]);
+  builderViews.coverage.textContent = group.source.label;
+  builderViews.since.textContent = formatDateOnly(group.startDate, locale);
+  builderViews.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
+  builderViews.result.hidden = false;
+  builderViews.status.hidden = true;
+  builderViews.status.textContent = '';
+  builderViews.region.setAttribute('aria-busy', 'false');
 }
 
 const qualificationCopy = {
@@ -989,6 +1083,7 @@ function renderActivity(snapshot, locale, language, elements) {
   updateRecordedTotalAvailability(snapshot, language, elements);
   renderNewsletterSent(snapshot, locale, language, elements.newsletterEmailsSent, elements.cards.newsletter?.card);
   renderNewsletterEmail(snapshot, locale, language, elements);
+  renderBuilderViews(snapshot, locale, language, elements);
   renderViews(snapshot, locale, language, elements);
   renderSearch(snapshot, locale, language, elements);
   renderDirectoryViews(snapshot, locale, language, elements);
@@ -1014,6 +1109,7 @@ async function loadContentStats(section) {
   if (newsletterSentElementsReady(elements.newsletterEmailsSent)) renderNewsletterSentLoading(elements.newsletterEmailsSent);
   if (newsletterEmailElementsReady(elements.newsletterEmailOpens)) renderNewsletterEmailLoading(elements.newsletterEmailOpens);
   if (newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)) renderNewsletterEmailLoading(elements.newsletterEmailVerifiedClicks);
+  if (builderViewsElementsReady(elements)) renderBuilderViewsLoading(elements.builderViews);
   if (viewsElementsReady(elements)) renderViewsLoading(elements.views);
   if (searchElementsReady(elements)) renderSearchLoading(elements.search);
   if (directoryViewsElementsReady(elements)) renderDirectoryViewsLoading(elements.directoryViews);

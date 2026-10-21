@@ -40,6 +40,15 @@ const copy = locale === 'en'
       viewsCoverage: 'Coverage',
       viewsInterval: 'Reporting interval',
       viewsCollected: 'Collected',
+      builderViews: {
+        title: 'Builder Center views — recorded total',
+        loading: 'Loading Builder Center recorded views…',
+        unavailable: 'Builder Center recorded views are unavailable.',
+        unit: 'views',
+        coverage: 'Source',
+        since: 'Tracking starts',
+        collected: 'Last successful collection'
+      },
       searchTitle: 'Google Search clicks',
       searchLoading: 'Loading Google Search Console clicks…',
       searchUnavailable: 'Search clicks are unavailable for this period.',
@@ -106,7 +115,7 @@ const copy = locale === 'en'
         interval: 'Reporting interval',
         collected: 'Collected'
       },
-      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in each count. Article counts can include Simple AWS posts published on the web, by email or both, and can include Cloudy Things posts, including eligible originals and republications. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. Article views cover Simple AWS page views on its newsletter publication, a partial scope that differs from article-count coverage; repeated views can come from the same person. Page views for the Dónde Aprendo AWS directory cover the full directory and can repeat; they are reported separately from article views and do not represent unique readers. GA4-recorded outbound link clicks for Dónde Aprendo AWS include links to the publication and social channels, including footer links; one person can click more than once. They are reported separately from directory page views and incoming Search clicks. Recorded totals cover available activity from the displayed start date; earlier activity and gaps in tracking may be missing. Views are reported with a delay and may be revised later. Google Search Console clicks for Simple AWS cover canonical or Google-preferred article URLs and remain separate from Views. They are a partial reported measure: Google’s filtering and reporting limits may omit clicks, and clicks are not unique people or readers. Search clicks use their own interval and date, are delayed, and may be revised; they are not added to Analytics views. Email opens are reported tracking-pixel events; privacy protections and automated loads can count as opens, and some reads may not register. Verified email clicks are Beehiiv-filtered click events; they can repeat and are not a count of unique people. Email figures cover currently available history returned by Beehiiv; tracking gaps may omit activity and reported values can change later. Beehiiv’s reported cumulative total of emails sent can include multiple emails to one person; its available history may be incomplete or revised, and the total does not follow the selected activity period. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
+      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in each count. Article counts can include Simple AWS posts published on the web, by email or both, and can include Cloudy Things posts, including eligible originals and republications. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. Article views cover Simple AWS page views on its newsletter publication, a partial scope that differs from article-count coverage; repeated views can come from the same person. Builder Center views are a separate recorded total of currently eligible published articles by this author, including eligible republications and translations even when matching titles count once. Builder Center says tracking began January 6, 2026, excludes the author’s own visits, and counts one visit per person per article within 24 hours; a later return can count again. This current-publication sum is independent of the selected activity period and GA4 Views. Its recorded history may be incomplete, and counters may change after source corrections or publication changes; it is not a complete lifetime total or a count of unique readers. Page views for the Dónde Aprendo AWS directory cover the full directory and can repeat; they are reported separately from article views and do not represent unique readers. GA4-recorded outbound link clicks for Dónde Aprendo AWS include links to the publication and social channels, including footer links; one person can click more than once. They are reported separately from directory page views and incoming Search clicks. Recorded totals cover available activity from the displayed start date; earlier activity and gaps in tracking may be missing. Views are reported with a delay and may be revised later. Google Search Console clicks for Simple AWS cover canonical or Google-preferred article URLs and remain separate from Views. They are a partial reported measure: Google’s filtering and reporting limits may omit clicks, and clicks are not unique people or readers. Search clicks use their own interval and date, are delayed, and may be revised; they are not added to Analytics views. Email opens are reported tracking-pixel events; privacy protections and automated loads can count as opens, and some reads may not register. Verified email clicks are Beehiiv-filtered click events; they can repeat and are not a count of unique people. Email figures cover currently available history returned by Beehiiv; tracking gaps may omit activity and reported values can change later. Beehiiv’s reported cumulative total of emails sent can include multiple emails to one person; its available history may be incomplete or revised, and the total does not follow the selected activity period. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
     }
   : {
       kicker: 'Estadísticas de contenido',
@@ -141,6 +150,15 @@ const copy = locale === 'en'
       viewsCoverage: 'Cobertura',
       viewsInterval: 'Intervalo informado',
       viewsCollected: 'Recopilado',
+      builderViews: {
+        title: 'Vistas en Builder Center — total registrado',
+        loading: 'Cargando vistas registradas de Builder Center…',
+        unavailable: 'Las vistas registradas de Builder Center no están disponibles.',
+        unit: 'vistas',
+        coverage: 'Fuente',
+        since: 'Inicio del registro',
+        collected: 'Última recopilación correcta'
+      },
       searchTitle: 'Clics de búsqueda de Google',
       searchLoading: 'Cargando clics de Google Search Console…',
       searchUnavailable: 'No se pueden mostrar los clics de búsqueda para este período.',
@@ -207,7 +225,7 @@ const copy = locale === 'en'
         interval: 'Intervalo informado',
         collected: 'Recopilado'
       },
-      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de cada conteo. El conteo de artículos puede incluir las publicaciones de Simple AWS difundidas en la web, por correo electrónico o en ambos, y puede incluir publicaciones de Cloudy Things, incluidos originales y republicaciones elegibles. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. Las vistas de artículos cubren las vistas de páginas de la publicación Simple AWS: es una cobertura parcial y distinta de la del conteo de artículos; una misma persona puede generar vistas repetidas. Las vistas de página del directorio Dónde Aprendo AWS cubren el directorio completo y también pueden repetirse; se informan por separado de las vistas de artículos y no representan lectores únicos. En Dónde Aprendo AWS, los clics en enlaces externos registrados por GA4 incluyen enlaces a la publicación y a redes sociales, incluidos los enlaces del pie de página; una persona puede hacer clic más de una vez. Se informan por separado de las vistas de página del directorio y de los clics de búsqueda entrantes. Los totales registrados muestran la actividad disponible desde la fecha indicada; puede faltar actividad anterior o de períodos sin seguimiento. Las vistas tienen demora y pueden revisarse más adelante. Los clics de Google Search Console de Simple AWS cubren URLs de artículos canónicas o preferidas por Google y se mantienen separados de las vistas. Son una medida parcial: los filtros y límites del informe pueden omitir clics; no representan personas únicas. Los clics de búsqueda tienen su propio intervalo y fecha, pueden tener demora y revisarse, y no se suman a las vistas de Analytics. Las aperturas de emails son eventos informados mediante píxeles de seguimiento; las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, y algunas lecturas pueden no registrarse. Los clics verificados en emails cuentan eventos filtrados por Beehiiv; los clics pueden repetirse y no representan personas únicas. Las cifras de emails cubren el historial disponible que devuelve Beehiiv; los períodos sin seguimiento pueden omitir actividad y los valores informados pueden cambiar más adelante. El total acumulado de emails enviados que informa Beehiiv puede incluir varios emails para una misma persona; su historial disponible puede ser incompleto o revisarse, y este total no sigue el período de actividad seleccionado. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
+      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de cada conteo. El conteo de artículos puede incluir las publicaciones de Simple AWS difundidas en la web, por correo electrónico o en ambos, y puede incluir publicaciones de Cloudy Things, incluidos originales y republicaciones elegibles. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. Las vistas de artículos cubren las vistas de páginas de la publicación Simple AWS: es una cobertura parcial y distinta de la del conteo de artículos; una misma persona puede generar vistas repetidas. Las vistas de Builder Center son un total registrado aparte de las publicaciones elegibles actualmente publicadas por este autor; incluye republicaciones y traducciones elegibles aunque los títulos coincidentes cuenten una sola vez. Builder Center indica que el seguimiento comenzó el 6 de enero de 2026, excluye las visitas propias del autor y cuenta una visita por persona y artículo cada 24 horas; una visita posterior puede volver a contarse. Esta suma de publicaciones actuales es independiente del período seleccionado y de las vistas de GA4. El historial registrado puede estar incompleto y los contadores pueden cambiar por correcciones de la fuente o cambios en las publicaciones; no representa un total de por vida completo ni lectores únicos. Las vistas de página del directorio Dónde Aprendo AWS cubren el directorio completo y también pueden repetirse; se informan por separado de las vistas de artículos y no representan lectores únicos. En Dónde Aprendo AWS, los clics en enlaces externos registrados por GA4 incluyen enlaces a la publicación y a redes sociales, incluidos los enlaces del pie de página; una persona puede hacer clic más de una vez. Se informan por separado de las vistas de página del directorio y de los clics de búsqueda entrantes. Los totales registrados muestran la actividad disponible desde la fecha indicada; puede faltar actividad anterior o de períodos sin seguimiento. Las vistas tienen demora y pueden revisarse más adelante. Los clics de Google Search Console de Simple AWS cubren URLs de artículos canónicas o preferidas por Google y se mantienen separados de las vistas. Son una medida parcial: los filtros y límites del informe pueden omitir clics; no representan personas únicas. Los clics de búsqueda tienen su propio intervalo y fecha, pueden tener demora y revisarse, y no se suman a las vistas de Analytics. Las aperturas de emails son eventos informados mediante píxeles de seguimiento; las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, y algunas lecturas pueden no registrarse. Los clics verificados en emails cuentan eventos filtrados por Beehiiv; los clics pueden repetirse y no representan personas únicas. Las cifras de emails cubren el historial disponible que devuelve Beehiiv; los períodos sin seguimiento pueden omitir actividad y los valores informados pueden cambiar más adelante. El total acumulado de emails enviados que informa Beehiiv puede incluir varios emails para una misma persona; su historial disponible puede ser incompleto o revisarse, y este total no sigue el período de actividad seleccionado. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
     };
 
 const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
@@ -381,6 +399,43 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                   </div>
                 </div>
               </>
+            )}
+
+            {kind === 'articles' && (
+              <div
+                class="content-stats-views content-stats-builder-views"
+                data-stats-builder-views
+                data-stats-builder-views-unavailable={copy.builderViews.unavailable}
+                aria-labelledby="content-stats-builder-views-title"
+                aria-busy="false"
+              >
+                <h4 class="content-stats-search-heading" id="content-stats-builder-views-title">
+                  {copy.builderViews.title}
+                </h4>
+                <p class="content-stats-views-status" data-stats-builder-views-status role="status" aria-live="polite" hidden>
+                  {copy.builderViews.loading}
+                </p>
+                <div class="content-stats-views-results" data-stats-builder-views-result hidden>
+                  <p class="content-stats-views-count" role="status" aria-live="polite" aria-atomic="true">
+                    <span data-stats-builder-views-value></span>
+                    <span>{copy.builderViews.unit}</span>
+                  </p>
+                  <dl class="content-stats-meta content-stats-views-meta">
+                    <div>
+                      <dt>{copy.builderViews.coverage}</dt>
+                      <dd data-stats-builder-views-coverage></dd>
+                    </div>
+                    <div>
+                      <dt>{copy.builderViews.since}</dt>
+                      <dd data-stats-builder-views-since></dd>
+                    </div>
+                    <div>
+                      <dt>{copy.builderViews.collected}</dt>
+                      <dd data-stats-builder-views-collected-date></dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
             )}
 
             {kind === 'articles' && (
