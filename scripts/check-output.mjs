@@ -165,11 +165,12 @@ function checkContentStatsShell(page, html) {
   const newsletterCard = newsletterCardElement?.html;
   assert.ok(newsletterCard, `${locale} newsletter must have a distinct accessible card`);
   const newsletterHeading = newsletterCard.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
-  const newsletterCardText = newsletterCard.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   if (locale === 'en') assert.match(newsletterHeading, /newsletter/i, 'English newsletter card heading');
   else assert.match(newsletterHeading, /newsletter|bolet.n|suscriptores?/i, 'Spanish newsletter card heading');
-  if (locale === 'en') assert.match(newsletterCardText, /current|currently/i, 'English newsletter card labels its total as current');
-  else assert.match(newsletterCardText, /actual(?:es|mente)?|vigentes?/i, 'Spanish newsletter card labels its total as current');
+  const newsletterCardHeader = extractElement(newsletterCard, 'div', 'class', 'content-stats-card-heading');
+  assert.ok(newsletterCardHeader, `${locale} newsletter card needs its own heading region`);
+  mustNotContain(newsletterCardHeader.html, locale === 'en' ? 'current' : 'actual',
+    `${locale} newsletter header must not describe email activity as current`);
   mustNotContain(newsletterCard, locale === 'en' ? 'cumulative' : 'total acumulado', `${locale} newsletter card must not label current subscribers as a cumulative total`);
   for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
     const card = extractElement(statsHtml, 'article', 'data-stats-kind', kind)?.html;
@@ -180,8 +181,86 @@ function checkContentStatsShell(page, html) {
     mustContain(card, 'aria-live="polite"', `${locale} ${kind} accessible updates`);
   }
   const newsletterUnit = newsletterCard.match(/<[^>]*\bdata-stats-count-label\b[^>]*>([\s\S]*?)<\//i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
-  if (locale === 'en') assert.match(newsletterUnit, /subscribers?|subscriptions?/i, 'English newsletter count uses a subscriber unit');
-  else assert.match(newsletterUnit, /suscriptores?|suscripciones?/i, 'Spanish newsletter count uses a subscriber unit');
+  if (locale === 'en') assert.match(newsletterUnit, /(?:active|current) subscribers?|subscriptions?/i, 'English newsletter count keeps its current-subscriber meaning');
+  else assert.match(newsletterUnit, /(?:suscriptores? (?:activos?|actuales?)|suscripciones? (?:activas?|actuales?))/i, 'Spanish newsletter count keeps its current-subscriber meaning');
+
+  const subscriberResults = extractElement(newsletterCard, null, 'data-stats-results');
+  assert.ok(subscriberResults, `${locale} current subscribers need their existing results region`);
+  const subscriberCountRegion = extractElement(subscriberResults.html, null, 'data-stats-count-region');
+  assert.ok(subscriberCountRegion, `${locale} current subscribers need their own labeled count region`);
+  if (locale === 'en') assert.match(normalizedText(subscriberCountRegion.html), /current|currently/i, 'English current label stays with the subscriber count');
+  else assert.match(normalizedText(subscriberCountRegion.html), /actual(?:es|mente)?|vigentes?/i, 'Spanish current label stays with the subscriber count');
+  const newsletterEmailRegions = [
+    {
+      attribute: 'data-stats-newsletter-email-opens',
+      label: locale === 'en' ? /email opens?/i : /aperturas? de emails?/i,
+      loading: locale === 'en' ? /loading.*opens?/i : /cargando.*aperturas?/i
+    },
+    {
+      attribute: 'data-stats-newsletter-email-verified-clicks',
+      label: locale === 'en' ? /verified email clicks?/i : /clics? verificados? en emails?/i,
+      loading: locale === 'en' ? /loading.*verified.*clicks?/i : /cargando.*clics?.*verificados?/i
+    }
+  ];
+  for (const metric of newsletterEmailRegions) {
+    const region = extractElement(newsletterCard, null, metric.attribute);
+    assert.ok(region, `${locale} newsletter needs its independent ${metric.attribute} region`);
+    assert.ok(region.end <= subscriberResults.start || region.start >= subscriberResults.end,
+      `${locale} ${metric.attribute} must be outside the subscriber results so missing subscribers cannot hide it`);
+    for (const field of ['status', 'results', 'value', 'unit', 'coverage', 'interval', 'collected-date']) {
+      mustContain(region.html, `${metric.attribute}-${field}`, `${locale} ${metric.attribute} needs its ${field} selector`);
+    }
+    const regionText = normalizedText(region.html);
+    assert.match(regionText, metric.label, `${locale} ${metric.attribute} names its event metric`);
+    const status = extractElement(region.html, null, `${metric.attribute}-status`);
+    assert.ok(status, `${locale} ${metric.attribute} needs its own status`);
+    mustContain(status.html, 'role="status"', `${locale} ${metric.attribute} status has a status role`);
+    mustContain(status.html, 'aria-live="polite"', `${locale} ${metric.attribute} status announces changes politely`);
+    assert.match(normalizedText(status.html), metric.loading, `${locale} ${metric.attribute} has a localized loading state`);
+    const unavailableAttribute = `${metric.attribute}-unavailable`;
+    mustContain(region.html, `${unavailableAttribute}=`, `${locale} ${metric.attribute} needs localized unavailable copy`);
+    const unavailable = region.html.match(new RegExp(`\\b${unavailableAttribute}=["']([^"']+)["']`, 'i'))?.[1] ?? '';
+    const unavailableText = normalizedText(unavailable);
+    if (locale === 'en') assert.match(unavailableText, /unavailable|not available/i, `English ${metric.attribute} unavailable copy is meaningful`);
+    else assert.match(unavailableText, /no disponible|no disponibles|no se pueden/i, `Spanish ${metric.attribute} unavailable copy is meaningful`);
+  }
+
+  const emailDisclosure = sourcesCopy;
+  if (locale === 'en') {
+    assert.match(emailDisclosure, /opens?[\s\S]{0,250}tracking[- ]?pixels?[\s\S]{0,180}(?:privacy|machine|automated|prefetch)|tracking[- ]?pixels?[\s\S]{0,250}opens?[\s\S]{0,180}(?:privacy|machine|automated|prefetch)/i,
+      'English disclosure qualifies tracking-pixel opens for privacy or machine loads');
+    assert.match(emailDisclosure, /(?:miss|not detect|fail to register|not register|underestimate)[\s\S]{0,100}(?:reads?|opens?)|(?:reads?|opens?)[\s\S]{0,100}(?:miss|not detect|fail to register|not register|underestimate)/i,
+      'English disclosure says pixel opens can miss reads');
+    assert.match(emailDisclosure, /verified(?: email)? clicks?[\s\S]{0,180}(?:filter|filtered|screen)[\s\S]{0,100}(?:events?|clicks?|bots?)|(?:filter|filtered|screen)[\s\S]{0,180}verified(?: email)? clicks?[\s\S]{0,100}(?:events?|clicks?|bots?)/i,
+      'English disclosure says verified clicks are filtered events');
+    assert.match(emailDisclosure, /verified(?: email)? clicks?[\s\S]{0,180}(?:repeat|more than once|multiple times)|(?:repeat|more than once|multiple times)[\s\S]{0,180}verified(?: email)? clicks?/i,
+      'English disclosure says verified clicks can repeat');
+    assert.match(emailDisclosure, /verified(?: email)? clicks?[\s\S]{0,180}(?:not|never|do not|does not)[\s\S]{0,80}(?:unique|people)|(?:not|never|do not|does not)[\s\S]{0,80}(?:unique people|distinct people)[\s\S]{0,180}verified(?: email)? clicks?/i,
+      'English disclosure says verified clicks are not unique people');
+    assert.match(emailDisclosure, /(?:available|returned|provided)[\s\S]{0,120}history|history[\s\S]{0,120}(?:available|returned|provided)|currently available data|data (?:currently )?returned/i,
+      'English disclosure limits figures to currently returned history');
+    assert.match(emailDisclosure, /(?:can|may|might)[\s\S]{0,60}(?:omit|miss|incomplete|gap|not include)[\s\S]{0,100}activity|activity[\s\S]{0,100}(?:can|may|might)[\s\S]{0,60}(?:omit|miss|missing|incomplete)/i,
+      'English disclosure avoids a completeness claim');
+    assert.match(emailDisclosure, /(?:can|may|might)[\s\S]{0,60}(?:change|revise|update)[\s\S]{0,80}(?:later|again)|(?:later|again)[\s\S]{0,80}(?:change|revision|update)/i,
+      'English disclosure warns reported figures may change');
+  } else {
+    assert.match(emailDisclosure, /aperturas?[\s\S]{0,250}pixel(?:es)? de seguimiento[\s\S]{0,180}(?:privacidad|maquina|automatic|precarga)|pixel(?:es)? de seguimiento[\s\S]{0,250}aperturas?[\s\S]{0,180}(?:privacidad|maquina|automatic|precarga)/i,
+      'Spanish disclosure qualifies tracking-pixel opens for privacy or machine loads');
+    assert.match(emailDisclosure, /(?:no detect|no registr|no medir|subestim)[\s\S]{0,100}(?:lecturas?|aperturas?)|(?:lecturas?|aperturas?)[\s\S]{0,100}(?:no detect|no registr|no medir|subestim)/i,
+      'Spanish disclosure says pixel opens can miss reads');
+    assert.match(emailDisclosure, /clics? verificados?[\s\S]{0,180}(?:filtrad|filtro)[\s\S]{0,100}(?:eventos?|clics?|bots?)|(?:filtrad|filtro)[\s\S]{0,180}clics? verificados?[\s\S]{0,100}(?:eventos?|clics?|bots?)/i,
+      'Spanish disclosure says verified clicks are filtered events');
+    assert.match(emailDisclosure, /clics? verificados?[\s\S]{0,180}(?:repet|mas de una vez|varias veces)|(?:repet|mas de una vez|varias veces)[\s\S]{0,180}clics? verificados?/i,
+      'Spanish disclosure says verified clicks can repeat');
+    assert.match(emailDisclosure, /clics? verificados?[\s\S]{0,180}(?:no|nunca)[\s\S]{0,80}(?:personas?|unicas?|distintas?)|(?:no|nunca)[\s\S]{0,80}(?:personas? unicas?|personas? distintas?)[\s\S]{0,180}clics? verificados?/i,
+      'Spanish disclosure says verified clicks are not unique people');
+    assert.match(emailDisclosure, /(?:historial|historia|datos?|informacion)[\s\S]{0,120}(?:disponible|devuelt[oa]s?|proporcionad[oa]s?)|(?:disponible|devuelt[oa]s?|proporcionad[oa]s?)[\s\S]{0,120}(?:historial|historia|datos?|informacion)/i,
+      'Spanish disclosure limits figures to currently returned history');
+    assert.match(emailDisclosure, /(?:puede|podria)[\s\S]{0,60}(?:faltar|omitirse|excluir|no incluir)[\s\S]{0,100}actividad|actividad[\s\S]{0,100}(?:puede|podria)[\s\S]{0,60}(?:faltar|omitirse|excluir|no incluir)/i,
+      'Spanish disclosure avoids a completeness claim');
+    assert.match(emailDisclosure, /(?:puede|podria|pueden|podrian)[\s\S]{0,60}(?:cambiar|revisar|actualizar)[\s\S]{0,80}(?:despues|mas adelante|nuevamente)|(?:despues|mas adelante)[\s\S]{0,80}(?:cambiar|revision|actualizar)/i,
+      'Spanish disclosure warns reported figures may change');
+  }
   mustContainText(statsHtml, 'Caylent', `${locale} Caylent source disclosure`);
   mustContainText(statsHtml, 'AWS Builder Center', `${locale} AWS Builder Center source disclosure`);
   for (const phrase of locale === 'en'
@@ -487,6 +566,8 @@ const hasNewsletterSelection = Object.hasOwn(inputs, 'newsletter');
 const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
 const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
+const hasNewsletterEngagements = Object.hasOwn(sourceConfig, 'newsletterEngagements');
+if (hasNewsletterEngagements) assert.equal(sourceConfig.newsletterEngagements, true, 'newsletter engagement selection must be the literal true opt-in');
 const hasDirectoryOutboundClicks = hasDirectoryAnalyticsSelection
   && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'outboundClicks');
 const hasDirectoryRecordedTotal = hasDirectoryAnalyticsSelection
@@ -495,6 +576,7 @@ assert.deepEqual(Object.keys(inputs).sort(), [
   'curated',
   'definitionVersion',
   ...(hasNewsletterSelection ? ['newsletter'] : []),
+  ...(hasNewsletterEngagements ? ['newsletterEngagements'] : []),
   ...(hasAnalyticsSelection ? ['analytics'] : []),
   ...(hasSearchConsoleSelection ? ['searchConsole'] : []),
   ...(hasDirectoryAnalyticsSelection ? ['directoryAnalytics'] : []),
@@ -504,9 +586,17 @@ assert.deepEqual(Object.keys(inputs).sort(), [
 'protected build input must combine source configuration and maintained facts without credentials');
 assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
 if (hasDirectoryOutboundClicks) assert.equal(sourceConfig.directoryAnalytics.outboundClicks, true, 'outbound clicks require the literal true selector');
-assert.equal(inputs.schemaVersion, hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
+if (hasNewsletterEngagements) {
+  assert.ok(hasNewsletterSelection, 'input10 newsletter engagement opt-in requires the existing Newsletter publication');
+  assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), true, 'input10 must include its explicit engagement selector');
+  assert.equal(inputs.newsletterEngagements, true, 'input10 engagement selector projects the literal true opt-in');
+  assert.equal(sourceConfig.schemaVersion, 2, 'the maintained source selector remains schema 2');
+} else {
+  assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), false, 'compatible inputs 1–9 keep their existing root shape while email is disabled');
+}
 if (hasNewsletterSelection) {
   assert.ok(sourceConfig.newsletter, 'newsletter build input must come from a maintained newsletter selection');
   assert.deepEqual(Object.keys(sourceConfig.newsletter).sort(), ['id', 'language', 'publicationId'], 'maintained newsletter selection must contain only its identity and content language');
