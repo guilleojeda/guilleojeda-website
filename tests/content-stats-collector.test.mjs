@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
@@ -253,6 +254,22 @@ function priorNewsletterGroup({
     scopeId,
     publication,
     subscribers
+  };
+}
+
+function priorNewsletterEmailsSentGroup({
+  collectedAt = "2026-10-10T12:00:00.000Z",
+  scopeId = "c".repeat(64),
+  publication = { id: "simple-aws", label: "Simple AWS", language: "en" },
+  sent = 170
+} = {}) {
+  return {
+    definitionVersion: 1,
+    basis: "cumulative",
+    collectedAt,
+    scopeId,
+    publication,
+    sent
   };
 }
 
@@ -2324,8 +2341,28 @@ test("an unexpected curated scope process error aborts without fallback, write, 
   assert.equal(logs.includes(privatePayload), false);
 });
 
-function newsletterEnvelope(publicationId = beehiivPublicationId, subscribers = 0) {
-  return { data: { id: publicationId, stats: { active_subscriptions: subscribers } } };
+function newsletterEnvelope(publicationId = beehiivPublicationId, subscribers = 0, totalSent) {
+  return {
+    data: {
+      id: publicationId,
+      stats: {
+        active_subscriptions: subscribers,
+        ...(totalSent === undefined ? {} : { total_sent: totalSent })
+      }
+    }
+  };
+}
+
+function newsletterEmailsSentScopeId(providerPublicationId = beehiivPublicationId) {
+  const scope = {
+    definitionVersion: 1,
+    family: "newsletterEmailsSent",
+    policy: "beehiiv-publication-total-sent-v1",
+    publication: { id: "simple-aws", label: "Simple AWS", language: "en" },
+    providerPublicationId,
+    source: { providerMetric: "total_sent" }
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
 
 function beehiivEngagementsEnvelope(data, {
@@ -2503,7 +2540,7 @@ test("input 1, 2, and 3 remain compatible and never read Beehiiv credentials or 
   }
 });
 
-test("input 4 reads apiKey from Secrets Manager JSON, requests only active subscriptions, and publishes the current aggregate including zero", async () => {
+test("input 4 uses the shared publication stats request and preserves the current subscriber aggregate including zero", async () => {
   let subscribers = 0;
   let currentApiKey = beehiivApiKey;
   const requestLog = [];
@@ -2511,6 +2548,7 @@ test("input 4 reads apiKey from Secrets Manager JSON, requests only active subsc
     requestLog,
     newsletterResponder: ({ request }) => {
       const requestedPublication = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+      // Keep this subscriber-specific case deliberately without total_sent.
       return jsonResponse(newsletterEnvelope(requestedPublication, subscribers));
     }
   });
@@ -2531,7 +2569,7 @@ test("input 4 reads apiKey from Secrets Manager JSON, requests only active subsc
   assert.equal(firstGroup.subscribers, 0, "a verified zero remains a current measured count");
 
   const firstRequest = requestLog.find(({ kind }) => kind === "beehiiv");
-  assert.equal(firstRequest.url, `https://api.beehiiv.com/v2/publications/${encodeURIComponent(beehiivPublicationId)}?expand=stat_active_subscriptions`);
+  assert.equal(firstRequest.url, `https://api.beehiiv.com/v2/publications/${encodeURIComponent(beehiivPublicationId)}?expand=stats`);
   assert.equal(firstRequest.method, "GET");
   assert.equal(newsletterRequestHeader(firstRequest, "authorization"), `Bearer ${currentApiKey}`);
   assert.equal(firstRequest.redirect, "error", "the request carrying the private key must refuse redirects");
@@ -2630,14 +2668,27 @@ test("input 4 accepts only a matching publication and safe nonnegative integer a
 
   for (const [description, responseBody] of malformedResponses) {
     const requestLog = [];
+    const responseWithHealthySent = responseBody?.data?.stats
+      ? {
+        ...responseBody,
+        data: { ...responseBody.data, stats: { ...responseBody.data.stats, total_sent: 41 } }
+      }
+      : responseBody;
+    const sentIsValid = responseWithHealthySent?.data?.id === beehiivPublicationId &&
+      responseWithHealthySent.data.stats && typeof responseWithHealthySent.data.stats === "object" &&
+      !Array.isArray(responseWithHealthySent.data.stats);
     const harness = createHarness({
       input: phaseFourInput(),
-      fetchFn: phaseFourApiFetch({ requestLog, newsletterResponder: () => jsonResponse(responseBody) })
+      fetchFn: phaseFourApiFetch({ requestLog, newsletterResponder: () => jsonResponse(responseWithHealthySent) })
     });
     await harness.handler({}, {});
     const output = await readPut(harness.putCalls[0]);
     assert.equal(Object.hasOwn(output.groups, "newsletter"), false, `${description} must fail only newsletter collection and must not become zero`);
-    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+    assert.deepEqual(Object.keys(output.groups).sort(), sentIsValid
+      ? ["articles", "books", "newsletterEmailsSent", "talks"]
+      : ["articles", "books", "talks"]);
+    if (sentIsValid) assert.equal(output.groups.newsletterEmailsSent.sent, 41,
+      `${description} preserves the healthy sent sibling`);
     assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 1);
     assertNoNewsletterCanaries(harness, beehiivApiKey, beehiivPublicationId, "different-private-publication");
   }
@@ -2771,7 +2822,7 @@ test("newsletter failures retain their exact prior group, omit it on first failu
       newsletterResponder: ({ request, attempt }) => {
         if (mode === "failure") return jsonResponse({ error: "synthetic private response canary" }, 503);
         const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
-        return jsonResponse(newsletterEnvelope(publicationId, subscribers));
+        return jsonResponse(newsletterEnvelope(publicationId, subscribers, 80));
       }
     }),
     clock: createClock("2026-10-16T12:00:00.000Z")
@@ -2866,6 +2917,32 @@ test("a sole fresh newsletter family publishes alone, while all-family failure p
   assert.equal(harness.putCalls.length, 1, "when every family fails the existing newsletter bytes are not replaced");
   assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "all-family failure does not perform another fallback lookup");
   assert.equal(harness.objects.get(outputKey), onlyNewsletterBytes);
+});
+
+test("a sole fresh sent family publishes while subscriber and inventory families fail", async () => {
+  const requestLog = [];
+  const articleFetcher = builderApiFetch({
+    requestLog,
+    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+  });
+  const harness = createHarness({
+    input: phaseFourInput({ curated: {
+      talks: [talkFact("duplicate-talk"), talkFact("duplicate-talk")],
+      books: [bookFact("duplicate-book"), bookFact("duplicate-book")]
+    } }),
+    fetchFn: phaseFourApiFetch({
+      requestLog,
+      articleFetcher,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, true, 19))
+    })
+  });
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(Object.keys(output.groups), ["newsletterEmailsSent"]);
+  assert.equal(output.groups.newsletterEmailsSent.sent, 19);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1,
+    "fresh sent permits one prior-family fallback lookup after its siblings fail");
 });
 
 test("newsletter source-scope changes never relabel a prior count under new publication or language metadata", async () => {
@@ -3059,6 +3136,7 @@ test("input 5 sends one fixed aggregate query per supported period and publishes
     fetchFn: phaseFiveApiFetch({
       requestLog,
       timeZone: googleTimeZone,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 0, 88)),
       reportResponder: () => jsonResponse({ ...ga4Report({ views: 42 }), providerPrivateField: googleResponseCanary })
     }),
     clock
@@ -3071,7 +3149,7 @@ test("input 5 sends one fixed aggregate query per supported period and publishes
   assert.equal(articleViews.definitionVersion, 1);
   assert.deepEqual(Object.keys(articleViews.records).sort(), ["12m", "30d", "7d", "90d", "total", "ytd"]);
   assert.equal(output.schemaVersion, 1, "the public document keeps schema version 1");
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articleViews", "articles", "books", "newsletter", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"]);
   assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
 
   const tokenRequests = googleRequests(requestLog, "google-oauth");
@@ -3161,6 +3239,7 @@ test("input 6 shares one decrypted OAuth refresh and publishes fixed Search Cons
     input: phaseSixInput(),
     fetchFn: phaseFiveApiFetch({
       requestLog,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 0, 88)),
       reportResponder: () => jsonResponse(ga4Report({ views: 42 })),
       searchResponder: () => jsonResponse(searchConsoleResponse({
         rows: [{ clicks: 42, impressions: 100, ctr: 0.42, position: 2.5 }],
@@ -3176,7 +3255,7 @@ test("input 6 shares one decrypted OAuth refresh and publishes fixed Search Cons
   assert.deepEqual(Object.keys(output.groups.articleSearchClicks).sort(), ["definitionVersion", "records"]);
   assert.equal(output.groups.articleSearchClicks.definitionVersion, 1);
   assert.equal(output.schemaVersion, 1);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"]);
 
   assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
   const tokenRequests = googleRequests(requestLog, "google-oauth");
@@ -3643,6 +3722,7 @@ test("rolling back to input 5 removes Search even when Analytics refresh fails",
     input: phaseSixInput(),
     fetchFn: phaseFiveApiFetch({
       requestLog,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20, 80)),
       reportResponder: () => failAnalytics
         ? jsonResponse({ error: googleResponseCanary }, 403)
         : jsonResponse(ga4Report({ views: 41 })),
@@ -3885,6 +3965,7 @@ test("one report failure retains only its exact prior period; recovery replaces 
     input: phaseFiveInput(),
     fetchFn: phaseFiveApiFetch({
       requestLog,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20, 80)),
       reportResponder: ({ request }) => {
         const range = reportRange(request);
         if (range.startDate === failStart) return jsonResponse({ error: googleResponseCanary }, 403);
@@ -4374,9 +4455,9 @@ test("input 6 can opt into the complete Simple AWS catalog without exposing post
 test("the optional Simple AWS source works with maintained input versions 4 through 6", async () => {
   const sources = [sourceInput().source, builderCenterSource(), simpleAwsArticleSource()];
   const cases = [
-    { name: "input 4", input: phaseFourInput({ sources }), useGoogle: false, groups: ["articles", "books", "newsletter", "talks"] },
-    { name: "input 5", input: phaseFiveInput({ sources }), useGoogle: true, groups: ["articleViews", "articles", "books", "newsletter", "talks"] },
-    { name: "input 6", input: phaseSixInput({ sources }), useGoogle: true, groups: ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "talks"] }
+    { name: "input 4", input: phaseFourInput({ sources }), useGoogle: false, groups: ["articles", "books", "newsletter", "newsletterEmailsSent", "talks"] },
+    { name: "input 5", input: phaseFiveInput({ sources }), useGoogle: true, groups: ["articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"] },
+    { name: "input 6", input: phaseSixInput({ sources }), useGoogle: true, groups: ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"] }
   ];
 
   for (const { name, input, useGoogle, groups } of cases) {
@@ -4385,12 +4466,14 @@ test("the optional Simple AWS source works with maintained input versions 4 thro
       ? phaseFiveApiFetch({
         requestLog,
         articleFetcher: builderApiFetch({ requestLog }),
-        postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+        postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+        newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 0, 88))
       })
       : phaseFourApiFetch({
         requestLog,
         articleFetcher: builderApiFetch({ requestLog }),
-        postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+        postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+        newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 0, 88))
       });
     const harness = createHarness({ input, fetchFn: apiFetch });
 
@@ -5649,14 +5732,15 @@ test("directory reports retain and recover per period while sharing OAuth with S
         }));
       },
       searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: searchClicks })),
-      postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20, 88))
     })
   });
 
   const requestCountFrom = (start, kind) => googleRequests(requestLog.slice(start), kind);
   await harness.handler({}, {});
   const first = await readPut(harness.putCalls[0]);
-  assert.deepEqual(Object.keys(first.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "directoryViews", "newsletter", "talks"]);
+  assert.deepEqual(Object.keys(first.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "directoryViews", "newsletter", "newsletterEmailsSent", "talks"]);
   assert.deepEqual(first.groups.articles.sources, [
     { id: "caylent", label: "Caylent" },
     { id: "builder-center", label: "AWS Builder Center" },
@@ -6134,7 +6218,7 @@ test("input 8 adds outbound clicks to four-source collection with one shared Goo
   assert.equal(harness.secretCalls.length, 2);
 });
 
-test("input 9 adds both directory totals to the current eight-family collection and preserves existing scopes", async () => {
+test("input 9 adds both directory totals to the existing collection with sent totals and preserves existing scopes", async () => {
   const requestLog = [];
   const clock = createClock("2026-10-20T12:00:00.000Z");
   const articleRecordedSince = "2023-05-02";
@@ -6150,7 +6234,7 @@ test("input 9 adds both directory totals to the current eight-family collection 
       requestLog,
       cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
-      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20, 88)),
       reportResponder: ({ request }) => {
         const metricName = request.json.metrics[0]?.name;
         const range = reportRange(request);
@@ -6203,7 +6287,7 @@ test("input 9 adds both directory totals to the current eight-family collection 
     { id: "cloudy-things", label: "Cloudy Things" }
   ]);
   assert.deepEqual(Object.keys(output.groups).sort(), [
-    "articleSearchClicks", "articleViews", "articles", "books", "directoryOutboundClicks", "directoryViews", "newsletter", "talks"
+    "articleSearchClicks", "articleViews", "articles", "books", "directoryOutboundClicks", "directoryViews", "newsletter", "newsletterEmailsSent", "talks"
   ]);
   assert.equal(output.schemaVersion, 1);
 
@@ -7067,7 +7151,7 @@ test("legacy input1-9 shapes make no newsletter-engagement requests", async () =
   }
 });
 
-test("input10 derives both metrics from one clipped daily dataset and preserves all eight existing families", async () => {
+test("input10 derives both metrics from one clipped daily dataset and preserves prior families including cumulative sent", async () => {
   const requestLog = [];
   const legacyRequestLog = [];
   const allFamiliesInput = phaseTwelveInput({
@@ -7078,7 +7162,7 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
   const clock = createClock("2026-10-20T12:00:00.000Z");
   const newsletterResponder = ({ request }) => {
     const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
-    return jsonResponse(newsletterEnvelope(publicationId, 20));
+    return jsonResponse(newsletterEnvelope(publicationId, 20, 88));
   };
   const reportResponder = ({ request }) => {
     const isDirectory = request.url.includes(`/properties/${directoryGooglePropertyId}:`);
@@ -7135,7 +7219,7 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
   const familyNames = Object.keys(first.groups).sort();
   assert.deepEqual(familyNames, [
     "articleSearchClicks", "articleViews", "articles", "directoryOutboundClicks", "directoryViews",
-    "newsletter", "newsletterEmailOpens", "newsletterEmailVerifiedClicks", "talks", "books"
+    "newsletter", "newsletterEmailsSent", "newsletterEmailOpens", "newsletterEmailVerifiedClicks", "talks", "books"
   ].sort());
   assert.equal(first.groups.newsletter.subscribers, 20, "the existing subscriber family remains independent");
   for (const [groupName, valueKey, metric] of [
@@ -7169,8 +7253,8 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
   assert.notEqual(first.groups.newsletterEmailOpens.records["7d"].scopeId,
     first.groups.newsletterEmailVerifiedClicks.records["7d"].scopeId, "each metric has a separate scope");
   for (const oldGroup of ["articles", "books", "talks", "newsletter", "articleViews", "articleSearchClicks",
-    "directoryViews", "directoryOutboundClicks"]) {
-    assert.ok(first.groups[oldGroup], `${oldGroup} remains in the ten-family output`);
+    "directoryViews", "directoryOutboundClicks", "newsletterEmailsSent"]) {
+    assert.ok(first.groups[oldGroup], `${oldGroup} remains in the output`);
     assert.deepEqual(first.groups[oldGroup], legacy.groups[oldGroup],
       `${oldGroup} retains the exact existing values, dates, and scopes from the same input9 run`);
   }
@@ -7695,4 +7779,350 @@ test("legacy input1 and input2 reject the reserved newsletter engagement flag be
       assert.equal(harness.objects.get(outputKey), previous, "invalid legacy selectors preserve prior output bytes");
     }
   }
+});
+
+test("input4 through input10 collect sent from one shared stats request when an English newsletter is selected", async () => {
+  const cases = [
+    [4, phaseFourInput()],
+    [5, phaseFiveInput()],
+    [6, phaseSixInput()],
+    [7, phaseNineInput()],
+    [8, phaseTenInput()],
+    [9, phaseTwelveInput()],
+    [10, phaseThirteenInput({ baseInput: phaseFourInput() })]
+  ];
+
+  for (const [version, input] of cases) {
+    const requestLog = [];
+    const harness = createHarness({
+      input,
+      clock: createClock("2026-10-21T12:00:00.000Z"),
+      fetchFn: phaseThirteenFetch({
+        requestLog,
+        newsletterResponder: ({ request }) => {
+          const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+          return jsonResponse(newsletterEnvelope(publicationId, 42, 1_234));
+        }
+      })
+    });
+
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    const group = output.groups.newsletterEmailsSent;
+    assert.ok(group, `input${version} publishes the selected cumulative sent family`);
+    assert.deepEqual(Object.keys(group).sort(), [
+      "basis", "collectedAt", "definitionVersion", "publication", "scopeId", "sent"
+    ]);
+    assert.equal(group.definitionVersion, 1);
+    assert.equal(group.basis, "cumulative");
+    assert.equal(group.collectedAt, "2026-10-21T12:00:00.000Z");
+    assert.equal(group.scopeId, newsletterEmailsSentScopeId());
+    assert.deepEqual(group.publication, { id: "simple-aws", label: "Simple AWS", language: "en" });
+    assert.equal(group.sent, 1_234);
+    assert.equal(output.groups.newsletter.subscribers, 42, "the existing current-subscriber metric remains independent");
+
+    const publicationRequests = requestLog.filter(({ kind }) => kind === "beehiiv");
+    assert.equal(publicationRequests.length, 1, `input${version} shares the existing publication request`);
+    const request = publicationRequests[0];
+    assert.equal(request.url, `https://api.beehiiv.com/v2/publications/${encodeURIComponent(beehiivPublicationId)}?expand=stats`);
+    assert.equal(request.method, "GET");
+    assert.equal(newsletterRequestHeader(request, "authorization"), `Bearer ${beehiivApiKey}`);
+    assert.equal(request.redirect, "error");
+    assert.ok(request.signal);
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
+    const expectedSecretReads = version <= 6 ? 1 : 2;
+    assert.equal(harness.secretCalls.length, expectedSecretReads,
+      `input${version} performs no extra secret read for the sent field`);
+    assertNoNewsletterCanaries(harness, beehiivApiKey, beehiivPublicationId, beehiivSecretExtraFieldCanary);
+  }
+});
+
+test("total_sent accepts safe nonnegative integers, treats booleans as unavailable, and fails independently", async () => {
+  const malformedValues = [
+    ["true marker", true],
+    ["false marker", false],
+    ["null", null],
+    ["string", "12"],
+    ["fraction", 1.5],
+    ["negative", -1],
+    ["unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+    ["object", { count: 12 }],
+    ["array", [12]]
+  ];
+
+  for (const [description, totalSent] of malformedValues) {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourInput(),
+      fetchFn: phaseThirteenFetch({
+        requestLog,
+        newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17, totalSent))
+      })
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "newsletterEmailsSent"), false,
+      `${description} must leave sent unavailable, never coerce it to zero`);
+    assert.equal(output.groups.newsletter.subscribers, 17, "a bad total_sent value does not invalidate subscribers");
+    assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 1);
+  }
+
+  const missingField = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseThirteenFetch({
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17))
+    })
+  });
+  await missingField.handler({}, {});
+  assert.equal(Object.hasOwn((await readPut(missingField.putCalls[0])).groups, "newsletterEmailsSent"), false,
+    "a missing total_sent field is unavailable");
+
+  const zero = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseThirteenFetch({
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17, 0))
+    })
+  });
+  await zero.handler({}, {});
+  const zeroGroup = (await readPut(zero.putCalls[0])).groups.newsletterEmailsSent;
+  assert.ok(zeroGroup, "a numeric total_sent zero is eligible for publication");
+  assert.equal(zeroGroup.sent, 0,
+    "numeric zero is a measured cumulative value");
+
+  const badSubscriber = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseThirteenFetch({
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, true, 0))
+    })
+  });
+  await badSubscriber.handler({}, {});
+  const independent = await readPut(badSubscriber.putCalls[0]);
+  assert.equal(Object.hasOwn(independent.groups, "newsletter"), false);
+  assert.ok(independent.groups.newsletterEmailsSent, "the valid sent field can publish without subscribers");
+  assert.equal(independent.groups.newsletterEmailsSent.sent, 0,
+    "an invalid subscriber value does not invalidate a healthy sent value");
+});
+
+test("sent and subscriber failures retain their own prior group, share common failures, and recover", async () => {
+  let mode = "success";
+  let selectedPublicationId = "publication-a";
+  const secretFailures = new Map();
+  const requestLog = [];
+  const responder = ({ request }) => {
+    const requestedId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    if (mode === "http-failure") return jsonResponse({ error: "synthetic shared provider failure" }, 503);
+    if (mode === "stats-failure") return jsonResponse({ data: { id: requestedId } });
+    const responseId = mode === "identity-failure" ? "publication-a" : requestedId;
+    const subscribers = mode === "sent-failure" ? 20 : mode === "subscriber-failure" ? true : 30;
+    const totalSent = mode === "sent-failure" ? "invalid" : mode === "subscriber-failure" ? 44 : 55;
+    return jsonResponse(newsletterEnvelope(responseId, subscribers, totalSent));
+  };
+  const harness = createHarness({
+    input: phaseFourInput({ newsletter: { id: "simple-aws", publicationId: selectedPublicationId, language: "en" } }),
+    fetchFn: phaseThirteenFetch({ requestLog, newsletterResponder: responder }),
+    secretFailures
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  const firstSubscriber = first.groups.newsletter;
+  const firstSent = first.groups.newsletterEmailsSent;
+  assert.equal(firstSubscriber.subscribers, 30);
+  assert.ok(firstSent, "the initial response contains a valid sent field");
+  assert.equal(firstSent.sent, 55);
+
+  mode = "sent-failure";
+  harness.clock.set("2026-10-22T12:00:00.000Z");
+  await harness.handler({}, {});
+  const sentFailure = await readPut(harness.putCalls[1]);
+  assert.deepEqual(sentFailure.groups.newsletterEmailsSent, firstSent,
+    "a malformed sent field retains its exact old collection time and scope");
+  assert.equal(sentFailure.groups.newsletter.subscribers, 20,
+    "the healthy subscriber field refreshes when sent is unavailable");
+  assert.equal(sentFailure.groups.newsletter.collectedAt, "2026-10-22T12:00:00.000Z");
+  assert.equal(sentFailure.groups.newsletterEmailsSent.collectedAt, firstSent.collectedAt,
+    "retaining sent does not rewrite its collection time to the subscriber refresh time");
+
+  const subscriberBeforeFailure = sentFailure.groups.newsletter;
+  mode = "subscriber-failure";
+  harness.clock.set("2026-10-23T12:00:00.000Z");
+  await harness.handler({}, {});
+  const subscriberFailure = await readPut(harness.putCalls[2]);
+  assert.deepEqual(subscriberFailure.groups.newsletter, subscriberBeforeFailure,
+    "an invalid subscriber field retains only its exact prior family");
+  assert.equal(subscriberFailure.groups.newsletterEmailsSent.sent, 44,
+    "the healthy sent field refreshes when subscribers are unavailable");
+  assert.equal(subscriberFailure.groups.newsletter.collectedAt, "2026-10-22T12:00:00.000Z");
+  assert.equal(subscriberFailure.groups.newsletterEmailsSent.collectedAt, "2026-10-23T12:00:00.000Z",
+    "refreshing sent does not rewrite the retained subscriber collection time");
+
+  const beforeCommonFailure = await readPut(harness.putCalls[2]);
+  secretFailures.set(beehiivSecretArn, new Error("synthetic secret access failure"));
+  harness.clock.set("2026-10-24T12:00:00.000Z");
+  const requestsBeforeCredentialFailure = requestLog.filter(({ kind }) => kind === "beehiiv").length;
+  await harness.handler({}, {});
+  const credentialFailure = await readPut(harness.putCalls[3]);
+  assert.deepEqual(credentialFailure.groups.newsletter, beforeCommonFailure.groups.newsletter);
+  assert.deepEqual(credentialFailure.groups.newsletterEmailsSent, beforeCommonFailure.groups.newsletterEmailsSent);
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, requestsBeforeCredentialFailure,
+    "one shared credential failure prevents the publication request for both fields");
+  assert.equal(harness.secretCalls.length, 4, "each invocation reads one credential for both publication fields");
+
+  secretFailures.delete(beehiivSecretArn);
+  mode = "http-failure";
+  harness.clock.set("2026-10-25T12:00:00.000Z");
+  const requestsBeforeHttpFailure = requestLog.filter(({ kind }) => kind === "beehiiv").length;
+  await harness.handler({}, {});
+  const httpFailure = await readPut(harness.putCalls[4]);
+  assert.deepEqual(httpFailure.groups.newsletter, beforeCommonFailure.groups.newsletter);
+  assert.deepEqual(httpFailure.groups.newsletterEmailsSent, beforeCommonFailure.groups.newsletterEmailsSent);
+  const failedRequests = requestLog.filter(({ kind }) => kind === "beehiiv").slice(requestsBeforeHttpFailure);
+  assert.equal(failedRequests.length, 2, "a shared transient HTTP error gets the existing single retry");
+  assert.ok(failedRequests.every(({ url }) => url.endsWith("?expand=stats")));
+
+  mode = "stats-failure";
+  harness.clock.set("2026-10-26T12:00:00.000Z");
+  await harness.handler({}, {});
+  const statsFailure = await readPut(harness.putCalls[5]);
+  assert.deepEqual(statsFailure.groups.newsletter, beforeCommonFailure.groups.newsletter,
+    "a missing shared stats object retains the prior subscriber group");
+  assert.deepEqual(statsFailure.groups.newsletterEmailsSent, beforeCommonFailure.groups.newsletterEmailsSent,
+    "a missing shared stats object retains the prior sent group");
+
+  selectedPublicationId = "publication-b";
+  harness.setInput(phaseFourInput({
+    newsletter: { id: "simple-aws", publicationId: selectedPublicationId, language: "en" }
+  }));
+  mode = "identity-failure";
+  harness.clock.set("2026-10-27T12:00:00.000Z");
+  await harness.handler({}, {});
+  const identityFailure = await readPut(harness.putCalls[6]);
+  assert.deepEqual(identityFailure.groups.newsletter, beforeCommonFailure.groups.newsletter,
+    "a publication identity mismatch is common to both fields and cannot relabel the old subscriber count");
+  assert.deepEqual(identityFailure.groups.newsletterEmailsSent, beforeCommonFailure.groups.newsletterEmailsSent,
+    "a publication identity mismatch cannot relabel the old cumulative sent count");
+
+  mode = "success";
+  harness.clock.set("2026-10-28T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[7]);
+  assert.equal(recovered.groups.newsletter.subscribers, 30);
+  assert.equal(recovered.groups.newsletterEmailsSent.sent, 55);
+  assert.notEqual(recovered.groups.newsletterEmailsSent.scopeId, beforeCommonFailure.groups.newsletterEmailsSent.scopeId);
+  assert.equal(recovered.groups.newsletterEmailsSent.scopeId, newsletterEmailsSentScopeId("publication-b"));
+  assert.equal(recovered.groups.newsletterEmailsSent.collectedAt, "2026-10-28T12:00:00.000Z");
+  assertNoNewsletterCanaries(harness, beehiivApiKey, "synthetic secret access failure", "synthetic shared provider failure");
+});
+
+test("malformed prior sent groups are omitted, and an ineligible or removed newsletter cannot retain them", async () => {
+  const sentBase = priorNewsletterEmailsSentGroup();
+  const malformedGroups = [
+    { ...sentBase, basis: "current" },
+    { ...sentBase, sent: Number.MAX_SAFE_INTEGER + 1 },
+    { ...sentBase, privateField: "synthetic prior sent canary" }
+  ];
+  for (const malformedGroup of malformedGroups) {
+    const harness = createHarness({
+      input: phaseFourInput(),
+      fetchFn: phaseThirteenFetch({
+        newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17, false))
+      })
+    });
+    harness.objects.set(outputKey, JSON.stringify({
+      schemaVersion: 1,
+      groups: { newsletterEmailsSent: malformedGroup }
+    }));
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "newsletterEmailsSent"), false,
+      "a malformed previous whole-family value is dropped rather than relabeled or partially repaired");
+    assert.equal(output.groups.newsletter.subscribers, 17);
+    assertNoNewsletterCanaries(harness, "synthetic prior sent canary");
+  }
+
+  let failSpanishSubscriber = false;
+  const spanish = createHarness({
+    input: phaseFourInput({ newsletter: { id: "simple-aws", publicationId: beehiivPublicationId, language: "en" } }),
+    fetchFn: phaseThirteenFetch({
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(
+        beehiivPublicationId,
+        failSpanishSubscriber ? true : 17,
+        100
+      ))
+    })
+  });
+  await spanish.handler({}, {});
+  const priorEnglish = await readPut(spanish.putCalls[0]);
+  const priorEnglishSent = priorEnglish.groups.newsletterEmailsSent;
+  assert.ok(priorEnglishSent, "the initial English selection publishes the sent family");
+  spanish.setInput(phaseFourInput({
+    newsletter: { id: "simple-aws", publicationId: beehiivPublicationId, language: "es" }
+  }));
+  failSpanishSubscriber = true;
+  spanish.clock.set("2026-10-22T12:00:00.000Z");
+  await spanish.handler({}, {});
+  const spanishOutput = await readPut(spanish.putCalls[1]);
+  assert.equal(Object.hasOwn(spanishOutput.groups, "newsletterEmailsSent"), false,
+    "an existing Spanish subscriber selection cannot retain the English-only sent family");
+  assert.deepEqual(spanishOutput.groups.newsletter, priorEnglish.groups.newsletter,
+    "the legacy subscriber fallback still retains its own prior group on provider field failure");
+
+  const requestLog = [];
+  const articleFetcher = builderApiFetch({
+    requestLog,
+    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic removed-selection article failure" }, 503)]])
+  });
+  const removed = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      articleFetcher,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17, 100))
+    })
+  });
+  await removed.handler({}, {});
+  const prior = await readPut(removed.putCalls[0]);
+  assert.ok(prior.groups.newsletterEmailsSent);
+  const noNewsletter = phaseNineInput({ baseInput: phaseFourInput() });
+  delete noNewsletter.newsletter;
+  removed.setInput(noNewsletter);
+  removed.clock.set("2026-10-22T12:00:00.000Z");
+  await removed.handler({}, {});
+  const outputWithoutSelection = await readPut(removed.putCalls[1]);
+  assert.equal(Object.hasOwn(outputWithoutSelection.groups, "newsletterEmailsSent"), false,
+    "selection removal prevents fallback from restoring the old sent family while articles fail");
+  assert.equal(Object.hasOwn(outputWithoutSelection.groups, "newsletter"), false,
+    "selection removal preserves the existing subscriber-family removal behavior");
+  assert.equal(removed.secretCalls.length, 1, "input without newsletter does not read Beehiiv credentials");
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 1,
+    "input without newsletter makes no Beehiiv publication request");
+});
+
+test("each invocation rereads cumulative sent without warm-runtime accumulation", async () => {
+  let sent = 100;
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFourInput(),
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20, sent))
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = (await readPut(harness.putCalls[0])).groups.newsletterEmailsSent;
+  assert.ok(first, "the first valid provider total is published");
+  sent = 90;
+  harness.clock.set("2026-10-22T12:00:00.000Z");
+  await harness.handler({}, {});
+  const second = (await readPut(harness.putCalls[1])).groups.newsletterEmailsSent;
+
+  assert.equal(first.sent, 100);
+  assert.ok(second, "the next invocation publishes its current provider total");
+  assert.equal(second.sent, 90, "a lower corrected provider total replaces the previous observation without clamping or accumulating");
+  assert.equal(second.scopeId, first.scopeId);
+  assert.notEqual(second.collectedAt, first.collectedAt);
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 2,
+    "each invocation makes one shared publication stats request");
+  assert.equal(harness.secretCalls.length, 2, "each invocation retrieves the existing credential once");
 });
