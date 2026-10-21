@@ -1820,7 +1820,7 @@ test("input 3 scopes ignore ordering and unrelated family changes while remote a
   let listedBuilderArticles = [builderArticle({ id: "remote-one", title: "Remote Work One" })];
   const requests = [];
   const fetchFn = builderApiFetch({
-    builderPages: new Map([["", () => jsonResponse({ articles: listedBuilderArticles, resultsSize: 1 })]]),
+    builderPages: new Map([["", () => jsonResponse({ articles: listedBuilderArticles, resultsSize: listedBuilderArticles.length })]]),
     requestLog: requests
   });
   const harness = createHarness({
