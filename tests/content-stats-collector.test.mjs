@@ -1754,11 +1754,12 @@ test("input 3 publishes independent article, delivered-session, and published-bo
   assert.equal(harness.putCalls.length, 1);
   const output = await readPut(harness.putCalls[0]);
   assert.equal(output.schemaVersion, 1);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "talks"]);
   assert.deepEqual(output.groups.articles.counts, { all: 0, en: 0, es: 0 });
   assert.deepEqual(output.groups.talks.counts, { all: 6, en: 4, es: 2 });
   assert.deepEqual(output.groups.books.counts, { all: 2, en: 1, es: 1 });
-  for (const group of Object.values(output.groups)) {
+  for (const family of ["articles", "talks", "books"]) {
+    const group = output.groups[family];
     assert.deepEqual(Object.keys(group).sort(), [
       "basis", "collectedAt", "counts", "definitionVersion", "scopeId", "sources"
     ]);
@@ -1810,8 +1811,9 @@ test("input 3 publishes measured zero counts for empty eligible inventories", as
 
   assert.equal(harness.putCalls.length, 1);
   const output = await readPut(harness.putCalls[0]);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
-  for (const group of Object.values(output.groups)) {
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "talks"]);
+  for (const family of ["articles", "talks", "books"]) {
+    const group = output.groups[family];
     assert.deepEqual(group.counts, { all: 0, en: 0, es: 0 });
   }
 });
@@ -2150,6 +2152,7 @@ test("if every input 3 family fails there is no output write, and a failed Put p
         failingAttempts += 1;
         return jsonResponse({ error: "synthetic article source failure" }, 503);
       }]]),
+      builderPages: new Map([["", () => jsonResponse({ error: "synthetic Builder source failure" }, 503)]]),
       requestLog: requests
     })
   });
@@ -2527,7 +2530,7 @@ test("input 1, 2, and 3 remain compatible and never read Beehiiv credentials or 
   const cases = [
     { name: "input 1", input: sourceInput(), expectedGroups: ["articles"] },
     { name: "input 2", input: phaseTwoInput(), expectedGroups: ["articles"] },
-    { name: "input 3", input: phaseThreeInput(), expectedGroups: ["articles", "books", "talks"] }
+    { name: "input 3", input: phaseThreeInput(), expectedGroups: ["articles", "books", "builderArticleViews", "talks"] }
   ];
 
   for (const { name, input, expectedGroups } of cases) {
@@ -2557,7 +2560,7 @@ test("input 4 uses the shared publication stats request and preserves the curren
   await harness.handler({}, {});
   const first = await readPut(harness.putCalls[0]);
   const firstGroup = first.groups.newsletter;
-  assert.deepEqual(Object.keys(first.groups).sort(), ["articles", "books", "newsletter", "talks"]);
+  assert.deepEqual(Object.keys(first.groups).sort(), ["articles", "books", "builderArticleViews", "newsletter", "talks"]);
   assert.deepEqual(Object.keys(firstGroup).sort(), [
     "basis", "collectedAt", "definitionVersion", "publication", "scopeId", "subscribers"
   ]);
@@ -2638,7 +2641,7 @@ test("input 4 rejects malformed document roots before provider work while presen
     const harness = createHarness({ input: phaseFourInput({ newsletter }), fetchFn: phaseFourApiFetch({ requestLog }) });
     await harness.handler({}, {});
     const output = await readPut(harness.putCalls[0]);
-    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"], "a malformed known family is omitted, never represented by a zero");
+    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "talks"], "a malformed known family is omitted, never represented by a zero");
     assert.equal(harness.secretCalls.length, 0, "invalid publication selection is rejected before secret retrieval");
     assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 0);
     const canaries = [beehiivPublicationId, "private selector"];
@@ -2685,8 +2688,8 @@ test("input 4 accepts only a matching publication and safe nonnegative integer a
     const output = await readPut(harness.putCalls[0]);
     assert.equal(Object.hasOwn(output.groups, "newsletter"), false, `${description} must fail only newsletter collection and must not become zero`);
     assert.deepEqual(Object.keys(output.groups).sort(), sentIsValid
-      ? ["articles", "books", "newsletterEmailsSent", "talks"]
-      : ["articles", "books", "talks"]);
+      ? ["articles", "books", "builderArticleViews", "newsletterEmailsSent", "talks"]
+      : ["articles", "books", "builderArticleViews", "talks"]);
     if (sentIsValid) assert.equal(output.groups.newsletterEmailsSent.sent, 41,
       `${description} preserves the healthy sent sibling`);
     assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 1);
@@ -2798,7 +2801,7 @@ test("missing, unreadable, empty, or binary-only Secrets Manager credentials iso
     });
     await harness.handler({}, {});
     const output = await readPut(harness.putCalls[0]);
-    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"], `${name} omits newsletter without affecting fresh siblings`);
+    assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "talks"], `${name} omits newsletter without affecting fresh siblings`);
     assert.equal(harness.secretCalls.length, expectedCalls, `${name} uses only the expected secret lookup`);
     assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv").length, 0, `${name} cannot make a credential-less provider request`);
     assertNoNewsletterCanaries(
@@ -2879,7 +2882,7 @@ test("a first newsletter failure omits the family and does not publish a placeho
   await harness.handler({}, {});
   const output = await readPut(harness.putCalls[0]);
   assert.equal(attempts, 2);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "talks"]);
   assert.equal(Object.values(output.groups).some((group) => group.subscribers === 0), false);
   assertNoNewsletterCanaries(harness, beehiivApiKey, "synthetic Beehiiv outage");
 });
@@ -2889,7 +2892,8 @@ test("a sole fresh newsletter family publishes alone, while all-family failure p
   const requestLog = [];
   const articleFetcher = builderApiFetch({
     requestLog,
-    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]]),
+    builderPages: new Map([["", () => jsonResponse({ error: "synthetic Builder source failure" }, 503)]])
   });
   const harness = createHarness({
     input: phaseFourInput({ curated: {
@@ -2923,7 +2927,8 @@ test("a sole fresh sent family publishes while subscriber and inventory families
   const requestLog = [];
   const articleFetcher = builderApiFetch({
     requestLog,
-    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]])
+    caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic article source failure" }, 503)]]),
+    builderPages: new Map([["", () => jsonResponse({ error: "synthetic Builder source failure" }, 503)]])
   });
   const harness = createHarness({
     input: phaseFourInput({ curated: {
@@ -3044,7 +3049,7 @@ test("malformed known newsletter fallback is isolated, but prior document and st
   const isolated = createHarness({ input: phaseFourInput(), fetchFn: newsletterFailureFetch });
   isolated.objects.set(outputKey, malformedNewsletterPrevious);
   await isolated.handler({}, {});
-  assert.deepEqual(Object.keys((await readPut(isolated.putCalls[0])).groups).sort(), ["articles", "books", "talks"]);
+  assert.deepEqual(Object.keys((await readPut(isolated.putCalls[0])).groups).sort(), ["articles", "books", "builderArticleViews", "talks"]);
 
   const badPriorDocuments = [
     "not-json",
@@ -3149,7 +3154,7 @@ test("input 5 sends one fixed aggregate query per supported period and publishes
   assert.equal(articleViews.definitionVersion, 1);
   assert.deepEqual(Object.keys(articleViews.records).sort(), ["12m", "30d", "7d", "90d", "total", "ytd"]);
   assert.equal(output.schemaVersion, 1, "the public document keeps schema version 1");
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articleViews", "articles", "books", "builderArticleViews", "newsletter", "newsletterEmailsSent", "talks"]);
   assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
 
   const tokenRequests = googleRequests(requestLog, "google-oauth");
@@ -3255,7 +3260,7 @@ test("input 6 shares one decrypted OAuth refresh and publishes fixed Search Cons
   assert.deepEqual(Object.keys(output.groups.articleSearchClicks).sort(), ["definitionVersion", "records"]);
   assert.equal(output.groups.articleSearchClicks.definitionVersion, 1);
   assert.equal(output.schemaVersion, 1);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "builderArticleViews", "newsletter", "newsletterEmailsSent", "talks"]);
 
   assert.deepEqual(harness.parameterCalls, [{ Name: googleOAuthParameterArn, WithDecryption: true }]);
   const tokenRequests = googleRequests(requestLog, "google-oauth");
@@ -4455,9 +4460,9 @@ test("input 6 can opt into the complete Simple AWS catalog without exposing post
 test("the optional Simple AWS source works with maintained input versions 4 through 6", async () => {
   const sources = [sourceInput().source, builderCenterSource(), simpleAwsArticleSource()];
   const cases = [
-    { name: "input 4", input: phaseFourInput({ sources }), useGoogle: false, groups: ["articles", "books", "newsletter", "newsletterEmailsSent", "talks"] },
-    { name: "input 5", input: phaseFiveInput({ sources }), useGoogle: true, groups: ["articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"] },
-    { name: "input 6", input: phaseSixInput({ sources }), useGoogle: true, groups: ["articleSearchClicks", "articleViews", "articles", "books", "newsletter", "newsletterEmailsSent", "talks"] }
+    { name: "input 4", input: phaseFourInput({ sources }), useGoogle: false, groups: ["articles", "books", "builderArticleViews", "newsletter", "newsletterEmailsSent", "talks"] },
+    { name: "input 5", input: phaseFiveInput({ sources }), useGoogle: true, groups: ["articleViews", "articles", "books", "builderArticleViews", "newsletter", "newsletterEmailsSent", "talks"] },
+    { name: "input 6", input: phaseSixInput({ sources }), useGoogle: true, groups: ["articleSearchClicks", "articleViews", "articles", "books", "builderArticleViews", "newsletter", "newsletterEmailsSent", "talks"] }
   ];
 
   for (const { name, input, useGoogle, groups } of cases) {
@@ -5539,7 +5544,7 @@ test("input 7 supports directory-only traffic and sends five bounded, all-path a
 
   const output = await readPut(harness.putCalls[0]);
   assert.equal(output.schemaVersion, 1);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "directoryViews", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "directoryViews", "talks"]);
   const reports = googleRequests(requestLog, "google-report");
   assert.equal(reports.length, 5);
   assert.deepEqual(reports.map((request) => [reportRange(request).startDate, reportRange(request).endDate]), [
@@ -5636,7 +5641,7 @@ test("input 9 adds the Views recorded total to directory-only collection without
   assert.deepEqual(Object.keys(totalRequest.json).sort(), ["dateRanges", "dimensionFilter", "metrics"]);
   assert.equal(Object.hasOwn(totalRequest.json, "dimensions"), false);
 
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "directoryViews", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "directoryViews", "talks"]);
   assert.deepEqual(output.groups.directoryViews.records.total, {
     basis: "recorded-total",
     collectedAt: "2026-10-20T16:45:46.000Z",
@@ -5740,7 +5745,7 @@ test("directory reports retain and recover per period while sharing OAuth with S
   const requestCountFrom = (start, kind) => googleRequests(requestLog.slice(start), kind);
   await harness.handler({}, {});
   const first = await readPut(harness.putCalls[0]);
-  assert.deepEqual(Object.keys(first.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "directoryViews", "newsletter", "newsletterEmailsSent", "talks"]);
+  assert.deepEqual(Object.keys(first.groups).sort(), ["articleSearchClicks", "articleViews", "articles", "books", "builderArticleViews", "directoryViews", "newsletter", "newsletterEmailsSent", "talks"]);
   assert.deepEqual(first.groups.articles.sources, [
     { id: "caylent", label: "Caylent" },
     { id: "builder-center", label: "AWS Builder Center" },
@@ -6028,7 +6033,7 @@ test("input 8 collects only safe aggregate outbound clicks for the exact directo
   await harness.handler({}, {});
 
   const output = await readPut(harness.putCalls[0]);
-  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "directoryOutboundClicks", "directoryViews", "talks"]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "builderArticleViews", "directoryOutboundClicks", "directoryViews", "talks"]);
   const reports = googleRequests(requestLog, "google-report");
   const clickReports = reports.filter((request) => request.json.metrics?.[0]?.name === "eventCount");
   assert.equal(reports.length, 10, "directory page views and outbound clicks each request the five supported periods");
@@ -6287,7 +6292,7 @@ test("input 9 adds both directory totals to the existing collection with sent to
     { id: "cloudy-things", label: "Cloudy Things" }
   ]);
   assert.deepEqual(Object.keys(output.groups).sort(), [
-    "articleSearchClicks", "articleViews", "articles", "books", "directoryOutboundClicks", "directoryViews", "newsletter", "newsletterEmailsSent", "talks"
+    "articleSearchClicks", "articleViews", "articles", "books", "builderArticleViews", "directoryOutboundClicks", "directoryViews", "newsletter", "newsletterEmailsSent", "talks"
   ]);
   assert.equal(output.schemaVersion, 1);
 
@@ -7218,7 +7223,7 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
 
   const familyNames = Object.keys(first.groups).sort();
   assert.deepEqual(familyNames, [
-    "articleSearchClicks", "articleViews", "articles", "directoryOutboundClicks", "directoryViews",
+    "articleSearchClicks", "articleViews", "articles", "builderArticleViews", "directoryOutboundClicks", "directoryViews",
     "newsletter", "newsletterEmailsSent", "newsletterEmailOpens", "newsletterEmailVerifiedClicks", "talks", "books"
   ].sort());
   assert.equal(first.groups.newsletter.subscribers, 20, "the existing subscriber family remains independent");
@@ -8628,4 +8633,549 @@ test("an unexpected Search period error waits for other started periods and cann
   assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0);
   assert.equal(harness.putCalls.length, 0);
   assert.equal(harness.objects.get(outputKey), previousBytes, "the exact prior object survives the failed invocation");
+});
+
+function phase15BuilderArticle(options) {
+  const { viewsCount, ...articleOptions } = options;
+  const record = builderArticle(articleOptions);
+  if (Object.hasOwn(options, "viewsCount")) record.viewsCount = viewsCount;
+  return record;
+}
+
+function phase15BuilderViewsScopeId(authorId = builderAuthorId) {
+  const scope = {
+    definitionVersion: 1,
+    family: "builderArticleViews",
+    policy: "builder-center-eligible-publication-views-v1",
+    source: { id: "builder-center", label: "AWS Builder Center" },
+    providerAuthorId: authorId,
+    metric: "viewsCount",
+    basis: "recorded-total",
+    startDate: "2026-01-06",
+    supportedLanguages: ["en", "es"]
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function priorBuilderArticleViewsGroup({
+  collectedAt = "2026-10-10T12:00:00.000Z",
+  scopeId = "9".repeat(64),
+  views = { all: 123, en: 100, es: 23 }
+} = {}) {
+  return {
+    definitionVersion: 1,
+    basis: "recorded-total",
+    collectedAt,
+    scopeId,
+    source: { id: "builder-center", label: "AWS Builder Center" },
+    startDate: "2026-01-06",
+    views
+  };
+}
+
+function captureBuilderRequestOptions(fetchFn, observed = []) {
+  return {
+    observed,
+    fetchFn: (input, init = {}) => {
+      const url = new URL(String(input));
+      if (url.hostname === "api.builder.aws.com" && url.pathname.startsWith("/cs/v2/articles/user/")) {
+        observed.push({
+          method: init.method,
+          headers: structuredClone(init.headers ?? {}),
+          redirect: init.redirect
+        });
+      }
+      return fetchFn(input, init);
+    }
+  };
+}
+
+test("inputs 3 through 10 publish one exact Builder recorded-total family from the existing unauthenticated enumeration", async () => {
+  const inputs = [
+    phaseThreeInput(),
+    phaseFourInput(),
+    phaseFiveInput(),
+    phaseSixInput(),
+    phaseNineInput(),
+    phaseTenInput(),
+    phaseTwelveInput(),
+    phaseThirteenInput()
+  ];
+
+  for (const input of inputs) {
+    const requestLog = [];
+    const baseFetch = phaseThirteenFetch({ requestLog });
+    const { fetchFn, observed } = captureBuilderRequestOptions(baseFetch);
+    const harness = createHarness({ input, fetchFn });
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    const group = output.groups.builderArticleViews;
+    assert.deepEqual(output.groups.articles.counts, { all: 0, en: 0, es: 0 },
+      `input${input.schemaVersion} keeps its existing empty article-inventory behavior`);
+    assert.ok(group, `input${input.schemaVersion} selects Builder recorded views automatically`);
+    assert.deepEqual(group, {
+      definitionVersion: 1,
+      basis: "recorded-total",
+      collectedAt: "2026-10-16T12:00:00.000Z",
+      scopeId: phase15BuilderViewsScopeId(),
+      source: { id: "builder-center", label: "AWS Builder Center" },
+      startDate: "2026-01-06",
+      views: { all: 0, en: 0, es: 0 }
+    }, `input${input.schemaVersion} reports a fully enumerated empty Builder inventory as measured zero`);
+    assert.deepEqual(requestLog.filter(({ kind }) => kind === "builder-list").map(({ cursor }) => cursor), [""]);
+    assert.equal(observed.length, 1, `input${input.schemaVersion} makes no second Builder list request for views`);
+    assert.ok(observed.every(({ headers }) =>
+      !Object.keys(headers).some((name) => name.toLowerCase() === "authorization")),
+    "the existing Builder author-list request remains unauthenticated");
+    const expectedSecretReads = input.schemaVersion < 4 ? 0 : input.schemaVersion <= 6 ? 1 : 2;
+    assert.equal(harness.secretCalls.length, expectedSecretReads,
+      `input${input.schemaVersion} keeps its existing Beehiiv credential reads without a Builder credential read`);
+    assert.equal(harness.parameterCalls.length, input.schemaVersion >= 5 ? 1 : 0,
+      `input${input.schemaVersion} keeps its existing Google credential reads without a Builder credential read`);
+    assert.deepEqual(Object.keys(group).sort(), [
+      "basis", "collectedAt", "definitionVersion", "scopeId", "source", "startDate", "views"
+    ]);
+    assert.equal(Object.hasOwn(group, "endDate"), false);
+    assert.equal(Object.hasOwn(group, "timeZone"), false);
+    assert.equal(Object.hasOwn(group, "records"), false);
+    assert.equal(Object.hasOwn(group, "providerAuthorId"), false);
+    assertNoGoogleCanaries(harness, builderAuthorId);
+  }
+});
+
+test("legacy inputs 1 and 2 keep their old count-only output and never retain Builder views", async () => {
+  const inputs = [sourceInput(), phaseTwoInput()];
+
+  for (const input of inputs) {
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: phaseThirteenFetch({ requestLog }) });
+    harness.objects.set(outputKey, JSON.stringify({
+      schemaVersion: 1,
+      groups: { builderArticleViews: priorBuilderArticleViewsGroup() }
+    }));
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(Object.keys(output.groups), ["articles"]);
+    assert.equal(Object.hasOwn(output.groups, "builderArticleViews"), false);
+    assert.deepEqual(harness.secretCalls, [], `legacy input${input.schemaVersion} needs no Builder credential`);
+    assert.deepEqual(harness.parameterCalls, [], `legacy input${input.schemaVersion} needs no Builder credential`);
+    assert.equal(requestLog.filter(({ kind }) => kind === "builder-list").length,
+      input.schemaVersion === 1 ? 0 : 1,
+    `legacy input${input.schemaVersion} keeps only its existing inventory enumeration`);
+  }
+});
+
+test("Builder views count publication IDs independently from title deduplication and share all cursor pages", async () => {
+  const firstEnglishCopy = phase15BuilderArticle({
+    id: "synthetic-view-provider-id-duplicate",
+    title: " Same Article Title ",
+    viewsCount: 12
+  });
+  const zeroEnglishCopy = phase15BuilderArticle({
+    id: "synthetic-view-provider-id-zero",
+    title: "Same Article Title",
+    viewsCount: 0
+  });
+  const duplicateIdAlias = phase15BuilderArticle({
+    id: "synthetic-view-provider-id-duplicate",
+    title: "Retitled Provider Record",
+    slug: "different-slug",
+    viewsCount: 12
+  });
+  const sameTitleDifferentId = phase15BuilderArticle({
+    id: "synthetic-view-provider-id-distinct",
+    title: "Same Article Title",
+    viewsCount: 40
+  });
+  const spanishTranslation = phase15BuilderArticle({
+    id: "synthetic-view-provider-id-spanish",
+    title: "Same Article Title",
+    locale: "es",
+    viewsCount: 5
+  });
+  const ignoredRows = [
+    phase15BuilderArticle({ id: "synthetic-view-draft", status: "DRAFT", viewsCount: null }),
+    phase15BuilderArticle({ id: "synthetic-view-other-author", creatorId: "different-author", viewsCount: false }),
+    phase15BuilderArticle({ id: "synthetic-view-unsupported-language", locale: "fr", viewsCount: "bad" }),
+    phase15BuilderArticle({
+      id: "synthetic-view-future",
+      lastPublishedAt: Date.parse("2026-10-18T12:00:00.000Z"),
+      viewsCount: -1
+    })
+  ];
+  const nextCursor = "synthetic-opaque-builder-cursor";
+  const builderPages = new Map([
+    ["", { articles: [firstEnglishCopy, zeroEnglishCopy, ignoredRows[0], ignoredRows[1]], cursor: nextCursor, resultsSize: 4 }],
+    [nextCursor, {
+      articles: [duplicateIdAlias, sameTitleDifferentId, spanishTranslation, ...ignoredRows.slice(2)],
+      resultsSize: 5
+    }]
+  ]);
+  const caylentCopy = article({ id: "synthetic-view-caylent-copy", title: "SAME ARTICLE TITLE" });
+  const requestLog = [];
+  const baseFetch = phaseEightApiFetch({
+    requestLog,
+    builderPages,
+    caylentPages: new Map([[0, { results: [caylentCopy] }]])
+  });
+  const { fetchFn, observed } = captureBuilderRequestOptions(baseFetch);
+  const harness = createHarness({
+    input: phaseThreeInput(),
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn
+  });
+
+  await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(output.groups.articles.counts, { all: 3, en: 2, es: 1 },
+      "count deduplication remains based on title and stored content language");
+    const group = output.groups.builderArticleViews;
+  assert.deepEqual(group, {
+    definitionVersion: 1,
+    basis: "recorded-total",
+    collectedAt: "2026-10-16T12:00:00.000Z",
+    scopeId: phase15BuilderViewsScopeId(),
+    source: { id: "builder-center", label: "AWS Builder Center" },
+    startDate: "2026-01-06",
+    views: { all: 57, en: 52, es: 5 }
+  }, "distinct publication IDs contribute despite a shared title; a repeated ID contributes once despite a title and slug change");
+  assert.deepEqual(requestLog.filter(({ kind }) => kind === "builder-list").map(({ cursor }) => cursor), ["", nextCursor],
+    "the one completed Builder enumeration supplies both families across both pages");
+  assert.equal(observed.length, 2, "the page traversal is not repeated for the new family");
+  assertNoGoogleCanaries(harness,
+    builderAuthorId,
+    "synthetic-view-provider-id-duplicate",
+    "synthetic-view-provider-id-distinct",
+    "synthetic-view-provider-id-spanish",
+    "Synthetic Builder title",
+    "Retitled Provider Record",
+    "/content/");
+});
+
+test("invalid eligible Builder counters and safe-sum overflow fail only recorded views", async () => {
+  const invalidCounters = [
+    { name: "missing", create: () => builderArticle({ id: "synthetic-missing-view-counter" }) },
+    { name: "null", value: null },
+    { name: "boolean", value: false },
+    { name: "string", value: "12" },
+    { name: "fraction", value: 1.5 },
+    { name: "negative", value: -1 },
+    { name: "unsafe integer", value: Number.MAX_SAFE_INTEGER + 1 }
+  ];
+
+  for (const [index, invalid] of invalidCounters.entries()) {
+    const row = invalid.create?.() ?? phase15BuilderArticle({
+      id: `synthetic-invalid-view-counter-${index}`,
+      viewsCount: invalid.value
+    });
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseThreeInput(),
+      fetchFn: phaseEightApiFetch({
+        requestLog,
+        builderPages: new Map([["", { articles: [row], resultsSize: 1 }]])
+      })
+    });
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(output.groups.articles.counts, { all: 1, en: 1, es: 0 }, `${invalid.name} does not invalidate article counts`);
+    assert.equal(Object.hasOwn(output.groups, "builderArticleViews"), false,
+      `${invalid.name} makes the whole new family unavailable without a placeholder zero`);
+    const successLog = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+    assert.ok(successLog.familyFailures.builderArticleViews, `${invalid.name} is attributed to the Builder views family`);
+    assert.equal(Object.hasOwn(successLog.familyFailures, "articles"), false, `${invalid.name} leaves counts fresh`);
+  }
+
+  const overflowHarness = createHarness({
+    input: phaseThreeInput(),
+    fetchFn: phaseEightApiFetch({
+      builderPages: new Map([["", {
+        articles: [
+          phase15BuilderArticle({ id: "synthetic-overflow-view-en", viewsCount: Number.MAX_SAFE_INTEGER }),
+          phase15BuilderArticle({ id: "synthetic-overflow-view-es", locale: "es", viewsCount: 1 })
+        ],
+        resultsSize: 2
+      }]])
+    })
+  });
+
+  await overflowHarness.handler({}, {});
+
+  const overflowOutput = await readPut(overflowHarness.putCalls[0]);
+  assert.deepEqual(overflowOutput.groups.articles.counts, { all: 2, en: 1, es: 1 });
+  assert.equal(Object.hasOwn(overflowOutput.groups, "builderArticleViews"), false,
+    "overflow of the combined language subtotals cannot round or publish a partial view total");
+});
+
+test("conflicting counters or locales for one Builder publication ID fail views while counts refresh", async () => {
+  const conflicts = [
+    {
+      name: "counter conflict",
+      records: [
+        phase15BuilderArticle({ id: "synthetic-conflicting-view-id", title: "First title", viewsCount: 10 }),
+        phase15BuilderArticle({ id: "synthetic-conflicting-view-id", title: "Second title", viewsCount: 11 })
+      ]
+    },
+    {
+      name: "language conflict",
+      records: [
+        phase15BuilderArticle({ id: "synthetic-conflicting-language-id", title: "First title", viewsCount: 10 }),
+        phase15BuilderArticle({ id: "synthetic-conflicting-language-id", title: "Second title", locale: "es", viewsCount: 10 })
+      ]
+    }
+  ];
+
+  for (const conflict of conflicts) {
+    const harness = createHarness({
+      input: phaseThreeInput(),
+      fetchFn: phaseEightApiFetch({
+        builderPages: new Map([["", { articles: conflict.records, resultsSize: conflict.records.length }]])
+      })
+    });
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.ok(output.groups.articles, `${conflict.name} leaves the article count family available`);
+    assert.equal(Object.hasOwn(output.groups, "builderArticleViews"), false, `${conflict.name} invalidates the entire view family`);
+    const successLog = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+    assert.ok(successLog.familyFailures.builderArticleViews, `${conflict.name} is attributed to the views family`);
+    assert.equal(Object.hasOwn(successLog.familyFailures, "articles"), false, `${conflict.name} leaves counts fresh`);
+  }
+});
+
+test("shared Builder envelope, repeated-cursor, and page-cap failures retain counts and views together", async () => {
+  const capPages = new Map();
+  let cursor = "";
+  for (let page = 0; page < 20; page += 1) {
+    const nextCursor = `synthetic-phase15-cap-cursor-${page + 1}`;
+    capPages.set(cursor, { articles: [], cursor: nextCursor, resultsSize: 0 });
+    cursor = nextCursor;
+  }
+  const repeatedCursor = "synthetic-phase15-repeated-cursor";
+  const failures = [
+    {
+      name: "malformed envelope",
+      builderPages: new Map([["", { articles: [], resultsSize: 1 }]]),
+      expectedRequests: 1
+    },
+    {
+      name: "repeated cursor",
+      builderPages: new Map([
+        ["", { articles: [], cursor: repeatedCursor, resultsSize: 0 }],
+        [repeatedCursor, { articles: [], cursor: repeatedCursor, resultsSize: 0 }]
+      ]),
+      expectedRequests: 2
+    },
+    { name: "page cap", builderPages: capPages, expectedRequests: 20 }
+  ];
+
+  for (const failure of failures) {
+    const priorArticles = priorGroup();
+    const priorViews = priorBuilderArticleViewsGroup();
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseThreeInput(),
+      fetchFn: phaseEightApiFetch({ requestLog, builderPages: failure.builderPages })
+    });
+    harness.objects.set(outputKey, JSON.stringify({
+      schemaVersion: 1,
+      groups: { articles: priorArticles, builderArticleViews: priorViews }
+    }));
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.deepEqual(output.groups.articles, priorArticles, `${failure.name} retains the whole prior article family`);
+    assert.deepEqual(output.groups.builderArticleViews, priorViews, `${failure.name} retains the whole prior view family`);
+    assert.equal(requestLog.filter(({ kind }) => kind === "builder-list").length, failure.expectedRequests,
+      `${failure.name} uses one shared Builder traversal rather than one per family`);
+    const successLog = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+    assert.ok(successLog.familyFailures.articles, `${failure.name} fails article counts through the shared page path`);
+    assert.ok(successLog.familyFailures.builderArticleViews, `${failure.name} fails recorded views through the shared page path`);
+  }
+});
+
+test("Builder views refresh after Caylent fails first and can be the only fresh family", async () => {
+  const requestLog = [];
+  const builderPages = new Map([["", {
+    articles: [phase15BuilderArticle({ id: "synthetic-sole-view-publication", viewsCount: 31 })],
+    resultsSize: 1
+  }]]);
+  const badCurated = {
+    talks: [{ id: "synthetic-invalid-talk", kind: "unsupported", status: "delivered", language: "en" }],
+    books: [{ id: "synthetic-invalid-book", status: "released", language: "en" }]
+  };
+  const caylentPages = new Map([[0, () => jsonResponse({ error: "synthetic Caylent unavailable" }, 503)]]);
+  const harness = createHarness({
+    input: phaseThreeInput({ curated: badCurated }),
+    fetchFn: phaseEightApiFetch({ requestLog, caylentPages, builderPages })
+  });
+
+  await harness.handler({}, {});
+
+  const onlyViewsBytes = bodyText(harness.putCalls[0].Body);
+  const onlyViews = JSON.parse(onlyViewsBytes);
+  assert.deepEqual(Object.keys(onlyViews.groups), ["builderArticleViews"]);
+  assert.deepEqual(onlyViews.groups.builderArticleViews.views, { all: 31, en: 31, es: 0 });
+  assert.equal(requestLog.filter(({ kind }) => kind === "caylent-list").length, 2,
+    "Caylent retains its existing single retry before its count failure is isolated");
+  assert.equal(requestLog.filter(({ kind }) => kind === "builder-list").length, 1,
+    "the healthy Builder traversal runs once even after Caylent fails first");
+
+  builderPages.set("", () => jsonResponse({ error: "synthetic Builder list unavailable" }, 503));
+  await assert.rejects(() => harness.handler({}, {}));
+  assert.equal(harness.putCalls.length, 1, "when every independent family fails, no new aggregate is written");
+  assert.equal(harness.objects.get(outputKey), onlyViewsBytes, "the previous sole-fresh-family output remains intact");
+});
+
+test("Builder view failure retains one exact prior family and recovery replaces a lower corrected counter", async () => {
+  const requestLog = [];
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const builderPages = new Map([["", {
+    articles: [phase15BuilderArticle({ id: "synthetic-view-retention-id", title: "Original title", viewsCount: 500 })],
+    resultsSize: 1
+  }]]);
+  const caylentPages = new Map([[0, { results: [] }]]);
+  const harness = createHarness({
+    input: phaseThreeInput(),
+    clock,
+    fetchFn: phaseEightApiFetch({ requestLog, caylentPages, builderPages })
+  });
+
+  await harness.handler({}, {});
+  const first = (await readPut(harness.putCalls[0])).groups.builderArticleViews;
+  assert.equal(first.views.all, 500);
+
+  builderPages.set("", {
+    articles: [phase15BuilderArticle({ id: "synthetic-view-retention-id", title: "Retitled publication", viewsCount: 90 })],
+    resultsSize: 1
+  });
+  caylentPages.set(0, { results: [article({ id: "synthetic-unrelated-caylent-addition", title: "New unrelated source title" })] });
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const lowerFresh = (await readPut(harness.putCalls[1])).groups.builderArticleViews;
+  assert.equal(lowerFresh.views.all, 90, "a current source correction replaces the prior observation without accumulation");
+  assert.equal(lowerFresh.scopeId, first.scopeId, "clock, views, titles, and another source's contents do not change view scope");
+  assert.equal(lowerFresh.collectedAt, "2026-10-17T12:00:00.000Z");
+
+  const changedAuthorId = "synthetic-changed-builder-author";
+  harness.setInput(phaseThreeInput({ sources: [sourceInput().source, builderCenterSource(changedAuthorId)] }));
+  builderPages.set("", {
+    articles: [phase15BuilderArticle({
+      id: "synthetic-view-retention-id",
+      creatorId: changedAuthorId,
+      title: "Author-scoped title",
+      viewsCount: null
+    })],
+    resultsSize: 1
+  });
+  clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const retainedOutput = await readPut(harness.putCalls[2]);
+  assert.deepEqual(retainedOutput.groups.builderArticleViews, lowerFresh,
+    "a counter failure retains the entire previous record including its old scope and collection date");
+  assert.equal(retainedOutput.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z",
+    "an invalid counter does not stop fresh article counts");
+
+  builderPages.set("", {
+    articles: [phase15BuilderArticle({
+      id: "synthetic-view-retention-id",
+      creatorId: changedAuthorId,
+      title: "Recovered author-scoped title",
+      viewsCount: 10
+    })],
+    resultsSize: 1
+  });
+  clock.set("2026-10-19T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = (await readPut(harness.putCalls[3])).groups.builderArticleViews;
+  assert.equal(recovered.views.all, 10, "recovery uses the current lower count without clamping or accumulation");
+  assert.equal(recovered.collectedAt, "2026-10-19T12:00:00.000Z");
+  assert.equal(recovered.scopeId, phase15BuilderViewsScopeId(changedAuthorId));
+  assert.notEqual(recovered.scopeId, lowerFresh.scopeId, "changing the selected Builder author changes the semantic scope");
+  assertNoGoogleCanaries(harness, changedAuthorId, "synthetic-view-retention-id");
+});
+
+test("malformed prior Builder views variants are dropped while healthy sibling families publish", async () => {
+  const malformedVariants = [
+    {
+      name: "missing required key",
+      mutate(group) { delete group.views.es; }
+    },
+    {
+      name: "inconsistent language sum",
+      mutate(group) { group.views.all += 1; }
+    },
+    {
+      name: "unsafe total",
+      mutate(group) { group.views.all = Number.MAX_SAFE_INTEGER + 1; }
+    },
+    {
+      name: "negative language count",
+      mutate(group) { group.views.en = -1; }
+    },
+    {
+      name: "wrong fixed source",
+      mutate(group) { group.source = { id: "other-source", label: "Other source" }; }
+    },
+    {
+      name: "wrong tracking start date",
+      mutate(group) { group.startDate = "2026-01-07"; }
+    },
+    {
+      name: "wrong basis",
+      mutate(group) { group.basis = "cumulative"; }
+    },
+    {
+      name: "noncanonical collection timestamp",
+      mutate(group) { group.collectedAt = "2026-10-10T12:00:00Z"; }
+    },
+    {
+      name: "malformed scope hash",
+      mutate(group) { group.scopeId = "A".repeat(64); }
+    },
+    {
+      name: "unknown public field",
+      mutate(group) { group.privateField = "synthetic-malformed-prior-view-canary"; }
+    }
+  ];
+
+  for (const [index, variant] of malformedVariants.entries()) {
+    const malformed = priorBuilderArticleViewsGroup();
+    variant.mutate(malformed);
+    const harness = createHarness({
+      input: phaseThreeInput(),
+      fetchFn: phaseEightApiFetch({
+        builderPages: new Map([["", {
+          articles: [phase15BuilderArticle({ id: `synthetic-malformed-prior-row-${index}`, viewsCount: "bad" })],
+          resultsSize: 1
+        }]])
+      })
+    });
+    harness.objects.set(outputKey, JSON.stringify({
+      schemaVersion: 1,
+      groups: { builderArticleViews: malformed }
+    }));
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "builderArticleViews"), false,
+      `${variant.name} prior value is omitted rather than partially repaired or relabeled`);
+    assert.deepEqual(output.groups.articles.counts, { all: 1, en: 1, es: 0 }, `${variant.name} does not poison fresh article counts`);
+    assert.deepEqual(output.groups.talks.counts, { all: 0, en: 0, es: 0 }, `${variant.name} leaves healthy talks available`);
+    assert.deepEqual(output.groups.books.counts, { all: 0, en: 0, es: 0 }, `${variant.name} leaves healthy books available`);
+    const successLog = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+    assert.ok(successLog.familyFailures.builderArticleViews,
+      `${variant.name} exercises actual prior-family retention instead of passing because the new family is unimplemented`);
+    assertNoGoogleCanaries(harness, "synthetic-malformed-prior-view-canary", `synthetic-malformed-prior-row-${index}`);
+  }
 });
