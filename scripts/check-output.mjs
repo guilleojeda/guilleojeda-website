@@ -87,6 +87,78 @@ function normalizedText(value) {
   return value.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
+function checkHomeIntroduction(page, html) {
+  const { lang } = page;
+  const expectedByLocale = {
+    en: {
+      headline: 'Cloud, AI,\nand the why.',
+      intro: 'I’m Guille Ojeda, Principal Innovation Architect at Caylent. I build, write, and speak about AWS and applied AI, with a practical point of view from Córdoba, Argentina.'
+    },
+    es: {
+      headline: 'Cloud, IA,\ny el porqué.',
+      intro: 'Soy Guille Ojeda, Principal Innovation Architect en Caylent. Construyo, escribo y doy charlas sobre AWS e IA aplicada, con una mirada práctica desde Córdoba, Argentina.'
+    }
+  };
+  const heroSections = [...html.matchAll(/<section\b(?=[^>]*\baria-labelledby=["']hero-title["'])[^>]*>/gi)];
+  assert.equal(heroSections.length, 1, `${lang} homepage has one hero section`);
+
+  const hero = extractElement(html, 'section', 'aria-labelledby', 'hero-title');
+  assert.ok(hero, `${lang} homepage has a labeled hero section`);
+  const title = extractElement(hero.html, 'h1', 'id', 'hero-title');
+  const intro = extractElement(hero.html, 'p', 'class', 'hero-intro');
+  const actions = extractElement(hero.html, 'div', 'class', 'hero-actions');
+  assert.ok(title, `${lang} hero has its existing title`);
+  assert.ok(intro, `${lang} hero has its existing introduction`);
+  assert.ok(actions, `${lang} hero has its existing actions region`);
+  assert.equal([...hero.html.matchAll(/<h1\b/gi)].length, 1, `${lang} hero has exactly one h1`);
+  assert.equal(normalizedText(title.html), normalizedText(expectedByLocale[lang].headline),
+    `${lang} hero keeps the localized headline`);
+  assert.equal(normalizedText(intro.html), normalizedText(expectedByLocale[lang].intro),
+    `${lang} hero keeps the localized introduction`);
+  assert.ok(title.end <= intro.start, `${lang} hero headline precedes the introduction`);
+
+  const introToActions = hero.html.slice(intro.end, actions.start).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(introToActions, /AWS Builder of the Year\s*·\s*LATAM-ES 2025/,
+    `${lang} hero surfaces the award between the introduction and actions`);
+
+  const actionLinks = [...actions.html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)];
+  assert.equal(actionLinks.length, 2, `${lang} hero has two ordinary action links`);
+  const readAction = (match) => {
+    const openingTag = match[0].match(/^<a\b[^>]*>/i)?.[0] ?? '';
+    const labelHtml = match[0].slice(openingTag.length).replace(/<[^>]*\baria-hidden=["']true["'][^>]*>[\s\S]*?<\/[^>]+>/gi, ' ');
+    const href = openingTag.match(/\bhref=["']([^"']+)["']/i)?.[1] ?? '';
+    return { href, label: normalizedText(labelHtml) };
+  };
+  const [primaryAction, linkedInAction] = actionLinks.map(readAction);
+  assert.equal(primaryAction.label, lang === 'en' ? 'view my work' : 'ver mi trabajo',
+    `${lang} primary hero action has its approved localized label`);
+  assert.equal(primaryAction.href, lang === 'en' ? '/#work' : '/es/#work',
+    `${lang} primary hero action targets the work section`);
+  assert.equal(linkedInAction.href, profile.site.linkedin, `${lang} secondary hero action targets LinkedIn`);
+  assert.match(linkedInAction.label, lang === 'en'
+    ? /(?:contact\w*|view|visit|open|connect\w*).{0,30}linkedin|linkedin.{0,30}(?:profile|contact)/
+    : /(?:contact\w*|ver|visitar|escrib\w*|conectar\w*).{0,30}linkedin|linkedin.{0,30}(?:perfil|contact\w*)/,
+  `${lang} LinkedIn action has a descriptive localized label`);
+
+  const portraitImages = [...hero.html.matchAll(/<img\b[^>]*>/gi)];
+  assert.equal(portraitImages.length, 1, `${lang} hero keeps one portrait image`);
+  const portraitTag = portraitImages[0][0];
+  const portraitAttribute = (name) => portraitTag.match(new RegExp(`\\b${name}=["']([^"']*)["']`, 'i'))?.[1] ?? '';
+  assert.equal(portraitAttribute('src'), '/images/guille-portrait.jpg', `${lang} hero uses the existing local portrait`);
+  assert.equal([...html.matchAll(/<img\b(?=[^>]*\bsrc=["']\/images\/guille-portrait\.jpg["'])[^>]*>/gi)].length, 1,
+    `${lang} homepage does not duplicate the portrait`);
+  assert.equal(portraitAttribute('alt'), profile.site.portraitAlt[lang], `${lang} portrait keeps its localized alt text`);
+  assert.equal(portraitAttribute('width'), '800', `${lang} portrait keeps its intrinsic width`);
+  assert.equal(portraitAttribute('height'), '800', `${lang} portrait keeps its intrinsic height`);
+  assert.ok(actions.end <= portraitImages[0].index,
+    `${lang} hero places the portrait after its actions in DOM order`);
+
+  const about = extractElement(html, 'section', 'id', 'about');
+  assert.ok(about, `${lang} homepage keeps its About section`);
+  assert.match(normalizedText(about.html), /aws builder of the year.{0,40}latam-es 2025/,
+    `${lang} About section retains the award`);
+}
+
 function checkContentStatsShell(page, html) {
   const locale = page.lang;
   const sectionIdPosition = html.indexOf('id="content-stats"');
@@ -802,6 +874,7 @@ for (const page of pages) {
   mustNotContain(html, 'un sitio estático, simple y bilingüe', `${page.lang} implementation-detail footer`);
   mustContain(html, 'https://www.linkedin.com/in/guilleojeda', `${page.lang} LinkedIn link`);
   mustContain(html, 'https://www.passionfroot.me/guilleojeda', `${page.lang} sponsorship link`);
+  checkHomeIntroduction(page, html);
   checkContentStatsShell(page, html);
 
   const featuredProjectCards = html.match(/class="support-card"/g) ?? [];

@@ -77,7 +77,7 @@ export interface SiteContent {
     description: LocalizedText;
   };
   nav: Record<'work' | 'talks' | 'about' | 'switchTo' | 'switchLabel', LocalizedText>;
-  hero: Record<'eyebrow' | 'title' | 'intro' | 'primaryCta' | 'contactCta' | 'roleContext' | 'portraitNote', LocalizedText>;
+  hero: Record<'eyebrow' | 'title' | 'intro' | 'recognition' | 'primaryCta' | 'contactCta' | 'roleContext' | 'portraitNote', LocalizedText>;
   work: Record<'kicker' | 'title' | 'intro' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
   projects: ProjectRecord[];
   talks: Record<'kicker' | 'title' | 'intro' | 'availabilityLabel' | 'availabilityText' | 'availabilityCta' | 'archiveLabel', LocalizedText>;

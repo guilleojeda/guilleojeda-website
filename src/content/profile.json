@@ -55,9 +55,13 @@
       "en": "I’m Guille Ojeda, Principal Innovation Architect at Caylent. I build, write, and speak about AWS and applied AI, with a practical point of view from Córdoba, Argentina.",
       "es": "Soy Guille Ojeda, Principal Innovation Architect en Caylent. Construyo, escribo y doy charlas sobre AWS e IA aplicada, con una mirada práctica desde Córdoba, Argentina."
     },
+    "recognition": {
+      "en": "AWS Builder of the Year · LATAM-ES 2025",
+      "es": "AWS Builder of the Year · LATAM-ES 2025"
+    },
     "primaryCta": {
-      "en": "Explore my work",
-      "es": "Explorá mi trabajo"
+      "en": "View my work",
+      "es": "Ver mi trabajo"
     },
     "contactCta": {
       "en": "Contact on LinkedIn",

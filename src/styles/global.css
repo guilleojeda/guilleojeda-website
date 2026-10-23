@@ -220,11 +220,10 @@ a:hover {
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.06fr) minmax(300px, 0.94fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
   align-items: center;
   gap: clamp(2.5rem, 8vw, 8rem);
-  min-height: min(750px, calc(100vh - 4.8rem));
-  padding: clamp(5rem, 10vw, 8.5rem) 0 clamp(6rem, 12vw, 10rem);
+  padding: clamp(4rem, 7vw, 6rem) 0 clamp(4.5rem, 8vw, 6.5rem);
 }
 
 .eyebrow,
@@ -258,6 +257,14 @@ a:hover {
   color: #465650;
   font-size: clamp(1.06rem, 1.4vw, 1.25rem);
   line-height: 1.62;
+}
+
+.hero-recognition {
+  margin: 1rem 0 0;
+  color: var(--olive);
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.45;
 }
 
 .hero-actions,
@@ -366,9 +373,7 @@ a:hover {
 .portrait-frame img {
   display: block;
   width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  object-position: center;
+  height: auto;
 }
 
 .portrait-caption {
@@ -1474,12 +1479,9 @@ a:hover {
   }
 
   .hero {
-    display: flex;
-    flex-direction: column-reverse;
-    align-items: stretch;
-    gap: 3.75rem;
-    min-height: 0;
-    padding: 4.5rem 0 5.2rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.25rem;
+    padding: 3.5rem 0 4rem;
   }
 
   .hero-copy {
@@ -1505,8 +1507,8 @@ a:hover {
   }
 
   .portrait-wrap {
-    align-self: center;
-    width: min(100%, 310px);
+    justify-self: center;
+    width: min(100%, 260px);
   }
 
   .portrait-wrap::before {
