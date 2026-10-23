@@ -512,6 +512,11 @@ function getElements(section) {
 
   return {
     cards,
+    overviewRegion: section.querySelector('[data-stats-overview]'),
+    overview: Object.fromEntries(knownKinds.map((kind) => [
+      kind,
+      section.querySelector(`[data-stats-overview-value="${kind}"]`)
+    ])),
     selector: section.querySelector('[data-stats-language]'),
     periodSelector: section.querySelector('[data-stats-period]'),
     totalOption: section.querySelector('[data-stats-period]')?.querySelector('[value="total"]') ?? null,
@@ -541,6 +546,35 @@ function formatDateOnly(date, locale) {
 function localizeSource(source, locale) {
   if (source.id === supportedCuratedSource.id && locale === 'es') return 'Inventario del sitio web';
   return source.label;
+}
+
+function renderOverviewLoading(locale, elements) {
+  for (const kind of knownKinds) {
+    const value = elements.overview[kind];
+    if (value) {
+      value.textContent = locale === 'es' ? 'Cargando…' : 'Loading…';
+      value.setAttribute('data-stats-overview-state', 'loading');
+    }
+  }
+  elements.overviewRegion?.setAttribute('aria-busy', 'true');
+}
+
+function renderOverview(snapshot, locale, elements) {
+  for (const kind of knownKinds) {
+    const value = elements.overview[kind];
+    if (!value) continue;
+
+    const group = snapshot?.groups?.[kind];
+    const count = kind === 'newsletter' ? group?.subscribers : group?.counts?.all;
+    if (Number.isSafeInteger(count)) {
+      value.textContent = new Intl.NumberFormat(locale).format(count);
+      value.setAttribute('data-stats-overview-state', 'value');
+    } else {
+      value.textContent = locale === 'es' ? 'No disponible' : 'Unavailable';
+      value.setAttribute('data-stats-overview-state', 'unavailable');
+    }
+  }
+  elements.overviewRegion?.setAttribute('aria-busy', 'false');
 }
 
 function renderGroup(group, locale, language, elements) {
@@ -1101,6 +1135,7 @@ async function loadContentStats(section) {
 
   const locale = getLocale(section);
   elements.selector.disabled = false;
+  renderOverviewLoading(locale, elements);
   for (const kind of knownKinds) {
     const card = elements.cards[kind];
     card.status.hidden = false;
@@ -1132,6 +1167,7 @@ async function loadContentStats(section) {
     // A document, network, or HTTP failure invalidates the whole snapshot.
   }
 
+  renderOverview(snapshot, locale, elements);
   renderAll(snapshot, locale, elements.selector.value, elements);
   if (snapshot && (newsletterEmailElementsReady(elements.newsletterEmailOpens)
     || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
