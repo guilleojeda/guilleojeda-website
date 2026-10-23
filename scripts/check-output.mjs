@@ -96,6 +96,80 @@ function checkContentStatsShell(page, html) {
   const sectionPosition = html.lastIndexOf('<', sectionIdPosition);
   const statsHtml = html.slice(sectionPosition, talksPosition);
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
+  const overview = extractElement(statsHtml, null, 'data-stats-overview');
+  assert.ok(overview, `${locale} statistics show a separate compact overview`);
+  assert.equal([...statsHtml.matchAll(/\bdata-stats-overview(?:\s|=|>)/gi)].length, 1,
+    `${locale} statistics have one overview region`);
+  const sectionTitle = extractElement(statsHtml, 'h2', 'id', 'content-stats-title');
+  assert.ok(sectionTitle, `${locale} statistics have a section heading`);
+  assert.equal(normalizedText(sectionTitle.html), locale === 'en' ? 'statistics' : 'estadisticas',
+    `${locale} statistics heading stays direct`);
+  const headerText = normalizedText(statsHtml.slice(0, overview.start));
+  assert.doesNotMatch(headerText, locale === 'en'
+    ? /content statistics|at a glance|a snapshot of my published work and its reach across selected platforms/
+    : /estadisticas de contenido|de un vistazo|un vistazo a mi trabajo publicado y su alcance en distintas plataformas/,
+  `${locale} statistics omit the redundant kicker and introduction`);
+  const reportDisclosure = extractElement(statsHtml, 'details', 'data-stats-report');
+  assert.ok(reportDisclosure, `${locale} full statistics report uses a native disclosure`);
+  assert.equal([...statsHtml.matchAll(/<details\b[^>]*\bdata-stats-report(?:\s|=|>)/gi)].length, 1,
+    `${locale} statistics have one full-report disclosure`);
+  const reportOpeningTag = reportDisclosure.html.match(/^<details\b[^>]*>/i)?.[0] ?? '';
+  assert.doesNotMatch(reportOpeningTag, /\sopen(?:\s|=|$)/i, `${locale} full report starts closed`);
+  const reportSummary = reportDisclosure.html.match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i)?.[1] ?? '';
+  assert.ok(reportSummary, `${locale} full report has a native summary label`);
+  assert.match(normalizedText(reportSummary), locale === 'en' ? /^explore statistics$/ : /^explorar estadisticas$/,
+    `${locale} full-report summary is localized and describes the action`);
+  assert.ok(overview.end <= reportDisclosure.start, `${locale} overview stays outside and before the closed report`);
+  const overviewAndScopeText = normalizedText(statsHtml.slice(0, reportDisclosure.start));
+  assert.match(overviewAndScopeText, locale === 'en' ? /all content languages/ : /todos? los idiomas de contenido/,
+    `${locale} visible overview identifies its all-language scope`);
+  assert.match(overviewAndScopeText, locale === 'en' ? /covered|coverage/ : /cobertura|cubiert|incluye|abarca/,
+    `${locale} visible overview identifies its covered scope`);
+
+  const overviewKinds = [...overview.html.matchAll(/\bdata-stats-overview-value=["']([^"']+)["']/gi)]
+    .map((match) => match[1]);
+  assert.deepEqual(overviewKinds, ['articles', 'talks', 'books', 'newsletter'],
+    `${locale} overview binds exactly one value to each approved headline metric`);
+  assert.deepEqual([...statsHtml.matchAll(/\bdata-stats-overview-value=["']([^"']+)["']/gi)].map((match) => match[1]),
+    overviewKinds, `${locale} overview value hooks are unique to the overview`);
+  const overviewLabels = locale === 'en' ? [
+    [/published articles?/, 'published article count'],
+    [/delivered talks?.{0,30}sessions?|talks?.{0,20}sessions?/, 'delivered talks and sessions'],
+    [/published books?/, 'published book count'],
+    [/(?:current|active) .{0,20}subscribers?|subscribers?.{0,20}(?:current|active)/, 'current subscriber count']
+  ] : [
+    [/articulos publicados?/, 'published article count'],
+    [/(?:charlas|sesiones).{0,40}(?:realizadas?|dictadas?|presentadas?)|(?:realizadas?|dictadas?|presentadas?).{0,40}(?:charlas|sesiones)/, 'delivered talks and sessions'],
+    [/libros publicados?/, 'published book count'],
+    [/(?:suscriptores?|suscripciones?).{0,30}(?:actuales?|activos?|vigentes?)/, 'current subscriber count']
+  ];
+  const overviewText = normalizedText(overview.html);
+  assert.match(overviewText, /simple aws/, `${locale} current audience figure identifies Simple AWS`);
+  for (const [pattern, description] of overviewLabels) {
+    assert.match(overviewText, pattern, `${locale} overview labels its ${description}`);
+  }
+  for (const kind of overviewKinds) {
+    const value = extractElement(overview.html, null, 'data-stats-overview-value', kind);
+    assert.ok(value, `${locale} overview has a ${kind} value hook`);
+    assert.doesNotMatch(normalizedText(value.html), /\d/, `${locale} ${kind} overview does not hardcode a count in the static HTML`);
+  }
+
+  const reportCardKinds = [...reportDisclosure.html.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)]
+    .map((match) => match[1]);
+  assert.equal(reportCardKinds.length, 5, `${locale} closed report contains the complete five-card dashboard`);
+  assert.deepEqual(reportCardKinds, ['articles', 'talks', 'books', 'newsletter', 'directory-views'],
+    `${locale} closed report keeps every detailed card in order`);
+  for (const attribute of ['data-stats-language', 'data-stats-period']) {
+    assert.equal([...statsHtml.matchAll(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'gi'))].length, 1,
+      `${locale} statistics keep one ${attribute} control`);
+    assert.equal([...reportDisclosure.html.matchAll(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'gi'))].length, 1,
+      `${locale} ${attribute} control stays inside the full report`);
+  }
+  const reportSourcesDisclosure = extractElement(reportDisclosure.html, 'details', 'class', 'content-stats-sources');
+  assert.ok(reportSourcesDisclosure, `${locale} counting methodology is inside the full report`);
+  mustContain(reportSourcesDisclosure.html, `href="${locale === 'en' ? '/content-statistics/privacy/' : '/es/content-statistics/privacy/'}"`,
+    `${locale} privacy link stays inside the full report`);
+
   const sourcesDisclosure = extractElement(statsHtml, 'details', 'class', 'content-stats-sources');
   assert.ok(sourcesDisclosure, `${locale} statistics need the source and counting disclosure`);
   const sourcesCopy = normalizedText(sourcesDisclosure.html);
@@ -117,6 +191,10 @@ function checkContentStatsShell(page, html) {
   const metadataDisclosures = [...statsHtml.matchAll(/<details class="content-stats-details">[\s\S]*?<\/details>/gi)];
   const metadataLists = [...statsHtml.matchAll(/<dl class="content-stats-meta\b/gi)];
   assert.equal(metadataLists.length, metadataDisclosures.length, `${locale} each metadata list stays inside a disclosure`);
+  assert.equal([...reportDisclosure.html.matchAll(/<details class="content-stats-details">[\s\S]*?<\/details>/gi)].length,
+    metadataDisclosures.length, `${locale} all per-metric metadata disclosures stay inside the full report`);
+  assert.equal([...reportDisclosure.html.matchAll(/<dl class="content-stats-meta\b/gi)].length,
+    metadataLists.length, `${locale} all metric source/date lists stay inside the full report`);
   for (const [index, match] of metadataDisclosures.entries()) {
     const disclosure = match[0];
     const summary = disclosure.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1] ?? '';
@@ -681,6 +759,9 @@ function checkContentStatsShell(page, html) {
   assert.equal(noScriptBlocks.length, 1, `${locale} needs one stats-only no-JavaScript message`);
   const noScriptPosition = noScriptBlocks[0].index;
   assert.ok(noScriptPosition > sectionPosition && noScriptPosition < talksPosition, `${locale} no-JavaScript message must stay within the statistics section`);
+  assert.ok(noScriptPosition - sectionPosition < reportDisclosure.start
+    || noScriptPosition - sectionPosition >= reportDisclosure.end,
+  `${locale} no-JavaScript message stays visible outside the initially closed report`);
   const noScriptText = noScriptBlocks[0][1].replace(/<[^>]*>/g, '').normalize('NFD').replace(/\p{Diacritic}/gu, '');
   if (locale === 'en') {
     assert.ok(/enable JavaScript|turn on JavaScript|JavaScript is required/i.test(noScriptText), 'English statistics need a localized no-JavaScript message');

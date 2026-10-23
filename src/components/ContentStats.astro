@@ -8,9 +8,16 @@ interface Props {
 const { locale } = Astro.props;
 const copy = locale === 'en'
   ? {
-      kicker: 'Content statistics',
-      title: 'Content & reach',
-      intro: 'A snapshot of my published work and its reach across selected platforms.',
+      title: 'Statistics',
+      overviewScope: 'All content languages · Covered sources',
+      overviewLoading: 'Loading…',
+      overviewLabels: {
+        articles: 'Published articles',
+        talks: 'Delivered talks & sessions',
+        books: 'Published books',
+        newsletter: 'Current Simple AWS subscribers'
+      },
+      reportSummary: 'Explore statistics',
       filterLabel: 'Content language',
       periodLabel: 'Activity period',
       all: 'All',
@@ -134,9 +141,16 @@ const copy = locale === 'en'
       ]
     }
   : {
-      kicker: 'Estadísticas de contenido',
-      title: 'Contenido y alcance',
-      intro: 'Un vistazo a mi trabajo publicado y su alcance en distintas plataformas.',
+      title: 'Estadísticas',
+      overviewScope: 'Todos los idiomas de contenido · Cobertura parcial',
+      overviewLoading: 'Cargando…',
+      overviewLabels: {
+        articles: 'Artículos publicados',
+        talks: 'Charlas y sesiones realizadas',
+        books: 'Libros publicados',
+        newsletter: 'Suscriptores actuales de Simple AWS'
+      },
+      reportSummary: 'Explorar estadísticas',
       filterLabel: 'Idioma del contenido',
       periodLabel: 'Período de actividad',
       all: 'Todos',
@@ -271,32 +285,43 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
   data-stats-locale={locale}
 >
   <div class="section-shell">
-    <div class="section-heading">
-      <div class="section-kicker">{copy.kicker}</div>
-      <div>
-        <h2 id="content-stats-title">{copy.title}</h2>
-        <p>{copy.intro}</p>
-      </div>
+    <div class="section-heading content-stats-heading">
+      <h2 id="content-stats-title">{copy.title}</h2>
     </div>
 
-    <div class="content-stats-controls">
-      <div class="content-stats-control">
-        <label for="content-stats-language">{copy.filterLabel}</label>
-        <select id="content-stats-language" data-stats-language disabled>
-          <option value="all" selected>{copy.all}</option>
-          <option value="en">{copy.english}</option>
-          <option value="es">{copy.spanish}</option>
-        </select>
-      </div>
-      <div class="content-stats-control">
-        <label for="content-stats-period">{copy.periodLabel}</label>
-        <select id="content-stats-period" data-stats-period disabled>
-          {(['7d', '30d', '90d', '12m', 'ytd', 'total'] as const).map((period) => (
-            <option value={period} selected={period === '12m'} disabled={period === 'total'}>{copy.periods[period]}</option>
-          ))}
-        </select>
-      </div>
+    <div class="content-stats-overview" data-stats-overview aria-labelledby="content-stats-overview-scope" aria-busy="true">
+      <p class="content-stats-overview-scope" id="content-stats-overview-scope">{copy.overviewScope}</p>
+      <dl class="content-stats-overview-grid">
+        {cardKinds.map((kind) => (
+          <div class="content-stats-overview-item">
+            <dt id={`content-stats-overview-${kind}`}>{copy.overviewLabels[kind]}</dt>
+            <dd data-stats-overview-value={kind} data-stats-overview-state="loading" role="status" aria-live="polite" aria-atomic="true" aria-labelledby={`content-stats-overview-${kind}`}>{copy.overviewLoading}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
+
+    <details class="content-stats-report" data-stats-report>
+      <summary>{copy.reportSummary}</summary>
+      <div class="content-stats-report-content">
+        <div class="content-stats-controls">
+          <div class="content-stats-control">
+            <label for="content-stats-language">{copy.filterLabel}</label>
+            <select id="content-stats-language" data-stats-language disabled>
+              <option value="all" selected>{copy.all}</option>
+              <option value="en">{copy.english}</option>
+              <option value="es">{copy.spanish}</option>
+            </select>
+          </div>
+          <div class="content-stats-control">
+            <label for="content-stats-period">{copy.periodLabel}</label>
+            <select id="content-stats-period" data-stats-period disabled>
+              {(['7d', '30d', '90d', '12m', 'ytd', 'total'] as const).map((period) => (
+                <option value={period} selected={period === '12m'} disabled={period === 'total'}>{copy.periods[period]}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
     <div class="content-stats-cards">
       {cardKinds.map((kind) => {
@@ -639,6 +664,8 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
         {copy.sourcesExplanation.map((item) => <li>{item}</li>)}
       </ul>
       <p><a href={locale === 'en' ? '/content-statistics/privacy/' : '/es/content-statistics/privacy/'}>{copy.privacyLink}</a></p>
+    </details>
+      </div>
     </details>
 
     <noscript><p class="content-stats-noscript">{copy.noScript}</p></noscript>

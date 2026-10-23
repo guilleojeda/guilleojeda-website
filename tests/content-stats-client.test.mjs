@@ -8,6 +8,7 @@ const collectedAt = '2026-08-04T00:00:00.000Z';
 const talksCollectedAt = '2026-07-28T00:00:00.000Z';
 const booksCollectedAt = '2026-06-30T00:00:00.000Z';
 const newsletterCollectedAt = '2026-08-01T00:00:00.000Z';
+const overviewKinds = ['articles', 'talks', 'books', 'newsletter'];
 const caylent = { id: 'caylent', label: 'Caylent' };
 const builderCenter = { id: 'builder-center', label: 'AWS Builder Center' };
 const websiteInventory = { id: 'website-inventory', label: 'Website inventory' };
@@ -267,6 +268,15 @@ function articleViewsRecords() {
 function snapshotWithArticleViews({ records = articleViewsRecords(), definitionVersion = 1 } = {}) {
   const data = snapshotWithNewsletter();
   data.groups.articleViews = { definitionVersion, records };
+  return data;
+}
+
+function overviewSnapshot() {
+  const data = snapshotWithArticleViews();
+  data.groups.articles.counts = { all: 12_345, en: 9_000, es: 3_345 };
+  data.groups.talks.counts = { all: 67, en: 23, es: 44 };
+  data.groups.books.counts = { all: 1_234, en: 734, es: 500 };
+  data.groups.newsletter.subscribers = 45_678;
   return data;
 }
 
@@ -706,7 +716,7 @@ function makeBuilderArticleViews(locale, card) {
   return { region, label, status, result, value, coverage, since, collectedDate };
 }
 
-function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, includeViews = true, includeSearch = true } = {}) {
+function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError, includeViews = true, includeSearch = true } = {}) {
   const section = new SemanticElement({
     dataset: {
       statsSource: '/content-stats/v1/current.json',
@@ -715,6 +725,10 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     },
     attributes: { id: 'content-stats' }
   });
+  const overviewValues = Object.fromEntries(overviewKinds.map((kind) => [kind, section.appendChild(new SemanticElement({
+    dataset: { statsOverviewValue: kind },
+    textContent: loadingCopy[locale][kind]
+  }))]));
   const selector = section.appendChild(new SemanticElement({
     dataset: { statsLanguage: '' },
     value: 'all',
@@ -755,7 +769,13 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     fetch: async (url, options) => {
       fetchCalls.push({ url: String(url), options });
       if (fetchError) throw fetchError;
-      return { ok: responseOk, json: async () => data };
+      return {
+        ok: responseOk,
+        json: async () => {
+          if (jsonError) throw jsonError;
+          return data;
+        }
+      };
     }
   };
 
@@ -763,6 +783,7 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
 
   return {
     cards,
+    overviewValues,
     card: cards.articles.card,
     collectedDate: cards.articles.collectedDate,
     count: cards.articles.count,
@@ -806,6 +827,26 @@ function assertUnavailable(page, locale, kind = 'articles') {
     assert.match(status.textContent, /unavailable|not available/i);
   }
   assert.equal(card.getAttribute('aria-busy'), 'false');
+}
+
+function assertOverviewCount(page, locale, kind, count) {
+  assert.equal(page.overviewValues[kind].textContent, new Intl.NumberFormat(locale).format(count),
+    `${kind} overview shows the all-language snapshot count`);
+}
+
+function assertOverviewUnavailable(page, locale, kind) {
+  const text = page.overviewValues[kind].textContent.trim();
+  assert.notEqual(text, '', `${kind} overview exposes an unavailable state`);
+  assert.doesNotMatch(text, /^\d/, `${kind} overview does not leave a numeric value when unavailable`);
+  if (locale === 'es') assert.match(text, /no disponible|no se pueden|no se pudo|no fue posible/i,
+    `${kind} overview has a localized unavailable message`);
+  else assert.match(text, /unavailable|not available|unable to load|could not load|couldn't load/i,
+    `${kind} overview has a localized unavailable message`);
+}
+
+function assertOverviewLoading(page, locale, kind) {
+  assert.match(page.overviewValues[kind].textContent, locale === 'es' ? /cargando/i : /loading/i,
+    `${kind} overview announces loading before the snapshot resolves`);
 }
 
 function assertLocalizedUnit(page, kind, locale) {
@@ -2335,6 +2376,111 @@ for (const locale of ['en', 'es']) {
     page.selector.value = 'all';
     page.selector.dispatch('change');
     assert.equal(page.cards.newsletter.count.textContent, '0', 'All restores the measured zero');
+  });
+
+  test(`${locale} overview values use All content languages and stay fixed while detail filters change`, async () => {
+    const data = overviewSnapshot();
+    const page = createPage({ locale, data });
+    const allLanguageValues = {
+      articles: data.groups.articles.counts.all,
+      talks: data.groups.talks.counts.all,
+      books: data.groups.books.counts.all,
+      newsletter: data.groups.newsletter.subscribers
+    };
+    await page.settle();
+
+    for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(data.groups.articles.counts.all),
+      'the detailed count initially uses All');
+    assert.equal(page.cards.articles.views.value.textContent, new Intl.NumberFormat(locale).format(data.groups.articleViews.records['12m'].views),
+      'the detailed activity starts at twelve months');
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(data.groups.articles.counts.en));
+    assert.equal(page.cards.talks.count.textContent, new Intl.NumberFormat(locale).format(data.groups.talks.counts.en));
+    for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '7d');
+    for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '30d');
+    for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(data.groups.articles.counts.es));
+    assert.equal(page.cards.talks.count.textContent, new Intl.NumberFormat(locale).format(data.groups.talks.counts.es));
+    assert.equal(page.cards.newsletter.card.hidden, true, 'the English newsletter detail is hidden for Spanish content');
+    assertViewsUnavailable(page, locale);
+    for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
+
+    assert.equal(page.fetchCount, 1, 'overview and detail filter changes reuse the one page-load snapshot');
+    assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+  });
+
+  test(`${locale} overview displays a valid zero independently for every headline group`, async () => {
+    const data = overviewSnapshot();
+    data.groups.articles.counts = { all: 0, en: 0, es: 0 };
+    data.groups.talks.counts = { all: 0, en: 0, es: 0 };
+    data.groups.books.counts = { all: 0, en: 0, es: 0 };
+    data.groups.newsletter.subscribers = 0;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, 0);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} overview group failures stay local while healthy headline values remain usable`, async () => {
+    const faults = [
+      ['missing articles', 'articles', (data) => { delete data.groups.articles; }],
+      ['invalid articles', 'articles', (data) => { data.groups.articles.counts.all += 1; }],
+      ['missing talks', 'talks', (data) => { delete data.groups.talks; }],
+      ['invalid talks', 'talks', (data) => { data.groups.talks.definitionVersion = 2; }],
+      ['missing books', 'books', (data) => { delete data.groups.books; }],
+      ['invalid books', 'books', (data) => { data.groups.books.sources = [caylent]; }],
+      ['missing newsletter', 'newsletter', (data) => { delete data.groups.newsletter; }],
+      ['invalid newsletter', 'newsletter', (data) => { data.groups.newsletter.subscribers = -1; }]
+    ];
+
+    for (const [description, invalidKind, corrupt] of faults) {
+      const data = overviewSnapshot();
+      corrupt(data);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      for (const kind of overviewKinds) {
+        if (kind === invalidKind) {
+          assertOverviewUnavailable(page, locale, kind);
+          continue;
+        }
+        const expected = kind === 'newsletter'
+          ? data.groups.newsletter.subscribers
+          : data.groups[kind].counts.all;
+        assertOverviewCount(page, locale, kind, expected);
+      }
+      assert.equal(page.fetchCount, 1, `${description} does not trigger another snapshot request`);
+    }
+  });
+
+  test(`${locale} overview replaces loading with unavailable states after snapshot failures`, async () => {
+    const failures = [
+      ['network failure', { fetchError: new Error('synthetic snapshot failure') }],
+      ['HTTP failure', { responseOk: false }],
+      ['JSON parse failure', { jsonError: new SyntaxError('synthetic invalid JSON') }],
+      ['invalid root schema', { data: { schemaVersion: 2, groups: {} } }]
+    ];
+
+    for (const [description, options] of failures) {
+      const page = createPage({ locale, ...options });
+      for (const kind of overviewKinds) assertOverviewLoading(page, locale, kind);
+      await page.settle();
+      for (const kind of overviewKinds) assertOverviewUnavailable(page, locale, kind);
+      assert.equal(page.fetchCount, 1, `${description} settles without retries or polling`);
+    }
   });
 
   test(`${locale} malformed book group affects only Books while valid families keep filtering`, async () => {
