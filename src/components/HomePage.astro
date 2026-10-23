@@ -60,7 +60,8 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
         <h3>{text(content.work.newsletterTitle, locale)}</h3>
         <p>{text(content.work.newsletterText, locale)}</p>
         <div class="feature-actions">
-          <a class="button" href={content.site.newsletter} target="_blank" rel="noreferrer">{text(content.work.newsletterCta, locale)} <span aria-hidden="true">{arrow}</span></a>
+          <a class="button" href={content.site.newsletterSubscribe} target="_blank" rel="noreferrer">{text(content.work.newsletterSubscribeCta, locale)} <span aria-hidden="true">{arrow}</span></a>
+          <a class="button secondary" href={content.site.newsletter} target="_blank" rel="noreferrer">{text(content.work.newsletterReadCta, locale)} <span aria-hidden="true">{arrow}</span></a>
         </div>
         <a class="sponsor-note" href={content.site.sponsorship} target="_blank" rel="noreferrer">{text(content.work.sponsorshipCta, locale)}</a>
       </div>

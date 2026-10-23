@@ -45,6 +45,8 @@ For a role change, update the paired copy in `profile.json`: `hero.intro` (openi
 
 The portrait and other public assets live in the repository. The homepage shows the localized introduction, recognition, and actions before its constrained, proportional portrait. Keep the localized `site.portraitAlt` accurate and set the image’s intrinsic `width` and `height` attributes to match its actual dimensions; the current portrait is 800 × 800. Do not add uncertain release dates, availability claims, or live audience counts without confirming them.
 
+The Simple AWS feature in `profile.json` keeps the publication home in `site.newsletter` and the provider's signup page in `site.newsletterSubscribe`. Its `work.newsletterKicker`, `newsletterText`, `newsletterSubscribeCta`, and `newsletterReadCta` fields provide the paired cadence, benefit description, and action labels. The site links to the provider for email entry and subscription handling; it does not collect or submit signup details itself.
+
 ### Content statistics
 
 The homepage overview shows published articles, delivered talks and sessions, published books, and current Simple AWS subscribers for All content languages. **Explore statistics** starts closed and contains the five-card dashboard, language and period controls, per-metric **Source & dates**, methodology, and privacy link. Both views use the same validated page-load snapshot; the overview does not follow the report filters. The no-JavaScript explanation stays visible outside the closed report. These presentation details do not change the collector or metric definitions.

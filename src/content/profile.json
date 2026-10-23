@@ -6,6 +6,7 @@
     "linkedin": "https://www.linkedin.com/in/guilleojeda",
     "github": "https://github.com/guilleojeda",
     "newsletter": "https://newsletter.simpleaws.dev/",
+    "newsletterSubscribe": "https://newsletter.simpleaws.dev/subscribe",
     "sponsorship": "https://www.passionfroot.me/guilleojeda",
     "portraitAlt": {
       "en": "Guille Ojeda in green AWS clothing holding an award",
@@ -98,12 +99,16 @@
       "es": "Simple AWS"
     },
     "newsletterText": {
-      "en": "Deep dives into the why behind cloud solutions, written for builders working with AWS.",
-      "es": "Artículos en profundidad sobre el porqué de las soluciones cloud, para quienes trabajan con AWS."
+      "en": "Deep dives into AWS architecture choices, so you understand why a solution fits.",
+      "es": "Artículos en profundidad sobre decisiones de arquitectura AWS, para entender por qué elegir una solución."
     },
-    "newsletterCta": {
-      "en": "Read Simple AWS",
-      "es": "Leer Simple AWS"
+    "newsletterSubscribeCta": {
+      "en": "Subscribe to Simple AWS",
+      "es": "Suscribite a Simple AWS"
+    },
+    "newsletterReadCta": {
+      "en": "Read the newsletter",
+      "es": "Leé el newsletter"
     },
     "sponsorshipCta": {
       "en": "Simple AWS is open to sponsorships →",
