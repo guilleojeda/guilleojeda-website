@@ -693,7 +693,8 @@ a:hover {
   font-size: 0.9rem;
 }
 
-.content-stats-search-heading {
+.content-stats-search-heading,
+.content-stats-views-heading {
   margin: 0 0 0.65rem;
   color: var(--olive);
   font-size: 0.78rem;
@@ -797,6 +798,29 @@ a:hover {
   font-size: 0.78rem;
 }
 
+.content-stats-details {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.content-stats-details > summary {
+  width: fit-content;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.content-stats-details > summary:focus-visible {
+  outline: 2px solid var(--olive);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.content-stats-details .content-stats-meta {
+  margin-top: 0.65rem;
+}
+
 .content-stats-sources {
   max-width: 100%;
   margin-top: 1.2rem;
@@ -810,6 +834,18 @@ a:hover {
   cursor: pointer;
   font-size: 0.86rem;
   font-weight: 800;
+}
+
+.content-stats-sources ul {
+  max-width: 48rem;
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.content-stats-sources li + li {
+  margin-top: 0.55rem;
 }
 
 .content-stats-sources p,

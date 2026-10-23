@@ -99,16 +99,34 @@ function checkContentStatsShell(page, html) {
   const sourcesDisclosure = extractElement(statsHtml, 'details', 'class', 'content-stats-sources');
   assert.ok(sourcesDisclosure, `${locale} statistics need the source and counting disclosure`);
   const sourcesCopy = normalizedText(sourcesDisclosure.html);
+  const sourceBullets = [...sourcesDisclosure.html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((match) => normalizedText(match[1]));
+  const recordedTrafficDisclosure = sourceBullets.find((bullet) => /recorded traffic totals|totales de trafico registrados/.test(bullet));
+  assert.ok(recordedTrafficDisclosure, `${locale} disclosure preserves the recorded-traffic history limit`);
   if (locale === 'en') {
-    assert.match(sourcesCopy, /recorded totals?.{0,80}available activity.{0,100}displayed start date/,
-      'English recorded totals identify the available-history start shown');
-    assert.match(sourcesCopy, /earlier activity.{0,80}gaps? in tracking.{0,40}may be missing/,
-      'English recorded-total disclosure warns that earlier activity and tracking gaps may be missing');
+    assert.match(recordedTrafficDisclosure, /activity available since the start date shown/,
+      'English recorded totals identify the displayed start date');
+    assert.match(recordedTrafficDisclosure, /earlier activity.{0,80}tracking gaps? may be missing/,
+      'English recorded totals warn that earlier activity and tracking gaps may be missing');
   } else {
-    assert.match(sourcesCopy, /totales registrados.{0,80}actividad disponible.{0,100}fecha indicada/,
-      'Spanish recorded totals identify the available-history start shown');
-    assert.match(sourcesCopy, /puede faltar actividad anterior.{0,100}periodos? sin seguimiento/,
-      'Spanish recorded-total disclosure warns that earlier activity and tracking gaps may be missing');
+    assert.match(recordedTrafficDisclosure, /actividad disponible desde la fecha de inicio indicada/,
+      'Spanish recorded totals identify the displayed start date');
+    assert.match(recordedTrafficDisclosure, /puede faltar actividad anterior.{0,100}periodos? sin seguimiento/,
+      'Spanish recorded totals warn that earlier activity and tracking gaps may be missing');
+  }
+  const metadataDisclosures = [...statsHtml.matchAll(/<details class="content-stats-details">[\s\S]*?<\/details>/gi)];
+  const metadataLists = [...statsHtml.matchAll(/<dl class="content-stats-meta\b/gi)];
+  assert.equal(metadataLists.length, metadataDisclosures.length, `${locale} each metadata list stays inside a disclosure`);
+  for (const [index, match] of metadataDisclosures.entries()) {
+    const disclosure = match[0];
+    const summary = disclosure.match(/<summary>([\s\S]*?)<\/summary>/i)?.[1] ?? '';
+    assert.match(normalizedText(summary), locale === 'en' ? /source[\s&and]{0,8}dates?/ : /fuente[\s&y]{0,8}fechas?/,
+      `${locale} metadata disclosure ${index + 1} has a meaningful localized summary`);
+    assert.doesNotMatch(disclosure.match(/^<details[^>]*>/i)?.[0] ?? '', /\sopen(?:\s|=|$)/i,
+      `${locale} metric metadata starts collapsed`);
+    assert.match(disclosure, /<dl class="content-stats-meta\b/, `${locale} metadata disclosure contains its metric data list`);
+    assert.equal([...disclosure.matchAll(/<dl class="content-stats-meta\b/gi)].length, 1,
+      `${locale} each metadata disclosure contains exactly one metric list`);
   }
 
   const cardKinds = [...statsHtml.matchAll(/\bdata-stats-kind=["']([^"']+)["']/gi)].map((match) => match[1]);
@@ -243,8 +261,8 @@ function checkContentStatsShell(page, html) {
   assert.ok(!new RegExp(`${sentAttribute}-(?:interval|start-date|end-date)\\b`, 'i').test(sentRegion.html),
     `${locale} reported sent total must not imply a selected activity period or invented coverage dates`);
   const sentText = normalizedText(sentRegion.html);
-  if (locale === 'en') assert.match(sentText, /emails? sent.{0,60}reported totals?/, 'English sent row says this is a reported total');
-  else assert.match(sentText, /emails? enviados?.{0,60}total informado/, 'Spanish sent row says this is a reported total');
+  if (locale === 'en') assert.match(sentText, /emails? sent.{0,60}cumulative totals?/, 'English sent row says this is a cumulative total');
+  else assert.match(sentText, /emails? enviados?.{0,60}total acumulado/, 'Spanish sent row says this is a cumulative total');
 
   const sentLabelReference = sentRegion.html.match(/\baria-labelledby=["']([^"']+)["']/i)?.[1];
   const sentAccessibleName = sentRegion.html.match(/\baria-label=["']([^"']+)["']/i)?.[1];
@@ -254,7 +272,7 @@ function checkContentStatsShell(page, html) {
       `${locale} reported sent-total row references its own label`);
   }
   if (sentAccessibleName) {
-    assert.match(normalizedText(sentAccessibleName), locale === 'en' ? /emails? sent.*reported total/ : /emails? enviados?.*total informado/,
+    assert.match(normalizedText(sentAccessibleName), locale === 'en' ? /emails? sent.*cumulative total/ : /emails? enviados?.*total acumulado/,
       `${locale} reported sent-total accessible name is localized`);
   }
   const sentStatus = extractElement(sentRegion.html, null, `${sentAttribute}-status`);
@@ -274,12 +292,10 @@ function checkContentStatsShell(page, html) {
   if (locale === 'en') assert.match(normalizedText(sentUnavailable), /unavailable|not available/, 'English sent-total unavailable copy is meaningful');
   else assert.match(normalizedText(sentUnavailable), /no disponible|no disponibles|no se pueden/, 'Spanish sent-total unavailable copy is meaningful');
 
-  const sentDisclosureParagraph = [...sourcesDisclosure.html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
-    .map((match) => normalizedText(match[1]))
-    .find((paragraph) => locale === 'en'
-      ? /reported total|emails? sent/i.test(paragraph)
-      : /total informado|emails? enviados?/i.test(paragraph));
-  assert.ok(sentDisclosureParagraph, `${locale} sources disclosure explains the reported sent total`);
+  const sentDisclosureParagraph = sourceBullets.find((bullet) => locale === 'en'
+    ? /emails? sent/i.test(bullet)
+    : /emails? enviados?/i.test(bullet));
+  assert.ok(sentDisclosureParagraph, `${locale} sources disclosure explains the sent-email basis`);
   if (locale === 'en') {
     assert.match(sentDisclosureParagraph, /provider|beehiiv/i, 'English disclosure identifies the provider-reported figure');
     assert.match(sentDisclosureParagraph, /reported/i, 'English disclosure qualifies the provider figure as reported');
@@ -322,7 +338,9 @@ function checkContentStatsShell(page, html) {
       'English disclosure qualifies tracking-pixel opens for privacy or machine loads');
     assert.match(emailDisclosure, /(?:miss|not detect|fail to register|not register|underestimate)[\s\S]{0,100}(?:reads?|opens?)|(?:reads?|opens?)[\s\S]{0,100}(?:miss|not detect|fail to register|not register|underestimate)/i,
       'English disclosure says pixel opens can miss reads');
-    assert.match(emailDisclosure, /verified(?: email)? clicks?[\s\S]{0,180}(?:filter|filtered|screen)[\s\S]{0,100}(?:events?|clicks?|bots?)|(?:filter|filtered|screen)[\s\S]{0,180}verified(?: email)? clicks?[\s\S]{0,100}(?:events?|clicks?|bots?)/i,
+    const verifiedClickDisclosure = sourceBullets.find((bullet) => /verified(?: email)? clicks?/i.test(bullet));
+    assert.ok(verifiedClickDisclosure, 'English disclosure has a verified-email-click explanation');
+    assert.match(verifiedClickDisclosure, /verified(?: email)? clicks?[\s\S]{0,180}beehiiv[- ]filtered events?|beehiiv[- ]filtered events?[\s\S]{0,180}verified(?: email)? clicks?/i,
       'English disclosure says verified clicks are filtered events');
     assert.match(emailDisclosure, /verified(?: email)? clicks?[\s\S]{0,180}(?:repeat|more than once|multiple times)|(?:repeat|more than once|multiple times)[\s\S]{0,180}verified(?: email)? clicks?/i,
       'English disclosure says verified clicks can repeat');
@@ -339,7 +357,9 @@ function checkContentStatsShell(page, html) {
       'Spanish disclosure qualifies tracking-pixel opens for privacy or machine loads');
     assert.match(emailDisclosure, /(?:no detect|no registr|no medir|subestim)[\s\S]{0,100}(?:lecturas?|aperturas?)|(?:lecturas?|aperturas?)[\s\S]{0,100}(?:no detect|no registr|no medir|subestim)/i,
       'Spanish disclosure says pixel opens can miss reads');
-    assert.match(emailDisclosure, /clics? verificados?[\s\S]{0,180}(?:filtrad|filtro)[\s\S]{0,100}(?:eventos?|clics?|bots?)|(?:filtrad|filtro)[\s\S]{0,180}clics? verificados?[\s\S]{0,100}(?:eventos?|clics?|bots?)/i,
+    const verifiedClickDisclosure = sourceBullets.find((bullet) => /clics? verificados? en emails?/i.test(bullet));
+    assert.ok(verifiedClickDisclosure, 'Spanish disclosure has a verified-email-click explanation');
+    assert.match(verifiedClickDisclosure, /clics? verificados? en emails?[\s\S]{0,180}eventos? filtrados? por beehiiv|eventos? filtrados? por beehiiv[\s\S]{0,180}clics? verificados? en emails?/i,
       'Spanish disclosure says verified clicks are filtered events');
     assert.match(emailDisclosure, /clics? verificados?[\s\S]{0,180}(?:repet|mas de una vez|varias veces)|(?:repet|mas de una vez|varias veces)[\s\S]{0,180}clics? verificados?/i,
       'Spanish disclosure says verified clicks can repeat');
@@ -355,15 +375,15 @@ function checkContentStatsShell(page, html) {
   mustContainText(statsHtml, 'Caylent', `${locale} Caylent source disclosure`);
   mustContainText(statsHtml, 'AWS Builder Center', `${locale} AWS Builder Center source disclosure`);
   for (const phrase of locale === 'en'
-    ? ['Translations count separately', 'Matching titles in the same language count once', 'partial coverage']
-    : ['Las traducciones se cuentan por separado', 'Los títulos iguales en el mismo idioma se cuentan una sola vez', 'cobertura parcial']) {
+    ? ['Translations count by content language', 'matching titles in one language count once', 'partial coverage']
+    : ['Las traducciones se cuentan según su idioma', 'los títulos iguales en un mismo idioma cuentan una vez', 'cobertura parcial']) {
     mustContainText(statsHtml, phrase, `${locale} counting disclosure: ${phrase}`);
   }
   mustContainText(statsHtml, locale === 'en'
     ? 'Talk and book languages follow their original titles'
     : 'El idioma de las charlas y los libros se determina por sus títulos originales',
   `${locale} title-language classification disclosure`);
-  const disclosure = statsHtml.match(/<details\b[^>]*>[\s\S]*?<\/details>/i)?.[0] ?? statsHtml;
+  const disclosure = sourcesDisclosure.html;
   if (locale === 'en') {
     assert.match(disclosure, /active\s+subscriptions?/i, 'English source disclosure names active subscriptions');
     assert.match(disclosure, /current/i, 'English source disclosure says the subscriber total is current');
@@ -401,16 +421,16 @@ function checkContentStatsShell(page, html) {
   for (const [pattern, fact] of builderViewsDisclosureFacts) {
     assert.match(disclosureText, pattern, `${locale} source disclosure explains ${fact}`);
   }
-  const articleCountDisclosure = disclosureText.split(/[.!?]/).find((sentence) =>
-    /Simple AWS/i.test(sentence)
-      && (locale === 'en' ? /article\s+counts?|counts?\s+(?:of\s+)?articles/i : /conteo\s+de\s+art[ií]culos|art[ií]culos\s+(?:contados|incluyen)/i).test(sentence));
+  const articleCountDisclosure = sourceBullets.find((bullet) =>
+    /Simple AWS/i.test(bullet)
+      && (locale === 'en' ? /article\s+counts?/i : /conteo\s+de\s+art[ií]culos/i).test(bullet));
   assert.ok(articleCountDisclosure, `${locale} disclosure connects Simple AWS to article-count coverage`);
   assert.match(articleCountDisclosure, /\bweb\b/i, `${locale} Simple AWS count disclosure includes web posts`);
   assert.match(articleCountDisclosure, locale === 'en' ? /\bemail\b|e-mail/i : /correo(?:\s+electr[oó]nico)?|email/i,
     `${locale} Simple AWS count disclosure includes email posts`);
-  const cloudyThingsCountDisclosure = disclosureText.split(/[.!?]/).find((sentence) =>
-    /Cloudy Things/i.test(sentence)
-      && (locale === 'en' ? /article\s+counts?|counts?\s+(?:of\s+)?articles/i : /conteo\s+de\s+art[ií]culos|art[ií]culos\s+(?:contados|incluyen)/i).test(sentence));
+  const cloudyThingsCountDisclosure = sourceBullets.find((bullet) =>
+    /Cloudy Things/i.test(bullet)
+      && (locale === 'en' ? /article\s+counts?/i : /conteo\s+de\s+art[ií]culos/i).test(bullet));
   assert.ok(cloudyThingsCountDisclosure, `${locale} disclosure connects Cloudy Things to article-count coverage`);
   assert.match(cloudyThingsCountDisclosure, locale === 'en' ? /\bcan\b|\bmay\b/ : /\bpuede\b|\bpueden\b/,
     `${locale} Cloudy Things count disclosure describes optional coverage`);
@@ -424,9 +444,7 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosureText, /directorio completo|todas las paginas|sitio completo|todo el sitio/i, 'Spanish disclosure defines full-directory coverage');
     assert.match(disclosureText, /repetid|varias veces|misma persona/i, 'Spanish disclosure makes clear that page views can repeat');
   }
-  const searchDisclosureParagraph = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
-    .map((match) => normalizedText(match[1]))
-    .find((paragraph) => /search console/i.test(paragraph));
+  const searchDisclosureParagraph = sourceBullets.find((bullet) => /search console/i.test(bullet));
   assert.ok(searchDisclosureParagraph, `${locale} disclosure needs a Search Console explanation`);
   if (locale === 'en') {
     assert.match(disclosureText, /simple aws[\s\S]*views?|views?[\s\S]*simple aws/i, 'English disclosure connects views to Simple AWS');
@@ -451,16 +469,14 @@ function checkContentStatsShell(page, html) {
     assert.match(disclosureText, /revis|puede[n]? cambiar|cambiar despues/i, 'Spanish disclosure explains later revisions');
     assert.match(searchDisclosureParagraph, /simple aws/i, 'Spanish disclosure connects Search clicks to Simple AWS');
     assert.match(searchDisclosureParagraph, /clics?/, 'Spanish disclosure identifies Search Console clicks');
-    assert.match(searchDisclosureParagraph, /parcial|puede omitir|puede excluir|filtra|filtrado|limites? de (?:datos|informe)/i, 'Spanish disclosure identifies Search clicks as partial');
+    assert.match(searchDisclosureParagraph, /parcial|pueden? omitir|pueden? excluir|filtra|filtrado|limites? de (?:datos|informe)/i, 'Spanish disclosure identifies Search clicks as partial');
     assert.match(searchDisclosureParagraph, /canonicas?.{0,120}(articulos?|url)|(?:articulos?|url).{0,120}canonicas?|google.{0,80}(?:preferida|seleccionada|preferidos|seleccionados).{0,80}(?:articulo|url)/i, 'Spanish disclosure limits Search to canonical or Google-preferred article URLs');
     assert.match(searchDisclosureParagraph, /no (?:son|representan|identifican) (?:personas|visitantes|lectores) unic[oa]s|no representan a personas unicas/i, 'Spanish disclosure says clicks do not represent unique people');
     assert.match(searchDisclosureParagraph, /no se (?:suman|combinan|agregan)|se muestran por separado|se mantienen separad[oa]s?|separad[oa]s? de|distint[oa]s? de/i, 'Spanish disclosure keeps Search clicks separate from views');
     assert.match(searchDisclosureParagraph, /vistas?|analytics/i, 'Spanish separation statement names the existing views metric');
   }
-  const directoryOutboundDisclosure = [...disclosure.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
-    .map((match) => normalizedText(match[1]))
-    .find((paragraph) => /donde aprendo aws/i.test(paragraph)
-      && (locale === 'en' ? /outbound.{0,30}click|click.{0,30}outbound/i : /clic.{0,45}(?:salida|enlaces externos)|(?:salida|enlaces externos).{0,45}clic/i).test(paragraph));
+  const directoryOutboundDisclosure = sourceBullets.find((bullet) => /donde aprendo aws/i.test(bullet)
+    && (locale === 'en' ? /external[- ]link clicks?/i : /clics? registrados? en enlaces externos/i).test(bullet));
   assert.ok(directoryOutboundDisclosure, `${locale} disclosure explains recorded Dónde Aprendo AWS outbound clicks`);
   if (locale === 'en') {
     assert.match(directoryOutboundDisclosure, /recorded|reported/, 'English disclosure describes source-reported clicks');
@@ -475,8 +491,8 @@ function checkContentStatsShell(page, html) {
     assert.match(directoryOutboundDisclosure, /enlaces externos|enlaces de salida/, 'Spanish disclosure identifies external-link scope');
     assert.match(directoryOutboundDisclosure, /todos los clics registrados|todo el directorio|pie de pagina|redes sociales|publicacion/i,
       'Spanish disclosure makes the broad directory link scope clear');
-    assert.match(directoryOutboundDisclosure, /repet|varias veces|mas de una vez/, 'Spanish disclosure says outbound clicks can repeat');
-    assert.match(directoryOutboundDisclosure, /separad|no se suman|no se combinan/,
+    assert.match(directoryOutboundDisclosure, /repet|varias veces|mas de una vez|mas de un clic/, 'Spanish disclosure says outbound clicks can repeat');
+    assert.match(directoryOutboundDisclosure, /separad|no se suman|no se combinan|se informan aparte/,
       'Spanish disclosure keeps outbound clicks separate from page views');
   }
 
@@ -484,7 +500,13 @@ function checkContentStatsShell(page, html) {
   assert.ok(articlesCard, `${locale} needs an Articles card for independent views`);
   const countResults = extractElement(articlesCard.html, null, 'data-stats-results');
   const viewsRegion = extractElement(articlesCard.html, null, 'data-stats-views');
+  const viewsHeading = extractElement(viewsRegion?.html ?? '', 'h4', 'id', 'content-stats-views-title');
+  assert.ok(viewsHeading, `${locale} article views need a visible source heading`);
+  mustContainText(viewsHeading.html, locale === 'en' ? 'Simple AWS page views' : 'Vistas de páginas de Simple AWS', `${locale} Simple AWS views heading`);
   const searchRegion = extractElement(articlesCard.html, null, 'data-stats-search');
+  const searchHeading = extractElement(searchRegion?.html ?? '', 'h4', 'id', 'content-stats-search-title');
+  assert.ok(searchHeading, `${locale} Search clicks need a visible heading`);
+  mustContainText(searchHeading.html, locale === 'en' ? 'Google Search clicks · Simple AWS' : 'Clics de búsqueda de Google · Simple AWS', `${locale} Search heading includes its publication`);
   const builderViewsRegion = extractElement(articlesCard.html, null, 'data-stats-builder-views');
   assert.ok(countResults, `${locale} Articles needs its cumulative count results`);
   assert.ok(viewsRegion, `${locale} Articles needs an independent views region`);
@@ -501,8 +523,8 @@ function checkContentStatsShell(page, html) {
     ?? extractElement(builderViewsRegion.html, 'p', 'id', 'content-stats-builder-views-title');
   assert.ok(builderTitle, `${locale} Builder Center row needs its own visible title`);
   mustContainText(builderTitle.html, locale === 'en'
-    ? 'Builder Center views — recorded total'
-    : 'Vistas en Builder Center — total registrado', `${locale} Builder Center row title`);
+    ? 'Builder Center views · recorded total'
+    : 'Vistas en Builder Center · total registrado', `${locale} Builder Center row title`);
   assert.match(disclosureText, /recorded|counter|total/i, `${locale} Builder Center disclosure identifies source-recorded activity`);
   mustContain(builderViewsRegion.html, 'aria-labelledby="content-stats-builder-views-title"', `${locale} Builder Center row is named by its title`);
   for (const field of ['status', 'result', 'value', 'coverage', 'since', 'collected-date']) {
@@ -954,7 +976,7 @@ for (const page of policyPages) {
   const privacyText = normalizedText(privacySection.html);
   if (page.lang === 'en') {
     assert.match(privacyText, /aggregate page views?/i, 'English privacy text identifies aggregate directory page views');
-    assert.match(privacyText, /aggregate.{0,60}(?:outbound|external) link clicks?|(?:outbound|external) link clicks?.{0,60}aggregate/i,
+    assert.match(privacyText, /aggregate.{0,60}(?:outbound|external)[- ]link clicks?|(?:outbound|external)[- ]link clicks?.{0,60}aggregate/i,
       'English privacy text identifies aggregate outbound-link clicks');
   } else {
     assert.match(privacyText, /vistas? de paginas? agregadas?|vistas? agregadas? de paginas?/i, 'Spanish privacy text identifies aggregate directory page views');
