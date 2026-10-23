@@ -117,8 +117,8 @@ function checkHomeIntroduction(page, html) {
     `${lang} hero keeps the localized introduction`);
   assert.ok(title.end <= intro.start, `${lang} hero headline precedes the introduction`);
 
-  const introToActions = normalizedText(hero.html.slice(intro.end, actions.start));
-  assert.match(introToActions, /aws builder of the year\s*·\s*latam-es 2025/,
+  const introToActions = hero.html.slice(intro.end, actions.start).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  assert.match(introToActions, /AWS Builder of the Year\s*·\s*LATAM-ES 2025/,
     `${lang} hero surfaces the award between the introduction and actions`);
 
   const actionLinks = [...actions.html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)];
