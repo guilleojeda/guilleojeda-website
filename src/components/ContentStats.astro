@@ -10,7 +10,7 @@ const copy = locale === 'en'
   ? {
       kicker: 'Content statistics',
       title: 'Content & reach',
-      intro: 'Published articles, delivered talks and sessions, published books, current newsletter subscribers, emails sent, email opens and verified email clicks, and page views and external link clicks for the Dónde Aprendo AWS directory, with partial coverage of the wider body of work. Directory traffic and clicks remain separate from article readership and incoming Search. Email opens and verified clicks follow the selected period; reported emails sent stay cumulative. Article counts stay cumulative and subscribers stay current.',
+      intro: 'A snapshot of my published work and its reach across selected platforms.',
       filterLabel: 'Content language',
       periodLabel: 'Activity period',
       all: 'All',
@@ -24,39 +24,41 @@ const copy = locale === 'en'
         ytd: 'Year to date',
         total: 'Recorded total'
       },
-      cumulative: 'Cumulative total',
+      cumulative: 'Total',
       currentSubscribers: 'Current active subscribers',
       newsletterSent: {
-        label: 'Emails sent — reported total',
-        unit: 'emails sent',
-        loading: 'Loading reported emails sent…',
-        unavailable: 'The reported emails-sent total is unavailable.'
+        label: 'Emails sent · cumulative total',
+        unit: 'emails',
+        loading: 'Loading emails sent…',
+        unavailable: 'Emails sent are unavailable.'
       },
       coverage: 'Coverage',
       lastCollected: 'Last updated',
-      viewsLoading: 'Loading article views…',
-      viewsUnavailable: 'Views are unavailable for this period.',
+      metadataSummary: 'Source & dates',
+      viewsTitle: 'Simple AWS page views',
+      viewsLoading: 'Loading page views…',
+      viewsUnavailable: 'Page views are unavailable for this period.',
       viewsUnit: 'views',
       viewsCoverage: 'Coverage',
       viewsInterval: 'Reporting interval',
-      viewsCollected: 'Collected',
+      viewsCollected: 'Last updated',
       builderViews: {
-        title: 'Builder Center views — recorded total',
+        title: 'Builder Center views · recorded total',
         loading: 'Loading Builder Center recorded views…',
         unavailable: 'Builder Center recorded views are unavailable.',
         unit: 'views',
         coverage: 'Source',
         since: 'Tracking starts',
-        collected: 'Last successful collection'
+        collected: 'Last updated'
       },
-      searchTitle: 'Google Search clicks',
-      searchLoading: 'Loading Google Search Console clicks…',
+      searchTitle: 'Google Search clicks · Simple AWS',
+      searchLoading: 'Loading Search clicks…',
       searchUnavailable: 'Search clicks are unavailable for this period.',
       searchUnit: 'clicks',
       searchCoverage: 'Coverage',
       searchInterval: 'Reporting interval',
-      searchCollected: 'Collected',
-      noScript: 'Enable JavaScript to view these content statistics.',
+      searchCollected: 'Last updated',
+      noScript: 'Enable JavaScript to view these statistics.',
       cards: {
         articles: {
           title: 'Articles',
@@ -77,7 +79,7 @@ const copy = locale === 'en'
           unavailable: 'Book statistics are temporarily unavailable.'
         },
         newsletter: {
-          title: 'Newsletter',
+          title: 'Simple AWS newsletter',
           unit: 'active subscribers',
           loading: 'Loading newsletter statistics…',
           unavailable: 'Newsletter statistics are temporarily unavailable.'
@@ -95,32 +97,46 @@ const copy = locale === 'en'
         unavailable: 'Dónde Aprendo AWS external link clicks are unavailable for this period.',
         unit: 'clicks',
         interval: 'Reporting interval',
-        collected: 'Collected'
+        collected: 'Last updated'
       },
-      sourcesSummary: 'Sources and counting',
-      privacyLink: 'Statistics privacy and use',
+      sourcesSummary: 'How these figures are counted',
+      privacyLink: 'Privacy and use',
       emailActivity: {
         opens: {
           label: 'Email opens',
-          unit: 'Email opens',
+          unit: 'opens',
           loading: 'Loading email opens…',
           unavailable: 'Email opens are unavailable for this period.'
         },
         verifiedClicks: {
           label: 'Verified email clicks',
-          unit: 'Verified email clicks',
+          unit: 'clicks',
           loading: 'Loading verified email clicks…',
           unavailable: 'Verified email clicks are unavailable for this period.'
         },
         interval: 'Reporting interval',
-        collected: 'Collected'
+        collected: 'Last updated'
       },
-      sourcesExplanation: 'These statistics can include Caylent and AWS Builder Center; the labels above show the sources included in each count. Article counts can include Simple AWS posts published on the web, by email or both, and can include Cloudy Things posts, including eligible originals and republications. Translations count separately using the article’s actual content language. Matching titles in the same language count once across sources; different titles count separately. Article views cover Simple AWS page views on its newsletter publication, a partial scope that differs from article-count coverage; repeated views can come from the same person. Builder Center views are a separate recorded total of currently eligible published articles by this author, including eligible republications and translations even when matching titles count once. Builder Center says tracking began January 6, 2026, excludes the author’s own visits, and counts one visit per person per article within 24 hours; a later return can count again. This current-publication sum is independent of the selected activity period and GA4 Views. Its recorded history may be incomplete, and counters may change after source corrections or publication changes; it is not a complete lifetime total or a count of unique readers. Page views for the Dónde Aprendo AWS directory cover the full directory and can repeat; they are reported separately from article views and do not represent unique readers. GA4-recorded outbound link clicks for Dónde Aprendo AWS include links to the publication and social channels, including footer links; one person can click more than once. They are reported separately from directory page views and incoming Search clicks. Recorded totals cover available activity from the displayed start date; earlier activity and gaps in tracking may be missing. Views are reported with a delay and may be revised later. Google Search Console clicks for Simple AWS cover canonical or Google-preferred article URLs and remain separate from Views. They are a partial reported measure: Google’s filtering and reporting limits may omit clicks, and clicks are not unique people or readers. Search clicks use their own interval and date, are delayed, and may be revised; they are not added to Analytics views. Email opens are reported tracking-pixel events; privacy protections and automated loads can count as opens, and some reads may not register. Verified email clicks are Beehiiv-filtered click events; they can repeat and are not a count of unique people. Email figures cover currently available history returned by Beehiiv; tracking gaps may omit activity and reported values can change later. Beehiiv’s reported cumulative total of emails sent can include multiple emails to one person; its available history may be incomplete or revised, and the total does not follow the selected activity period. All includes both language counts; each card shows its own last successful update. Talks count delivered talks, workshops, training, panels, and technical sessions; repeated deliveries at different events count separately. Host-only appearances, commentary, podcasts, conversations, and upcoming sessions are excluded. Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles. Simple AWS is an English newsletter; its current subscriber figure counts active subscriptions.'
+      sourcesExplanation: [
+        'Article counts draw on Caylent and AWS Builder Center and include published Simple AWS posts on the web, by email or both; they can also include Cloudy Things originals and republications. Translations count by content language, and matching titles in one language count once across sources; different titles and translations count separately. “All” includes both languages.',
+        'Talks & sessions count delivered talks, workshops, training, panels and technical sessions; repeat deliveries at separate events count again. Host-only appearances, commentary, podcasts, conversations and upcoming sessions are excluded.',
+        'Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles.',
+        'Simple AWS page views cover only newsletter publication pages, a partial coverage compared with article counts. Views can repeat for one reader; reports may be delayed or revised.',
+        'Builder Center’s recorded total covers views of this author’s articles currently published there; views include republications and translations even when matching titles count as one article. Tracking began January 6, 2026, excludes the author’s own visits, and counts one visit per reader per article every 24 hours; a later return can count again. Earlier activity or tracking gaps may be missing, and source corrections or publication changes can revise the total. It is independent of the selected period and is not a complete lifetime total or a count of unique readers.',
+        'Google Search Console clicks cover canonical or Google-preferred Simple AWS article URLs. Reporting limits may omit clicks; they are not unique readers, may be delayed or revised, and remain separate from Analytics page views.',
+        'Dónde Aprendo AWS page views cover the full directory and can repeat for one person; they are separate from article views. Reports may be delayed or revised.',
+        'Recorded traffic totals include only activity available since the start date shown under Source & dates; earlier activity or tracking gaps may be missing. View reports can be delayed or revised.',
+        'External-link clicks recorded for Dónde Aprendo AWS cover links to the publication and social channels throughout the directory, including the footer. One person can click more than once; clicks are separate from directory views and incoming Search clicks.',
+        'Email opens are tracking-pixel events: privacy protections and automated loads can count as opens, while some reads may not register.',
+        'Verified email clicks are Beehiiv-filtered events; they can repeat and do not represent unique people or guarantee a human click. Email figures cover history returned by Beehiiv, so tracking gaps may omit activity and reported values can change later.',
+        'Emails sent are Beehiiv’s reported cumulative total; one person may receive multiple emails. The available history returned by Beehiiv may be incomplete; tracking gaps can leave activity missing and the reported total can change. It does not follow the selected period.',
+        'Simple AWS is an English newsletter; the subscriber figure counts current active subscriptions.',
+      ]
     }
   : {
       kicker: 'Estadísticas de contenido',
       title: 'Contenido y alcance',
-      intro: 'Artículos publicados, charlas y sesiones realizadas, libros publicados, suscriptores actuales del boletín, emails enviados, aperturas y clics verificados, y vistas de página y clics en enlaces externos del directorio Dónde Aprendo AWS, con cobertura parcial del conjunto más amplio de trabajo. El tráfico y los clics del directorio se mantienen separados de la lectura de artículos y de las búsquedas entrantes. Las aperturas y los clics verificados en emails siguen el período seleccionado; el total informado de emails enviados es acumulado. El conteo de artículos es acumulado y los suscriptores son actuales.',
+      intro: 'Un vistazo a mi trabajo publicado y su alcance en distintas plataformas.',
       filterLabel: 'Idioma del contenido',
       periodLabel: 'Período de actividad',
       all: 'Todos',
@@ -134,39 +150,41 @@ const copy = locale === 'en'
         ytd: 'Año hasta la fecha',
         total: 'Total registrado'
       },
-      cumulative: 'Total acumulado',
+      cumulative: 'Total',
       currentSubscribers: 'Suscriptores actuales',
       newsletterSent: {
-        label: 'Emails enviados — total informado',
-        unit: 'emails enviados',
-        loading: 'Cargando el total informado de emails enviados…',
-        unavailable: 'No disponible: el total informado de emails enviados.'
+        label: 'Emails enviados · total acumulado',
+        unit: 'emails',
+        loading: 'Cargando emails enviados…',
+        unavailable: 'No se pueden mostrar los emails enviados.'
       },
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
-      viewsLoading: 'Cargando vistas de artículos…',
-      viewsUnavailable: 'No se pueden mostrar las vistas para este período.',
+      metadataSummary: 'Fuente y fechas',
+      viewsTitle: 'Vistas de páginas de Simple AWS',
+      viewsLoading: 'Cargando vistas de páginas…',
+      viewsUnavailable: 'No se pueden mostrar las vistas de páginas para este período.',
       viewsUnit: 'vistas',
       viewsCoverage: 'Cobertura',
       viewsInterval: 'Intervalo informado',
-      viewsCollected: 'Recopilado',
+      viewsCollected: 'Última actualización',
       builderViews: {
-        title: 'Vistas en Builder Center — total registrado',
+        title: 'Vistas en Builder Center · total registrado',
         loading: 'Cargando vistas registradas de Builder Center…',
         unavailable: 'Las vistas registradas de Builder Center no están disponibles.',
         unit: 'vistas',
         coverage: 'Fuente',
         since: 'Inicio del registro',
-        collected: 'Última recopilación correcta'
+        collected: 'Última actualización'
       },
-      searchTitle: 'Clics de búsqueda de Google',
-      searchLoading: 'Cargando clics de Google Search Console…',
+      searchTitle: 'Clics de búsqueda de Google · Simple AWS',
+      searchLoading: 'Cargando clics de búsqueda…',
       searchUnavailable: 'No se pueden mostrar los clics de búsqueda para este período.',
       searchUnit: 'clics',
       searchCoverage: 'Cobertura',
       searchInterval: 'Intervalo informado',
-      searchCollected: 'Recopilado',
-      noScript: 'Activa JavaScript para ver estas estadísticas de contenido.',
+      searchCollected: 'Última actualización',
+      noScript: 'Activa JavaScript para ver estas estadísticas.',
       cards: {
         articles: {
           title: 'Artículos',
@@ -187,7 +205,7 @@ const copy = locale === 'en'
           unavailable: 'Las estadísticas de libros no están disponibles por el momento.'
         },
         newsletter: {
-          title: 'Boletín',
+          title: 'Boletín Simple AWS',
           unit: 'suscriptores activos',
           loading: 'Cargando estadísticas del boletín…',
           unavailable: 'Las estadísticas del boletín no están disponibles por el momento.'
@@ -205,27 +223,41 @@ const copy = locale === 'en'
         unavailable: 'Clics en enlaces externos de Dónde Aprendo AWS: no disponibles para este período.',
         unit: 'clics',
         interval: 'Intervalo informado',
-        collected: 'Recopilado'
+        collected: 'Última actualización'
       },
-      sourcesSummary: 'Fuentes y conteo',
-      privacyLink: 'Privacidad y uso de las estadísticas',
+      sourcesSummary: 'Cómo se cuentan estas cifras',
+      privacyLink: 'Privacidad y uso',
       emailActivity: {
         opens: {
           label: 'Aperturas de emails',
-          unit: 'Aperturas de emails',
+          unit: 'aperturas',
           loading: 'Cargando aperturas de emails…',
           unavailable: 'No se pueden mostrar las aperturas de emails para este período.'
         },
         verifiedClicks: {
           label: 'Clics verificados en emails',
-          unit: 'Clics verificados en emails',
+          unit: 'clics',
           loading: 'Cargando clics verificados en emails…',
           unavailable: 'No se pueden mostrar los clics verificados en emails para este período.'
         },
         interval: 'Intervalo informado',
-        collected: 'Recopilado'
+        collected: 'Última actualización'
       },
-      sourcesExplanation: 'Estas estadísticas pueden incluir Caylent y AWS Builder Center; los nombres de arriba indican las fuentes de cada conteo. El conteo de artículos puede incluir las publicaciones de Simple AWS difundidas en la web, por correo electrónico o en ambos, y puede incluir publicaciones de Cloudy Things, incluidos originales y republicaciones elegibles. Las traducciones se cuentan por separado según el idioma real del contenido. Los títulos iguales en el mismo idioma se cuentan una sola vez, incluso entre fuentes; los títulos distintos se cuentan por separado. Las vistas de artículos cubren las vistas de páginas de la publicación Simple AWS: es una cobertura parcial y distinta de la del conteo de artículos; una misma persona puede generar vistas repetidas. Las vistas de Builder Center son un total registrado aparte de las publicaciones elegibles actualmente publicadas por este autor; incluye republicaciones y traducciones elegibles aunque los títulos coincidentes cuenten una sola vez. Builder Center indica que el seguimiento comenzó el 6 de enero de 2026, excluye las visitas propias del autor y cuenta una visita por persona y artículo cada 24 horas; una visita posterior puede volver a contarse. Esta suma de publicaciones actuales es independiente del período seleccionado y de las vistas de GA4. El historial registrado puede estar incompleto y los contadores pueden cambiar por correcciones de la fuente o cambios en las publicaciones; no representa un total de por vida completo ni lectores únicos. Las vistas de página del directorio Dónde Aprendo AWS cubren el directorio completo y también pueden repetirse; se informan por separado de las vistas de artículos y no representan lectores únicos. En Dónde Aprendo AWS, los clics en enlaces externos registrados por GA4 incluyen enlaces a la publicación y a redes sociales, incluidos los enlaces del pie de página; una persona puede hacer clic más de una vez. Se informan por separado de las vistas de página del directorio y de los clics de búsqueda entrantes. Los totales registrados muestran la actividad disponible desde la fecha indicada; puede faltar actividad anterior o de períodos sin seguimiento. Las vistas tienen demora y pueden revisarse más adelante. Los clics de Google Search Console de Simple AWS cubren URLs de artículos canónicas o preferidas por Google y se mantienen separados de las vistas. Son una medida parcial: los filtros y límites del informe pueden omitir clics; no representan personas únicas. Los clics de búsqueda tienen su propio intervalo y fecha, pueden tener demora y revisarse, y no se suman a las vistas de Analytics. Las aperturas de emails son eventos informados mediante píxeles de seguimiento; las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, y algunas lecturas pueden no registrarse. Los clics verificados en emails cuentan eventos filtrados por Beehiiv; los clics pueden repetirse y no representan personas únicas. Las cifras de emails cubren el historial disponible que devuelve Beehiiv; los períodos sin seguimiento pueden omitir actividad y los valores informados pueden cambiar más adelante. El total acumulado de emails enviados que informa Beehiiv puede incluir varios emails para una misma persona; su historial disponible puede ser incompleto o revisarse, y este total no sigue el período de actividad seleccionado. El total incluye ambos idiomas; cada tarjeta muestra su propia última actualización correcta. Las charlas cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos cuentan por separado. Se excluyen apariciones únicamente como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras. Los libros cuentan títulos publicados, incluidos los libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales. Simple AWS es un boletín en inglés; la cifra actual cuenta sus suscripciones activas.'
+      sourcesExplanation: [
+        'El conteo de artículos usa Caylent y AWS Builder Center e incluye publicaciones de Simple AWS difundidas en la web, por email o en ambos; también puede incluir originales y republicaciones de Cloudy Things. Las traducciones se cuentan según su idioma, y los títulos iguales en un mismo idioma cuentan una vez entre las fuentes; los títulos distintos y las traducciones se cuentan por separado. “Todos” incluye ambos idiomas.',
+        'Charlas y sesiones cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos vuelven a contar. Se excluyen apariciones solo como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras.',
+        'Los libros cuentan títulos publicados, incluidos libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales.',
+        'Las vistas de páginas de Simple AWS cubren solo las páginas de publicación del boletín; es una cobertura parcial frente al conteo de artículos. Una persona puede generar varias vistas; los informes pueden tener demora o revisarse.',
+        'El total registrado de Builder Center cubre vistas de los artículos de este autor publicados actualmente allí; las vistas incluyen republicaciones y traducciones aunque los títulos coincidentes cuenten como un solo artículo. El seguimiento comenzó el 6 de enero de 2026, excluye las visitas propias del autor y cuenta una visita por lector y artículo cada 24 horas; una visita posterior puede volver a contar. Puede faltar actividad anterior o de períodos sin seguimiento, y las correcciones de la fuente o los cambios en las publicaciones pueden modificar el total. Es independiente del período seleccionado y no representa un total de por vida completo ni lectores únicos.',
+        'Google Search Console informa clics de URLs canónicas o preferidas por Google de artículos de Simple AWS. Los límites del informe pueden omitir clics; no representan lectores únicos, pueden tener demora o revisarse y se mantienen separados de las vistas de Analytics.',
+        'Las vistas de páginas de Dónde Aprendo AWS cubren el directorio completo y pueden repetirse para una persona; se informan aparte de las vistas de artículos. Los informes pueden tener demora o revisarse.',
+        'Los totales de tráfico registrados solo incluyen actividad disponible desde la fecha de inicio indicada en “Fuente y fechas”; puede faltar actividad anterior o de períodos sin seguimiento. Los informes de vistas pueden tener demora o revisarse.',
+        'Los clics registrados en enlaces externos de Dónde Aprendo AWS cubren enlaces a la publicación y a redes sociales en todo el directorio, incluido el pie de página. Una persona puede hacer más de un clic; se informan aparte de las vistas del directorio y de las búsquedas entrantes.',
+        'Las aperturas de emails son eventos de píxeles de seguimiento: las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, mientras que algunas lecturas pueden no registrarse.',
+        'Los clics verificados en emails son eventos filtrados por Beehiiv; pueden repetirse y no representan personas únicas ni garantizan que una persona haya hecho clic. Las cifras de emails cubren el historial devuelto por Beehiiv, por lo que los períodos sin seguimiento pueden omitir actividad y los valores informados pueden cambiar más adelante.',
+        'Los emails enviados son el total acumulado informado por Beehiiv; una persona puede recibir varios emails. El historial disponible devuelto por Beehiiv puede estar incompleto; los períodos sin seguimiento pueden omitir actividad y el total informado puede cambiar. No sigue el período seleccionado.',
+        'Simple AWS es un boletín en inglés; la cifra de suscriptores cuenta las suscripciones activas actuales.',
+      ]
     };
 
 const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
@@ -286,16 +318,18 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                 <span data-stats-count-label>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
               </p>
 
-              <dl class="content-stats-meta">
-                <div>
-                  <dt>{copy.coverage}</dt>
-                  <dd data-stats-coverage></dd>
-                </div>
-                <div>
-                  <dt>{copy.lastCollected}</dt>
-                  <dd data-stats-collected-date></dd>
-                </div>
-              </dl>
+              <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                <dl class="content-stats-meta">
+                  <div>
+                    <dt>{copy.coverage}</dt>
+                    <dd data-stats-coverage></dd>
+                  </div>
+                  <div>
+                    <dt>{copy.lastCollected}</dt>
+                    <dd data-stats-collected-date></dd>
+                  </div>
+                </dl>
+              </details>
 
             </div>
 
@@ -318,16 +352,18 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                       <span data-stats-newsletter-sent-value></span>
                       <span>{copy.newsletterSent.unit}</span>
                     </p>
-                    <dl class="content-stats-meta content-stats-newsletter-sent-meta">
-                      <div>
-                        <dt>{copy.coverage}</dt>
-                        <dd data-stats-newsletter-sent-coverage></dd>
-                      </div>
-                      <div>
-                        <dt>{copy.lastCollected}</dt>
-                        <dd data-stats-newsletter-sent-collected-date></dd>
-                      </div>
-                    </dl>
+                    <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                      <dl class="content-stats-meta content-stats-newsletter-sent-meta">
+                        <div>
+                          <dt>{copy.coverage}</dt>
+                          <dd data-stats-newsletter-sent-coverage></dd>
+                        </div>
+                        <div>
+                          <dt>{copy.lastCollected}</dt>
+                          <dd data-stats-newsletter-sent-collected-date></dd>
+                        </div>
+                      </dl>
+                    </details>
                   </div>
                 </div>
 
@@ -348,20 +384,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                       <span data-stats-newsletter-email-opens-value></span>
                       <span data-stats-newsletter-email-opens-unit>{copy.emailActivity.opens.unit}</span>
                     </p>
-                    <dl class="content-stats-meta content-stats-newsletter-email-meta">
-                      <div>
-                        <dt>{copy.coverage}</dt>
-                        <dd data-stats-newsletter-email-opens-coverage></dd>
-                      </div>
-                      <div>
-                        <dt>{copy.emailActivity.interval}</dt>
-                        <dd data-stats-newsletter-email-opens-interval></dd>
-                      </div>
-                      <div>
-                        <dt>{copy.emailActivity.collected}</dt>
-                        <dd data-stats-newsletter-email-opens-collected-date></dd>
-                      </div>
-                    </dl>
+                    <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                      <dl class="content-stats-meta content-stats-newsletter-email-meta">
+                        <div>
+                          <dt>{copy.coverage}</dt>
+                          <dd data-stats-newsletter-email-opens-coverage></dd>
+                        </div>
+                        <div>
+                          <dt>{copy.emailActivity.interval}</dt>
+                          <dd data-stats-newsletter-email-opens-interval></dd>
+                        </div>
+                        <div>
+                          <dt>{copy.emailActivity.collected}</dt>
+                          <dd data-stats-newsletter-email-opens-collected-date></dd>
+                        </div>
+                      </dl>
+                    </details>
                   </div>
                 </div>
 
@@ -382,20 +420,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                       <span data-stats-newsletter-email-verified-clicks-value></span>
                       <span data-stats-newsletter-email-verified-clicks-unit>{copy.emailActivity.verifiedClicks.unit}</span>
                     </p>
-                    <dl class="content-stats-meta content-stats-newsletter-email-meta">
-                      <div>
-                        <dt>{copy.coverage}</dt>
-                        <dd data-stats-newsletter-email-verified-clicks-coverage></dd>
-                      </div>
-                      <div>
-                        <dt>{copy.emailActivity.interval}</dt>
-                        <dd data-stats-newsletter-email-verified-clicks-interval></dd>
-                      </div>
-                      <div>
-                        <dt>{copy.emailActivity.collected}</dt>
-                        <dd data-stats-newsletter-email-verified-clicks-collected-date></dd>
-                      </div>
-                    </dl>
+                    <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                      <dl class="content-stats-meta content-stats-newsletter-email-meta">
+                        <div>
+                          <dt>{copy.coverage}</dt>
+                          <dd data-stats-newsletter-email-verified-clicks-coverage></dd>
+                        </div>
+                        <div>
+                          <dt>{copy.emailActivity.interval}</dt>
+                          <dd data-stats-newsletter-email-verified-clicks-interval></dd>
+                        </div>
+                        <div>
+                          <dt>{copy.emailActivity.collected}</dt>
+                          <dd data-stats-newsletter-email-verified-clicks-collected-date></dd>
+                        </div>
+                      </dl>
+                    </details>
                   </div>
                 </div>
               </>
@@ -420,26 +460,29 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                     <span data-stats-builder-views-value></span>
                     <span>{copy.builderViews.unit}</span>
                   </p>
-                  <dl class="content-stats-meta content-stats-views-meta">
-                    <div>
-                      <dt>{copy.builderViews.coverage}</dt>
-                      <dd data-stats-builder-views-coverage></dd>
-                    </div>
-                    <div>
-                      <dt>{copy.builderViews.since}</dt>
-                      <dd data-stats-builder-views-since></dd>
-                    </div>
-                    <div>
-                      <dt>{copy.builderViews.collected}</dt>
-                      <dd data-stats-builder-views-collected-date></dd>
-                    </div>
-                  </dl>
+                  <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                    <dl class="content-stats-meta content-stats-views-meta">
+                      <div>
+                        <dt>{copy.builderViews.coverage}</dt>
+                        <dd data-stats-builder-views-coverage></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.builderViews.since}</dt>
+                        <dd data-stats-builder-views-since></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.builderViews.collected}</dt>
+                        <dd data-stats-builder-views-collected-date></dd>
+                      </div>
+                    </dl>
+                  </details>
                 </div>
               </div>
             )}
 
             {kind === 'articles' && (
-              <div class="content-stats-views" data-stats-views data-stats-views-unavailable={copy.viewsUnavailable}>
+              <div class="content-stats-views" data-stats-views data-stats-views-unavailable={copy.viewsUnavailable} aria-labelledby="content-stats-views-title">
+                <h4 class="content-stats-views-heading" id="content-stats-views-title">{copy.viewsTitle}</h4>
                 <p class="content-stats-views-status" data-stats-views-status role="status" aria-live="polite" hidden>{copy.viewsLoading}</p>
 
                 <div class="content-stats-views-results" data-stats-views-results hidden>
@@ -448,20 +491,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                     <span data-stats-views-unit>{copy.viewsUnit}</span>
                   </p>
 
-                  <dl class="content-stats-meta content-stats-views-meta">
-                    <div>
-                      <dt>{copy.viewsCoverage}</dt>
-                      <dd data-stats-views-coverage></dd>
-                    </div>
-                    <div>
-                      <dt>{copy.viewsInterval}</dt>
-                      <dd data-stats-views-interval></dd>
-                    </div>
-                    <div>
-                      <dt>{copy.viewsCollected}</dt>
-                      <dd data-stats-views-collected-date></dd>
-                    </div>
-                  </dl>
+                  <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                    <dl class="content-stats-meta content-stats-views-meta">
+                      <div>
+                        <dt>{copy.viewsCoverage}</dt>
+                        <dd data-stats-views-coverage></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.viewsInterval}</dt>
+                        <dd data-stats-views-interval></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.viewsCollected}</dt>
+                        <dd data-stats-views-collected-date></dd>
+                      </div>
+                    </dl>
+                  </details>
 
                   <p class="content-stats-views-qualifications" data-stats-views-qualifications hidden></p>
                 </div>
@@ -469,8 +514,8 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
             )}
 
             {kind === 'articles' && (
-              <div class="content-stats-search" data-stats-search data-stats-search-unavailable={copy.searchUnavailable}>
-                <p class="content-stats-search-heading">{copy.searchTitle}</p>
+              <div class="content-stats-search" data-stats-search data-stats-search-unavailable={copy.searchUnavailable} aria-labelledby="content-stats-search-title">
+                <h4 class="content-stats-search-heading" id="content-stats-search-title">{copy.searchTitle}</h4>
                 <p class="content-stats-search-status" data-stats-search-status role="status" aria-live="polite" hidden>{copy.searchLoading}</p>
 
                 <div class="content-stats-search-results" data-stats-search-results hidden>
@@ -479,20 +524,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                     <span data-stats-search-unit>{copy.searchUnit}</span>
                   </p>
 
-                  <dl class="content-stats-meta content-stats-search-meta">
-                    <div>
-                      <dt>{copy.searchCoverage}</dt>
-                      <dd data-stats-search-coverage></dd>
-                    </div>
-                    <div>
-                      <dt>{copy.searchInterval}</dt>
-                      <dd data-stats-search-interval></dd>
-                    </div>
-                    <div>
-                      <dt>{copy.searchCollected}</dt>
-                      <dd data-stats-search-collected-date></dd>
-                    </div>
-                  </dl>
+                  <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+                    <dl class="content-stats-meta content-stats-search-meta">
+                      <div>
+                        <dt>{copy.searchCoverage}</dt>
+                        <dd data-stats-search-coverage></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.searchInterval}</dt>
+                        <dd data-stats-search-interval></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.searchCollected}</dt>
+                        <dd data-stats-search-collected-date></dd>
+                      </div>
+                    </dl>
+                  </details>
                 </div>
               </div>
             )}
@@ -511,7 +558,6 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
       >
         <div class="content-stats-card-heading">
           <div>
-            <div class="work-kicker">{copy.periodLabel}</div>
             <h3 id="content-stats-directory-views-title">{copy.directoryViews.title}</h3>
           </div>
         </div>
@@ -526,20 +572,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
             <span data-stats-directory-views-unit>{copy.directoryViews.unit}</span>
           </p>
 
-          <dl class="content-stats-meta content-stats-directory-views-meta">
-            <div>
-              <dt>{copy.coverage}</dt>
-              <dd data-stats-directory-views-coverage></dd>
-            </div>
-            <div>
-              <dt>{copy.viewsInterval}</dt>
-              <dd data-stats-directory-views-interval></dd>
-            </div>
-            <div>
-              <dt>{copy.viewsCollected}</dt>
-              <dd data-stats-directory-views-collected-date></dd>
-            </div>
-          </dl>
+          <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+            <dl class="content-stats-meta content-stats-directory-views-meta">
+              <div>
+                <dt>{copy.coverage}</dt>
+                <dd data-stats-directory-views-coverage></dd>
+              </div>
+              <div>
+                <dt>{copy.viewsInterval}</dt>
+                <dd data-stats-directory-views-interval></dd>
+              </div>
+              <div>
+                <dt>{copy.viewsCollected}</dt>
+                <dd data-stats-directory-views-collected-date></dd>
+              </div>
+            </dl>
+          </details>
 
           <p class="content-stats-directory-views-qualifications" data-stats-directory-views-qualifications hidden></p>
         </div>
@@ -562,20 +610,22 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
               <span data-stats-directory-outbound-clicks-unit>{copy.directoryOutboundClicks.unit}</span>
             </p>
 
-            <dl class="content-stats-meta content-stats-directory-outbound-clicks-meta">
-              <div>
-                <dt>{copy.coverage}</dt>
-                <dd data-stats-directory-outbound-clicks-coverage></dd>
-              </div>
-              <div>
-                <dt>{copy.directoryOutboundClicks.interval}</dt>
-                <dd data-stats-directory-outbound-clicks-interval></dd>
-              </div>
-              <div>
-                <dt>{copy.directoryOutboundClicks.collected}</dt>
-                <dd data-stats-directory-outbound-clicks-collected-date></dd>
-              </div>
-            </dl>
+            <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
+              <dl class="content-stats-meta content-stats-directory-outbound-clicks-meta">
+                <div>
+                  <dt>{copy.coverage}</dt>
+                  <dd data-stats-directory-outbound-clicks-coverage></dd>
+                </div>
+                <div>
+                  <dt>{copy.directoryOutboundClicks.interval}</dt>
+                  <dd data-stats-directory-outbound-clicks-interval></dd>
+                </div>
+                <div>
+                  <dt>{copy.directoryOutboundClicks.collected}</dt>
+                  <dd data-stats-directory-outbound-clicks-collected-date></dd>
+                </div>
+              </dl>
+            </details>
 
             <p class="content-stats-directory-outbound-clicks-qualifications" data-stats-directory-outbound-clicks-qualifications hidden></p>
           </div>
@@ -585,10 +635,10 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
 
     <details class="content-stats-sources">
       <summary>{copy.sourcesSummary}</summary>
-      <p>
-        {copy.sourcesExplanation}{' '}
-        <a href={locale === 'en' ? '/content-statistics/privacy/' : '/es/content-statistics/privacy/'}>{copy.privacyLink}</a>
-      </p>
+      <ul>
+        {copy.sourcesExplanation.map((item) => <li>{item}</li>)}
+      </ul>
+      <p><a href={locale === 'en' ? '/content-statistics/privacy/' : '/es/content-statistics/privacy/'}>{copy.privacyLink}</a></p>
     </details>
 
     <noscript><p class="content-stats-noscript">{copy.noScript}</p></noscript>

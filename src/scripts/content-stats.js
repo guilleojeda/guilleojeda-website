@@ -801,14 +801,14 @@ function renderBuilderViews(snapshot, locale, language, elements) {
 
 const qualificationCopy = {
   en: {
-    sampled: 'Sampled report',
-    thresholding: 'Thresholding applied',
-    'other-row': 'Other rows omitted'
+    sampled: 'Estimated from a sample',
+    thresholding: 'Google may withhold some data',
+    'other-row': 'Some activity may be missing'
   },
   es: {
-    sampled: 'Informe con muestreo',
-    thresholding: 'Aplicación de umbral',
-    'other-row': 'Otras filas omitidas'
+    sampled: 'Estimado a partir de una muestra',
+    thresholding: 'Google puede omitir parte de los datos',
+    'other-row': 'Puede faltar parte de la actividad'
   }
 };
 

@@ -19,8 +19,8 @@ const directoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const directoryOutboundClickPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const newsletterEmailPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const newsletterEmailMetricSpecs = [
-  { group: 'newsletterEmailOpens', metric: 'opens', region: 'emailOpens', label: { en: /email opens?/i, es: /aperturas? de emails?/i } },
-  { group: 'newsletterEmailVerifiedClicks', metric: 'clicks', region: 'emailVerifiedClicks', label: { en: /verified email clicks?/i, es: /clics? verificados? en emails?/i } }
+  { group: 'newsletterEmailOpens', metric: 'opens', region: 'emailOpens', label: { en: /email opens?/i, es: /aperturas? de emails?/i }, unit: { en: /^opens?$/i, es: /^aperturas?$/i } },
+  { group: 'newsletterEmailVerifiedClicks', metric: 'clicks', region: 'emailVerifiedClicks', label: { en: /verified email clicks?/i, es: /clics? verificados? en emails?/i }, unit: { en: /^clicks?$/i, es: /^clics?$/i } }
 ];
 const newsletterEmailFacts = {
   '7d': { value: 7, collectedAt: '2026-09-08T00:00:00.000Z', startDate: '2026-09-01', endDate: '2026-09-07' },
@@ -415,25 +415,25 @@ const initialUnits = {
 
 const viewsCopy = {
   en: {
-    loading: 'Loading article views…',
-    unavailable: 'Views are unavailable for this period.',
+    loading: 'Loading page views…',
+    unavailable: 'Page views are unavailable for this period.',
     unit: 'views'
   },
   es: {
     loading: 'Cargando vistas de artículos…',
-    unavailable: 'Las vistas no están disponibles para este período.',
+    unavailable: 'No se pueden mostrar las vistas de páginas para este período.',
     unit: 'vistas'
   }
 };
 
 const searchCopy = {
   en: {
-    loading: 'Loading Search Console clicks…',
+    loading: 'Loading Search clicks…',
     unavailable: 'Search clicks are unavailable for this period.',
     unit: 'clicks'
   },
   es: {
-    loading: 'Cargando clics de Search Console…',
+    loading: 'Cargando clics de búsqueda…',
     unavailable: 'Los clics de búsqueda no están disponibles para este período.',
     unit: 'clics'
   }
@@ -473,13 +473,13 @@ const newsletterEmailCopy = {
       label: 'Email opens',
       loading: 'Loading email opens…',
       unavailable: 'Email opens are unavailable for this period.',
-      unit: 'email opens'
+      unit: 'opens'
     },
     clicks: {
       label: 'Verified email clicks',
       loading: 'Loading verified email clicks…',
       unavailable: 'Verified email clicks are unavailable for this period.',
-      unit: 'verified email clicks'
+      unit: 'clicks'
     }
   },
   es: {
@@ -487,39 +487,39 @@ const newsletterEmailCopy = {
       label: 'Aperturas de emails',
       loading: 'Cargando aperturas de emails…',
       unavailable: 'Las aperturas de emails no están disponibles para este período.',
-      unit: 'aperturas de emails'
+      unit: 'aperturas'
     },
     clicks: {
       label: 'Clics verificados en emails',
       loading: 'Cargando clics verificados en emails…',
       unavailable: 'Los clics verificados en emails no están disponibles para este período.',
-      unit: 'clics verificados en emails'
+      unit: 'clics'
     }
   }
 };
 
 const newsletterSentCopy = {
   en: {
-    label: 'Emails sent — reported total',
-    loading: 'Loading reported emails sent…',
-    unavailable: 'The reported emails-sent total is unavailable.'
+    label: 'Emails sent · cumulative total',
+    loading: 'Loading emails sent…',
+    unavailable: 'Emails sent are unavailable.'
   },
   es: {
-    label: 'Emails enviados — total informado',
-    loading: 'Cargando el total informado de emails enviados…',
-    unavailable: 'El total informado de emails enviados no está disponible.'
+    label: 'Emails enviados · total acumulado',
+    loading: 'Cargando emails enviados…',
+    unavailable: 'No se pueden mostrar los emails enviados.'
   }
 };
 
 const builderArticleViewsCopy = {
   en: {
-    label: 'Builder Center views — recorded total',
+    label: 'Builder Center views · recorded total',
     loading: 'Loading Builder Center recorded views…',
     unavailable: 'Builder Center recorded views are unavailable.',
     unit: 'views'
   },
   es: {
-    label: 'Vistas en Builder Center — total registrado',
+    label: 'Vistas en Builder Center · total registrado',
     loading: 'Cargando vistas registradas de Builder Center…',
     unavailable: 'Las vistas registradas de Builder Center no están disponibles.'
   }
@@ -863,7 +863,8 @@ function assertNewsletterEmailVisible(page, locale, spec, period) {
   assert.equal(metric.results.hidden, false, `${period} ${spec.group} renders its own result`);
   assert.equal(metric.status.hidden, true, `${spec.group}: successful data clears the loading or unavailable status`);
   assert.equal(metric.value.textContent, new Intl.NumberFormat(locale).format(record[spec.metric]), `${spec.group}: value comes from the selected period`);
-  assert.match(metric.unit.textContent, spec.label[locale], `${spec.group}: label names the metric in the interface language`);
+  assert.match(metric.label.textContent, spec.label[locale], `${spec.group}: heading names the metric in the interface language`);
+  assert.match(metric.unit.textContent, spec.unit[locale], `${spec.group}: unit stays concise`);
   assert.equal(metric.coverage.textContent, 'Simple AWS', `${spec.group}: publication identity is visible`);
   assert.ok(metric.interval.textContent.includes('UTC'), `${spec.group}: reported period names UTC`);
   const formatDateOnly = (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
@@ -912,13 +913,13 @@ function assertViewsVisible(page, locale, period) {
 
   const qualificationText = views.qualifications.textContent;
   if (locale === 'es') {
-    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /muest|muestra/i);
-    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /umbral/i);
-    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /otras filas?|filas? restantes|l[ií]mite de filas/i);
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /estimad[oa] a partir de una muestra/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /google puede omitir parte de los datos/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /puede faltar parte de la actividad/i);
   } else {
-    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /sampl|sampled/i);
-    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
-    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /estimated from a sample/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /google may withhold some data/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /some activity may be missing/i);
   }
 }
 
@@ -944,7 +945,7 @@ function assertNewsletterSentVisible(page, locale, expectedValue, collectedAt) {
   assert.equal(sent.status.hidden, true, 'valid sent total clears its loading or unavailable status');
   assert.equal(sent.results.hidden, false, 'valid sent total reveals its result');
   assert.equal(sent.value.textContent, new Intl.NumberFormat(locale).format(expectedValue));
-  assert.match(sent.label.textContent, locale === 'en' ? /emails sent.*reported total/i : /emails enviados.*total informado/i);
+  assert.match(sent.label.textContent, locale === 'en' ? /emails sent.*cumulative total/i : /emails enviados.*total acumulado/i);
   assert.equal(sent.coverage.textContent, 'Simple AWS');
   assert.equal(sent.collectedDate.textContent, expectedDate(locale, collectedAt));
 }
@@ -1054,13 +1055,13 @@ function assertDirectoryViewsVisible(page, locale, period) {
   assert.equal(views.qualifications.hidden, record.qualifications.length === 0);
   const qualificationText = views.qualifications.textContent;
   if (locale === 'es') {
-    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /muest|muestra/i);
-    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /umbral/i);
-    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /otras filas?|filas? restantes|l[ií]mite de filas/i);
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /estimad[oa] a partir de una muestra/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /google puede omitir parte de los datos/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /puede faltar parte de la actividad/i);
   } else {
-    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /sampl|sampled/i);
-    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
-    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /estimated from a sample/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /google may withhold some data/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /some activity may be missing/i);
   }
 }
 
@@ -1110,13 +1111,13 @@ function assertDirectoryOutboundClicksVisible(page, locale, period) {
   assert.equal(clicks.qualifications.hidden, record.qualifications.length === 0);
   const qualificationText = clicks.qualifications.textContent;
   if (locale === 'es') {
-    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /muest|muestra/i);
-    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /umbral/i);
-    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /otras filas?|filas? restantes|l[ií]mite de filas/i);
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /estimad[oa] a partir de una muestra/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /google puede omitir parte de los datos/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /puede faltar parte de la actividad/i);
   } else {
-    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /sampl|sampled/i);
-    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /threshold/i);
-    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /other rows?|rows? omitted|row limit/i);
+    if (record.qualifications.includes('sampled')) assert.match(qualificationText, /estimated from a sample/i);
+    if (record.qualifications.includes('thresholding')) assert.match(qualificationText, /google may withhold some data/i);
+    if (record.qualifications.includes('other-row')) assert.match(qualificationText, /some activity may be missing/i);
   }
 }
 
