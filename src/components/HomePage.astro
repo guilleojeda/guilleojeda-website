@@ -22,6 +22,7 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
     <div class="eyebrow">{text(content.hero.eyebrow, locale)}</div>
     <h1 id="hero-title">{text(content.hero.title, locale)}</h1>
     <p class="hero-intro">{text(content.hero.intro, locale)}</p>
+    <p class="hero-recognition">{text(content.hero.recognition, locale)}</p>
     <div class="hero-actions">
       <a class="button" href={`${localePath}#work`}>{text(content.hero.primaryCta, locale)} <span aria-hidden="true">↘</span></a>
       <a class="button secondary" href={content.site.linkedin} target="_blank" rel="noreferrer">{text(content.hero.contactCta, locale)} <span aria-hidden="true">{arrow}</span></a>

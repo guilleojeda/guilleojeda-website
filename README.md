@@ -28,7 +28,7 @@ Edit the small files in `src/content/`:
 
 | File | Content |
 | --- | --- |
-| `profile.json` | Bio, role, community activities, course, interface copy, primary links, and metadata |
+| `profile.json` | Bio, role, hero recognition, community activities, course, interface copy, primary links, and metadata |
 | `projects.json` | Selected work and its destinations |
 | `talks.json` | Talks, workshops, hosting, podcasts, training, and video appearances; highlight selection and public links |
 | `books.json` | Authored books, descriptions, and per-book publication/status labels |
@@ -43,7 +43,7 @@ Community leadership and organizing records are in `profile.json` → `about.act
 
 For a role change, update the paired copy in `profile.json`: `hero.intro` (opening bio), `about.intro`, `about.facts[0].value` (Now row), and `site.title`/`site.description` (metadata). `hero.roleContext` controls the organization/team label. These are editable prose, so update both languages together.
 
-The portrait and other public assets live in the repository. Keep alternative text accurate when replacing an image. Do not add uncertain release dates, availability claims, or live audience counts without confirming them.
+The portrait and other public assets live in the repository. The homepage shows the localized introduction, recognition, and actions before its constrained, proportional portrait. Keep the localized `site.portraitAlt` accurate and set the image’s intrinsic `width` and `height` attributes to match its actual dimensions; the current portrait is 800 × 800. Do not add uncertain release dates, availability claims, or live audience counts without confirming them.
 
 ### Content statistics
 
