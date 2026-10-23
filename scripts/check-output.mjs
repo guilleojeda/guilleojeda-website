@@ -159,6 +159,51 @@ function checkHomeIntroduction(page, html) {
     `${lang} About section retains the award`);
 }
 
+function checkNewsletterActions(page, html) {
+  const { lang } = page;
+  const feature = extractElement(html, 'article', 'class', 'lead-work');
+  assert.ok(feature, `${lang} homepage keeps its newsletter feature`);
+  const heading = feature.html.match(/<h3\b[^>]*>([\s\S]*?)<\/h3>/i)?.[1] ?? '';
+  assert.equal(normalizedText(heading), 'simple aws', `${lang} newsletter feature names Simple AWS`);
+  const actions = extractElement(feature.html, 'div', 'class', 'feature-actions');
+  assert.ok(actions, `${lang} newsletter feature has its actions together`);
+  const links = [...actions.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  assert.equal(links.length, 2, `${lang} newsletter offers distinct Subscribe and Read links`);
+
+  const expected = lang === 'en'
+    ? [['Subscribe to Simple AWS', 'https://newsletter.simpleaws.dev/subscribe'], ['Read the newsletter', 'https://newsletter.simpleaws.dev/']]
+    : [['Suscribite a Simple AWS', 'https://newsletter.simpleaws.dev/subscribe'], ['Leé el newsletter', 'https://newsletter.simpleaws.dev/']];
+  for (const [index, [label, href]] of expected.entries()) {
+    const link = links[index];
+    const actualHref = link[1].match(/\bhref=["']([^"']+)["']/i)?.[1] ?? '';
+    const labelHtml = link[2].replace(/<span\b[^>]*\baria-hidden=["']true["'][^>]*>[\s\S]*?<\/span>/gi, ' ');
+    assert.equal(normalizedText(labelHtml), normalizedText(label), `${lang} newsletter action ${index + 1} has its descriptive localized label`);
+    assert.equal(actualHref, href, `${lang} newsletter action ${index + 1} has its distinct approved destination`);
+  }
+
+  const offer = normalizedText(feature.html.slice(0, actions.start));
+  assert.match(offer, lang === 'en' ? /\bbiweekly\b|every (?:two|2) weeks/ : /quincenal|cada (?:dos|2) semanas/,
+    `${lang} newsletter visibly states its biweekly cadence before the actions`);
+  const description = normalizedText(feature.html.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? '');
+  assert.match(description, /\baws\b/, `${lang} newsletter description names AWS`);
+  assert.match(description, /arquitectur|architectur/, `${lang} newsletter description names architecture`);
+  assert.match(description, lang === 'en' ? /choices|decisions|trade.?offs/ : /decisiones|elecciones|opciones/,
+    `${lang} newsletter description identifies architecture choices`);
+  assert.match(description, lang === 'en' ? /understand|choos|why|fits?/ : /entend|comprend|eleg|por que/,
+    `${lang} newsletter description explains the reader benefit`);
+
+  const sponsor = extractElement(feature.html, 'a', 'class', 'sponsor-note');
+  assert.ok(sponsor, `${lang} newsletter keeps its sponsorship action in the feature`);
+  const sponsorHref = sponsor.html.match(/^<a\b[^>]*\bhref=["']([^"']+)["']/i)?.[1] ?? '';
+  assert.equal(sponsorHref, 'https://www.passionfroot.me/guilleojeda', `${lang} newsletter sponsorship keeps its destination`);
+  assert.match(normalizedText(sponsor.html), lang === 'en' ? /sponsor/ : /patrocin/,
+    `${lang} newsletter sponsorship keeps its descriptive localized label`);
+  assert.ok(actions.end <= sponsor.start, `${lang} subscription and reading actions precede sponsorship`);
+  assert.doesNotMatch(feature.html, /<(?:form|input|iframe|script)\b/i,
+    `${lang} newsletter uses ordinary links without embedded subscription handling`);
+  assert.doesNotMatch(feature.html, /\son[a-z]+\s*=/i, `${lang} newsletter links need no inline event handlers`);
+}
+
 function checkContentStatsShell(page, html) {
   const locale = page.lang;
   const sectionIdPosition = html.indexOf('id="content-stats"');
@@ -875,6 +920,7 @@ for (const page of pages) {
   mustContain(html, 'https://www.linkedin.com/in/guilleojeda', `${page.lang} LinkedIn link`);
   mustContain(html, 'https://www.passionfroot.me/guilleojeda', `${page.lang} sponsorship link`);
   checkHomeIntroduction(page, html);
+  checkNewsletterActions(page, html);
   checkContentStatsShell(page, html);
 
   const featuredProjectCards = html.match(/class="support-card"/g) ?? [];
