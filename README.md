@@ -28,7 +28,7 @@ Edit the small files in `src/content/`:
 
 | File | Content |
 | --- | --- |
-| `profile.json` | Bio, role, recognition, section copy, community activities, course, primary links, and metadata |
+| `profile.json` | Bio, role, recognition, section copy, speaker resources, community activities, course, primary links, and metadata |
 | `projects.json` | Selected work and its destinations |
 | `highlights.json` | The three homepage work recommendations and bilingual purpose copy; existing talks and projects are referenced by ID |
 | `talks.json` | Talks, workshops, hosting, podcasts, training, video appearances, and optional direct recording metadata |
@@ -39,6 +39,8 @@ Keep common identifiers, dates, and URLs in each record once. Put the two transl
 To add a talk or project, copy an existing record, give it a distinct ID, and update its facts, links, and both translations. Set a project’s `featured: true` to show it among the existing project cards; other projects appear in the compact work archive. Update page components only when the rendering structure itself changes.
 
 Every record in `talks.json` appears in the complete archive, grouped by its numeric `year`. Set `featured: true` for a talk card; provide paired `event`, `format`, `title`, and `text`. A repeated talk at a different event is a separate record. Add `href` and a paired `cta` for its public page when one exists; otherwise omit both. Add `recording.href` and `recording.language` only when the direct recording destination and spoken language are confirmed. A direct recording selection does not replace an existing event-page link or change occurrence-language facts. A missing recording does not require omitting a supported appearance.
+
+The **Talks / Charlas** section keeps its featured cards and closed archive, followed by visible availability and an event-focused LinkedIn invitation. Its initially closed **Speaker resources / Recursos para organizadores** disclosure is under that invitation. `profile.json` → `speakerResources` owns the localized bio, topics, offered presentation languages, labels, and photo download details. The photo link reuses `/images/guille-portrait.jpg`; its download name is `guille-ojeda.jpg`. The selected recording is identified there by `recording.talkId`; `src/content/index.ts` resolves it from `talks.json`, which remains the source for its title, direct recording URL, and confirmed speech language. Offered presentation languages are separate from recording speech and the title-language tags used for statistics.
 
 Use `format` and the description to distinguish speaking, hosting, and video commentary. Hosting an event does not imply presenting its guest talks, and reacting to a keynote does not imply speaking at the conference. Label announced sessions as scheduled until delivery is confirmed. White papers belong in `projects.json`, with the author or co-author role stated explicitly. If an old publication URL redirects to a different edition, use a reliable link to the original edition or its author announcement.
 

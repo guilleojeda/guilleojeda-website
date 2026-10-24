@@ -120,20 +120,8 @@
     }
   },
   "talks": {
-    "kicker": {
-      "en": "02 — Talks",
-      "es": "02 — Charlas"
-    },
     "title": {
-      "en": "Ideas from the stage.",
-      "es": "Ideas desde el escenario."
-    },
-    "intro": {
-      "en": "Conference talks, workshops, community sessions, podcasts, and conversations about building with AWS and AI.",
-      "es": "Charlas, workshops, sesiones de comunidad, podcasts y conversaciones sobre construir con AWS e IA."
-    },
-    "availabilityLabel": {
-      "en": "Speaking",
+      "en": "Talks",
       "es": "Charlas"
     },
     "availabilityText": {
@@ -141,12 +129,75 @@
       "es": "Abierto a propuestas para dar charlas."
     },
     "availabilityCta": {
-      "en": "Invite me to speak on LinkedIn",
-      "es": "Invitame por LinkedIn"
+      "en": "Invite me to speak at your event",
+      "es": "Invitame a dar una charla en tu evento"
     },
     "archiveLabel": {
       "en": "All talks and appearances",
       "es": "Todas las charlas y apariciones"
+    }
+  },
+  "speakerResources": {
+    "summary": {
+      "en": "Speaker resources",
+      "es": "Recursos para organizadores"
+    },
+    "bio": {
+      "label": {
+        "en": "Bio",
+        "es": "Biografía"
+      },
+      "text": {
+        "en": "Guille Ojeda is a Principal Innovation Architect in Caylent's Office of the CTO, based in Córdoba, Argentina. He writes Simple AWS and speaks about AWS architecture and applied AI. He is an AWS Community Builder, leads AWS AI User Group Argentina, and was named AWS Builder of the Year for LATAM-ES 2025.",
+        "es": "Guille Ojeda es Principal Innovation Architect en la oficina del CTO de Caylent y vive en Córdoba, Argentina. Escribe Simple AWS y da charlas sobre arquitectura AWS e IA aplicada. Es AWS Community Builder, lidera AWS AI User Group Argentina y fue reconocido como AWS Builder of the Year para LATAM-ES 2025."
+      }
+    },
+    "topics": {
+      "label": {
+        "en": "Topics",
+        "es": "Temas"
+      },
+      "items": [
+        {
+          "en": "Agent evaluation",
+          "es": "Evaluación de agentes"
+        },
+        {
+          "en": "Agent economics",
+          "es": "Economía de agentes"
+        },
+        {
+          "en": "AWS architecture",
+          "es": "Arquitectura AWS"
+        }
+      ]
+    },
+    "languages": {
+      "label": {
+        "en": "Presentation languages",
+        "es": "Idiomas de las charlas"
+      },
+      "value": {
+        "en": "English and Spanish",
+        "es": "Inglés y español"
+      }
+    },
+    "photo": {
+      "label": {
+        "en": "Photo",
+        "es": "Foto"
+      },
+      "downloadLabel": {
+        "en": "Download Guille’s photo",
+        "es": "Descargar foto de Guille"
+      }
+    },
+    "recording": {
+      "label": {
+        "en": "Recording",
+        "es": "Grabación"
+      },
+      "talkId": "unit-economics-ai-agents"
     }
   },
   "authorship": {

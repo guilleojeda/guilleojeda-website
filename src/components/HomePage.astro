@@ -10,6 +10,7 @@ interface Props {
 const { locale } = Astro.props;
 const localePath = locale === 'en' ? '/' : '/es/';
 const arrow = '↗';
+const portrait = { src: '/images/guille-portrait.jpg', width: 800, height: 800 };
 const featuredProjects = content.projects.filter((project) => project.featured);
 const projectArchive = content.projects.filter((project) => !project.featured);
 const talkYears = [...new Set(content.talkArchive.map((talk) => talk.year))].sort((a, b) => b - a);
@@ -35,7 +36,7 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
 
   <div class="portrait-wrap">
     <div class="portrait-frame">
-      <img src="/images/guille-portrait.jpg" alt={text(content.site.portraitAlt, locale)} width="800" height="800" loading="eager" decoding="async" />
+      <img src={portrait.src} alt={text(content.site.portraitAlt, locale)} width={portrait.width} height={portrait.height} loading="eager" decoding="async" />
     </div>
     <div class="portrait-caption">
       <span>{content.site.name}</span>
@@ -115,12 +116,8 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
 
 <section class="section" id="talks" aria-labelledby="talks-title">
   <div class="section-shell">
-    <div class="section-heading">
-      <div class="section-kicker">{text(content.talks.kicker, locale)}</div>
-      <div>
-        <h2 id="talks-title">{text(content.talks.title, locale)}</h2>
-        <p>{text(content.talks.intro, locale)}</p>
-      </div>
+    <div class="section-heading work-heading">
+      <h2 id="talks-title">{text(content.talks.title, locale)}</h2>
     </div>
 
     <div class="talk-grid">
@@ -173,12 +170,46 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
 
     <div class="availability">
       <div>
-        <div class="availability-label">{text(content.talks.availabilityLabel, locale)}</div>
         <p>{text(content.talks.availabilityText, locale)}</p>
       </div>
       <div class="availability-actions">
         <a class="button secondary" href={content.site.linkedin} target="_blank" rel="noreferrer">{text(content.talks.availabilityCta, locale)} {arrow}</a>
       </div>
+      <details class="speaker-resources">
+        <summary>{text(content.speakerResources.summary, locale)}</summary>
+        <div class="speaker-resources-body">
+          <section class="speaker-resource speaker-resource-bio" aria-labelledby="speaker-bio-title">
+            <h3 id="speaker-bio-title">{text(content.speakerResources.bio.label, locale)}</h3>
+            <p>{text(content.speakerResources.bio.text, locale)}</p>
+          </section>
+          <div class="speaker-resource-grid">
+            <section class="speaker-resource" aria-labelledby="speaker-topics-title">
+              <h3 id="speaker-topics-title">{text(content.speakerResources.topics.label, locale)}</h3>
+              <ul>
+                {content.speakerResources.topics.items.map((topic) => <li>{text(topic, locale)}</li>)}
+              </ul>
+            </section>
+            <section class="speaker-resource" aria-labelledby="speaker-languages-title">
+              <h3 id="speaker-languages-title">{text(content.speakerResources.languages.label, locale)}</h3>
+              <p>{text(content.speakerResources.languages.value, locale)}</p>
+            </section>
+            <section class="speaker-resource" aria-labelledby="speaker-photo-title">
+              <h3 id="speaker-photo-title">{text(content.speakerResources.photo.label, locale)}</h3>
+              <p>
+                <a href={portrait.src} download="guille-ojeda.jpg">{text(content.speakerResources.photo.downloadLabel, locale)}</a>
+                <span>JPG · {portrait.width} × {portrait.height}</span>
+              </p>
+            </section>
+            <section class="speaker-resource" aria-labelledby="speaker-recording-title">
+              <h3 id="speaker-recording-title">{text(content.speakerResources.recording.label, locale)}</h3>
+              <p>
+                <a href={content.speakerResources.recording.href} target="_blank" rel="noreferrer">{text(content.speakerResources.recording.title, locale)}</a>
+                <span>{text(content.speakerResources.recording.languageLabel, locale)}</span>
+              </p>
+            </section>
+          </div>
+        </div>
+      </details>
     </div>
   </div>
 </section>

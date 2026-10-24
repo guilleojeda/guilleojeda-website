@@ -8,13 +8,17 @@ import type {
   BookRecord,
   Locale,
   LocalizedText,
+  ResolvedSpeakerResources,
   SiteContent,
+  SpeakerResources,
   TalkOccurrence,
   TalkRecord,
   WorkHighlight
 } from './types';
 
-type ProfileContent = Omit<SiteContent, 'projects' | 'talkItems' | 'talkArchive' | 'books' | 'workHighlights'>;
+type ProfileContent = Omit<SiteContent, 'projects' | 'talkItems' | 'talkArchive' | 'books' | 'workHighlights' | 'speakerResources'> & {
+  speakerResources: SpeakerResources;
+};
 const profileContent: ProfileContent = profile;
 const projectRecords: SiteContent['projects'] = projects;
 
@@ -110,13 +114,34 @@ function resolveWorkHighlight(selection: HighlightSelection): WorkHighlight {
 
 const workHighlights = highlights.map(resolveWorkHighlight);
 
+function resolveSpeakerResources(selection: SpeakerResources): ResolvedSpeakerResources {
+  const talk = talkRecords.find((record) => record.id === selection.recording.talkId);
+  if (!talk) throw new Error(`Speaker resources reference missing talk "${selection.recording.talkId}".`);
+  if (!talk.recording?.href) throw new Error(`Speaker resources talk "${talk.id}" is missing its direct recording URL.`);
+  const language = requiredLanguage(talk.recording.language, `speaker resources recording for "${talk.id}"`);
+
+  return {
+    ...selection,
+    recording: {
+      label: selection.recording.label,
+      title: talk.title,
+      href: talk.recording.href,
+      languageLabel: {
+        en: `In ${languageLabels[language].en}`,
+        es: `En ${languageLabels[language].es.toLocaleLowerCase('es')}`
+      }
+    }
+  };
+}
+
 export const content = {
   ...profileContent,
   projects: projectRecords,
   talkItems: talkRecords.filter((talk) => talk.featured),
   talkArchive: talkRecords,
   books: bookRecords,
-  workHighlights
+  workHighlights,
+  speakerResources: resolveSpeakerResources(profileContent.speakerResources)
 } satisfies SiteContent;
 
 export const locales: Locale[] = ['en', 'es'];

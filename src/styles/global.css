@@ -229,8 +229,7 @@ a:hover {
 .eyebrow,
 .section-kicker,
 .work-kicker,
-.fact-label,
-.availability-label {
+.fact-label {
   color: var(--olive);
   font-size: 0.72rem;
   font-weight: 800;
@@ -1088,7 +1087,8 @@ a:hover {
   border-bottom: 1px solid var(--line);
 }
 
-.talk-archive summary {
+.talk-archive summary,
+.speaker-resources summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1101,11 +1101,13 @@ a:hover {
   list-style: none;
 }
 
-.talk-archive summary::-webkit-details-marker {
+.talk-archive summary::-webkit-details-marker,
+.speaker-resources summary::-webkit-details-marker {
   display: none;
 }
 
-.talk-archive summary::after {
+.talk-archive summary::after,
+.speaker-resources summary::after {
   color: var(--olive);
   content: "+";
   font-size: 1.4rem;
@@ -1113,7 +1115,8 @@ a:hover {
   line-height: 1;
 }
 
-.talk-archive[open] summary::after {
+.talk-archive[open] summary::after,
+.speaker-resources[open] summary::after {
   content: "−";
 }
 
@@ -1208,13 +1211,85 @@ a:hover {
   border-bottom: 1px solid var(--line);
 }
 
-.availability p {
+.availability > * {
+  min-width: 0;
+}
+
+.availability-actions {
+  margin-top: 0;
+}
+
+.availability > div > p {
   margin: 0.25rem 0 0;
   color: var(--forest-deep);
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(1.5rem, 3vw, 2.35rem);
   letter-spacing: -0.05em;
   line-height: 1;
+}
+
+.availability-actions .button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.speaker-resources {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+}
+
+.speaker-resources-body {
+  display: grid;
+  gap: 1.4rem;
+  padding: 0.25rem 0 1.2rem;
+}
+
+.speaker-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.4rem 2rem;
+}
+
+.speaker-resource {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.speaker-resource h3 {
+  margin: 0 0 0.45rem;
+  color: var(--olive);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.speaker-resource p,
+.speaker-resource ul {
+  margin: 0;
+}
+
+.speaker-resource ul {
+  padding-left: 1.15rem;
+}
+
+.speaker-resource p span {
+  display: block;
+}
+
+.speaker-resource a {
+  color: var(--forest);
+  font-weight: 700;
+  text-underline-offset: 0.15em;
+}
+
+.speaker-resource a:hover {
+  color: var(--olive);
 }
 
 .author-grid,
@@ -1625,8 +1700,9 @@ a:hover {
     padding: 1.25rem 0;
   }
 
-  .availability-actions {
-    margin-top: 0;
+  .speaker-resource-grid {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
   }
 
   .book-card {
