@@ -130,10 +130,9 @@ export interface SiteContent {
   speakerResources: ResolvedSpeakerResources;
   talkItems: TalkRecord[];
   talkArchive: TalkRecord[];
-  authorship: Record<'kicker' | 'title' | 'intro' | 'courseTitle' | 'courseText' | 'courseMeta', LocalizedText>;
+  authorship: Record<'title' | 'intro' | 'courseTitle' | 'courseText' | 'courseMeta', LocalizedText>;
   books: BookRecord[];
   about: {
-    kicker: LocalizedText;
     title: LocalizedText;
     intro: LocalizedText;
     community: LocalizedText;

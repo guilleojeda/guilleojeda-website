@@ -47,7 +47,7 @@ test('profile copy is complete in English and Spanish', () => {
     } else if (sectionName === 'nav' || sectionName === 'hero' || sectionName === 'work' || sectionName === 'talks' || sectionName === 'authorship' || sectionName === 'footer') {
       for (const [key, value] of Object.entries(section)) assertLocalized(value, `${sectionName}.${key}`);
     } else if (sectionName === 'about') {
-      for (const key of ['kicker', 'title', 'intro', 'community']) assertLocalized(section[key], `about.${key}`);
+      for (const key of ['title', 'intro', 'community']) assertLocalized(section[key], `about.${key}`);
       for (const [index, fact] of section.facts.entries()) {
         assertLocalized(fact.label, `about.facts[${index}].label`);
         assertLocalized(fact.value, `about.facts[${index}].value`);
