@@ -204,6 +204,89 @@ function checkNewsletterActions(page, html) {
   assert.doesNotMatch(feature.html, /\son[a-z]+\s*=/i, `${lang} newsletter links need no inline event handlers`);
 }
 
+function checkWorkHighlights(page, html) {
+  const { lang } = page;
+  const work = extractElement(html, 'section', 'id', 'work');
+  assert.ok(work, `${lang} homepage keeps its Work section`);
+  const heading = extractElement(work.html, 'h2', 'id', 'work-title');
+  assert.ok(heading, `${lang} Work has its section heading`);
+  const expectedHeading = lang === 'en' ? 'Highlights of my work' : 'Trabajos destacados';
+  assert.equal(normalizedText(heading.html), normalizedText(expectedHeading),
+    `${lang} Work uses its approved descriptive heading`);
+
+  const highlights = extractElement(work.html, 'div', 'class', 'work-highlights');
+  assert.ok(highlights, `${lang} Work offers a row of direct recommendations`);
+  assert.equal(normalizedText(work.html.slice(0, highlights.start)), normalizedText(expectedHeading),
+    `${lang} Work introduces the choices without a redundant kicker or narrative paragraph`);
+  assert.doesNotMatch(work.html.slice(0, highlights.start), /<(?:details|summary)\b/i,
+    `${lang} work highlights are visible without opening a disclosure`);
+  const newsletter = extractElement(work.html, 'article', 'class', 'lead-work');
+  const supporting = extractElement(work.html, 'div', 'class', 'supporting-work');
+  assert.ok(newsletter && supporting, `${lang} Work retains the newsletter and broader work cards`);
+  assert.ok(highlights.end <= newsletter.start && newsletter.end <= supporting.start,
+    `${lang} direct choices precede the newsletter and broader work`);
+
+  const selectedTalk = talks.find((talk) => talk.id === 'unit-economics-ai-agents');
+  const selectedProject = projects.find((project) => project.id === 'prompt-runner-game');
+  assert.ok(selectedTalk && selectedProject, 'approved talk and project records remain available');
+  const expected = [
+    {
+      title: 'From Prompt Edits to Performance Loops: Hands-On with Amazon Bedrock AgentCore Optimization',
+      href: 'https://caylent.com/blog/from-prompt-edits-to-performance-loops-hands-on-with-amazon-bedrock-agentcore-optimization',
+      label: lang === 'en' ? 'Read · English' : 'Leer · Inglés',
+      purpose: lang === 'en' ? /improv[\s\S]*agent|agent[\s\S]*improv/ : /mejor[\s\S]*agente|agente[\s\S]*mejor/
+    },
+    {
+      title: selectedTalk.title[lang],
+      href: 'https://www.youtube.com/watch?v=QKM876A_AM4',
+      label: lang === 'en' ? 'Watch · English' : 'Ver · Inglés',
+      purpose: lang === 'en' ? /cost[\s\S]*value|value[\s\S]*cost/ : /cost[\s\S]*valor|valor[\s\S]*cost/
+    },
+    {
+      title: selectedProject.title[lang],
+      href: 'https://robotrunner.guilleojeda.com/',
+      label: lang === 'en' ? 'Play · Spanish' : 'Jugar · Español',
+      purpose: lang === 'en' ? /tools[\s\S]*instructions|instructions[\s\S]*tools/ : /herramientas[\s\S]*instrucciones|instrucciones[\s\S]*herramientas/
+    }
+  ];
+  const links = [...highlights.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  assert.equal(links.length, 3, `${lang} work highlights offer exactly one Read, Watch and Play choice`);
+  for (const [index, item] of expected.entries()) {
+    const [, attributes, body] = links[index];
+    const href = attributes.match(/\shref=["']([^"']+)["']/i)?.[1] ?? '';
+    assert.equal(href, item.href, `${lang} highlight ${index + 1} opens its approved work directly`);
+    const title = body.match(/<h3\b[^>]*>([\s\S]*?)<\/h3>/i);
+    assert.ok(title, `${lang} highlight ${index + 1} has a readable title`);
+    assert.equal(normalizedText(title[1]), normalizedText(item.title),
+      `${lang} highlight ${index + 1} names the selected work`);
+    assert.equal(normalizedText(body.slice(0, title.index)), normalizedText(item.label),
+      `${lang} highlight ${index + 1} labels its action and actual content language`);
+    const description = body.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? '';
+    assert.match(normalizedText(description), item.purpose,
+      `${lang} highlight ${index + 1} explains its relevant purpose`);
+    if (index === 1) assert.match(normalizedText(description), lang === 'en' ? /outcome/ : /resultado/,
+      `${lang} recording recommendation connects cost and value to outcomes`);
+    if (index === 2) assert.match(normalizedText(body), lang === 'en' ? /desktop/ : /computadora|escritorio/,
+      `${lang} game recommendation states desktop play before navigation`);
+  }
+  assert.doesNotMatch(highlights.html, /<(?:form|input|iframe|script|details)\b/i,
+    `${lang} recommendations are ordinary visible links rather than embeds or hidden content`);
+  assert.doesNotMatch(highlights.html, /\son[a-z]+\s*=/i,
+    `${lang} recommendations need no inline event handlers`);
+
+  const broaderLinks = [...supporting.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  const archive = extractElement(work.html, 'details', 'class', 'talk-archive work-archive');
+  assert.ok(archive, `${lang} Work keeps its native broader-resource archive`);
+  assert.doesNotMatch(archive.html.match(/^<details\b[^>]*>/i)?.[0] ?? '', /\sopen(?:\s|=|>)/i,
+    `${lang} broader-resource archive starts closed`);
+  const archivedLinks = [...archive.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  for (const project of projects) {
+    const candidates = project.featured ? broaderLinks : archivedLinks;
+    assert.ok(candidates.some(([, attributes]) => attributes.match(/\shref=["']([^"']+)["']/i)?.[1] === project.href),
+      `${lang} broader work retains the destination for ${project.id}`);
+  }
+}
+
 function checkContentStatsShell(page, html) {
   const locale = page.lang;
   const sectionIdPosition = html.indexOf('id="content-stats"');
@@ -943,6 +1026,7 @@ for (const page of pages) {
   const yearGroups = html.match(/class="talk-year-group"/g) ?? [];
   assert.equal(yearGroups.length, new Set(talks.map((talk) => talk.year)).size, `${page.lang} archive year count`);
   for (const talk of talks) mustContainText(html, talk.title[page.lang], `${page.lang} archive item ${talk.id}`);
+  checkWorkHighlights(page, html);
 }
 
 const notFound = read('404.html');
