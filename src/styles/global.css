@@ -398,6 +398,11 @@ a:hover {
   margin-bottom: 2.8rem;
 }
 
+.work-heading {
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: 2rem;
+}
+
 .section-heading h2,
 .about-copy h2,
 .footer-lead {
@@ -522,10 +527,17 @@ a:hover {
 }
 
 .supporting-work,
-.talk-grid {
+.talk-grid,
+.work-highlights {
   display: grid;
   gap: 1rem;
   margin-top: 1rem;
+}
+
+.work-highlights {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0;
+  margin-bottom: 1rem;
 }
 
 .supporting-work {
@@ -1012,6 +1024,10 @@ a:hover {
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.work-highlight {
+  min-height: 16rem;
+}
+
 .support-card:hover,
 .talk-card:hover,
 .book-card:hover {
@@ -1038,6 +1054,11 @@ a:hover {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.5;
+}
+
+.work-highlight p {
+  margin-top: auto;
+  padding-top: 0.9rem;
 }
 
 .card-arrow {
@@ -1451,6 +1472,10 @@ a:hover {
   .supporting-work {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .work-highlights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
@@ -1552,7 +1577,8 @@ a:hover {
   }
 
   .supporting-work,
-  .talk-grid {
+  .talk-grid,
+  .work-highlights {
     grid-template-columns: 1fr;
   }
 

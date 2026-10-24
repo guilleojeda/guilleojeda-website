@@ -1,0 +1,29 @@
+[
+  {
+    "kind": "article",
+    "title": "From Prompt Edits to Performance Loops: Hands-On with Amazon Bedrock AgentCore Optimization",
+    "href": "https://caylent.com/blog/from-prompt-edits-to-performance-loops-hands-on-with-amazon-bedrock-agentcore-optimization",
+    "language": "en",
+    "text": {
+      "en": "For builders improving an agent after its first working version.",
+      "es": "Para quienes quieren mejorar un agente después de su primera versión funcional."
+    }
+  },
+  {
+    "kind": "talk",
+    "id": "unit-economics-ai-agents",
+    "text": {
+      "en": "Understand workflow costs and value per outcome.",
+      "es": "Entendé los costos de un flujo y el valor de cada resultado."
+    }
+  },
+  {
+    "kind": "project",
+    "id": "prompt-runner-game",
+    "language": "es",
+    "text": {
+      "en": "Experiment with an agent’s tools and instructions. Play on desktop.",
+      "es": "Experimentá con las herramientas e instrucciones de un agente. Para jugar desde una computadora."
+    }
+  }
+]
