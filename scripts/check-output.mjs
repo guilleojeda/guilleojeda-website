@@ -204,6 +204,54 @@ function checkNewsletterActions(page, html) {
   assert.doesNotMatch(feature.html, /\son[a-z]+\s*=/i, `${lang} newsletter links need no inline event handlers`);
 }
 
+function checkAuthorshipAndAbout(page, html) {
+  const { lang } = page;
+  const authorship = extractElement(html, 'section', 'aria-labelledby', 'authorship-title');
+  assert.ok(authorship, `${lang} homepage keeps its Books and course section`);
+  const booksHeading = extractElement(authorship.html, 'h2', 'id', 'authorship-title');
+  assert.ok(booksHeading, `${lang} Books and course section has its heading`);
+  const visibleHeading = (element) => element.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  assert.equal(visibleHeading(booksHeading.html), lang === 'en' ? 'Books and a course' : 'Libros y un curso',
+    `${lang} Books and course section uses its direct descriptive heading`);
+  assert.equal(normalizedText(authorship.html.slice(0, booksHeading.start)), '',
+    `${lang} Books and course section has no decorative prefix`);
+  mustContainText(authorship.html, profile.authorship.intro[lang], `${lang} Books and course introduction`);
+  for (const book of books) {
+    mustContainText(authorship.html, book.title[lang], `${lang} book title ${book.id}`);
+    mustContainText(authorship.html, book.text[lang], `${lang} book text ${book.id}`);
+    mustContainText(authorship.html, book.meta[lang], `${lang} book status and metadata ${book.id}`);
+    if (book.href) mustContain(authorship.html, `href="${escapeHtml(book.href)}"`, `${lang} book destination ${book.id}`);
+    if (book.cta) mustContainText(authorship.html, book.cta[lang], `${lang} book action ${book.id}`);
+  }
+  const course = extractElement(authorship.html, 'article', 'class', 'course-card');
+  assert.ok(course, `${lang} Books and course section retains its course card`);
+  mustContainText(course.html, profile.authorship.courseTitle[lang], `${lang} course title`);
+  mustContainText(course.html, profile.authorship.courseMeta[lang], `${lang} course status`);
+  mustContainText(course.html, profile.authorship.courseText[lang], `${lang} course details`);
+
+  const about = extractElement(html, 'section', 'id', 'about');
+  assert.ok(about, `${lang} homepage keeps its About section`);
+  const aboutHeading = extractElement(about.html, 'h2', 'id', 'about-title');
+  assert.ok(aboutHeading, `${lang} About section has its heading`);
+  assert.equal(visibleHeading(aboutHeading.html), lang === 'en' ? 'About me' : 'Sobre mí',
+    `${lang} About section uses its direct descriptive heading`);
+  assert.equal(normalizedText(about.html.slice(0, aboutHeading.start)), '',
+    `${lang} About section has no decorative prefix`);
+  for (const key of ['intro', 'community']) {
+    mustContainText(about.html, profile.about[key][lang], `${lang} About ${key} copy`);
+  }
+  for (const [index, fact] of profile.about.facts.entries()) {
+    mustContainText(about.html, fact.label[lang], `${lang} About fact ${index + 1} label`);
+    mustContainText(about.html, fact.value[lang], `${lang} About fact ${index + 1} value`);
+  }
+  for (const activity of profile.about.activities) {
+    mustContainText(about.html, activity.title[lang], `${lang} activity title ${activity.id}`);
+    mustContainText(about.html, activity.text[lang], `${lang} activity text ${activity.id}`);
+    if (activity.href) mustContain(about.html, `href="${escapeHtml(activity.href)}"`, `${lang} activity destination ${activity.id}`);
+    if (activity.cta) mustContainText(about.html, activity.cta[lang], `${lang} activity action ${activity.id}`);
+  }
+}
+
 function checkWorkHighlights(page, html) {
   const { lang } = page;
   const work = extractElement(html, 'section', 'id', 'work');
@@ -1173,22 +1221,13 @@ for (const page of pages) {
   assert.equal(featuredProjectCards.length, projects.filter((project) => project.featured).length, `${page.lang} featured project count`);
   assert.equal(archivedProjectRows.length, projects.filter((project) => !project.featured).length, `${page.lang} archived project count`);
   for (const project of projects) mustContainText(html, project.title[page.lang], `${page.lang} project ${project.id}`);
-  for (const book of books) {
-    mustContainText(html, book.title[page.lang], `${page.lang} book title ${book.id}`);
-    mustContainText(html, book.text[page.lang], `${page.lang} book text ${book.id}`);
-    mustContainText(html, book.meta[page.lang], `${page.lang} book metadata ${book.id}`);
-  }
-  for (const activity of profile.about.activities) {
-    mustContainText(html, activity.title[page.lang], `${page.lang} activity title ${activity.id}`);
-    mustContainText(html, activity.text[page.lang], `${page.lang} activity text ${activity.id}`);
-  }
-
   const archiveItems = html.match(/class="talk-archive-item"/g) ?? [];
   assert.equal(archiveItems.length, talks.length, `${page.lang} archive item count`);
   const yearGroups = html.match(/class="talk-year-group"/g) ?? [];
   assert.equal(yearGroups.length, new Set(talks.map((talk) => talk.year)).size, `${page.lang} archive year count`);
   for (const talk of talks) mustContainText(html, talk.title[page.lang], `${page.lang} archive item ${talk.id}`);
   checkWorkHighlights(page, html);
+  checkAuthorshipAndAbout(page, html);
   checkSpeakerResources(page, html);
   checkOctoberMeetup(page, html);
 }
