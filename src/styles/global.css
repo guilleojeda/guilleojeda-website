@@ -227,7 +227,6 @@ a:hover {
 }
 
 .eyebrow,
-.section-kicker,
 .work-kicker,
 .fact-label {
   color: var(--olive);
@@ -392,13 +391,12 @@ a:hover {
 
 .section-heading {
   display: grid;
-  grid-template-columns: minmax(190px, 0.3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 2rem;
   margin-bottom: 2.8rem;
 }
 
 .work-heading {
-  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 2rem;
 }
 
@@ -553,7 +551,6 @@ a:hover {
 }
 
 .content-stats .section-heading {
-  grid-template-columns: 1fr;
   margin-bottom: 1.25rem;
 }
 
@@ -1626,7 +1623,6 @@ a:hover {
     font-size: 0.66rem;
   }
 
-  .section-heading,
   .lead-work,
   .author-grid,
   .about-layout,

@@ -201,13 +201,9 @@
     }
   },
   "authorship": {
-    "kicker": {
-      "en": "03 — Authorship",
-      "es": "03 — Autoría"
-    },
     "title": {
-      "en": "Books and a course on building with AWS.",
-      "es": "Libros y un curso para construir con AWS."
+      "en": "Books and a course",
+      "es": "Libros y un curso"
     },
     "intro": {
       "en": "Two published books, a new book in progress, and a video course on deploying applications to AWS.",
@@ -227,13 +223,9 @@
     }
   },
   "about": {
-    "kicker": {
-      "en": "04 — About",
-      "es": "04 — Sobre mí"
-    },
     "title": {
-      "en": "A little about me.",
-      "es": "Un poco sobre mí."
+      "en": "About me",
+      "es": "Sobre mí"
     },
     "intro": {
       "en": "Today I work as Principal Innovation Architect at Caylent’s Office of the CTO, helping turn emerging cloud and AI ideas into useful systems and clear explanations.",
