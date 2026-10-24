@@ -126,7 +126,7 @@ test('duplicate source identities and missing factual metadata fail generation i
 });
 
 const speakingIds = [
-  'nerdearla-2026-aws-booth-agent', 'mexico-agent-authorization',
+  'cordoba-agent-economics-2026', 'nerdearla-2026-aws-booth-agent', 'mexico-agent-authorization',
   'aws-sbg-utn-agent', 'aws-ai-meetup-1-agent', 'unit-economics-ai-agents',
   'tribu-production-genai', 'reinvent-know-before-you-go',
   'valkey-recommendations', 'valkey-cache', 'community-programs-panel',
@@ -138,6 +138,7 @@ const speakingIds = [
   'practitioner-kickoff', 'cordoba-low-cost', 'carameltalks-getting-started'
 ].sort();
 const speakingLanguages = {
+  'cordoba-agent-economics-2026': 'es',
   'nerdearla-2026-aws-booth-agent': 'es',
   'mexico-agent-authorization': 'es',
   'aws-sbg-utn-agent': 'es',
@@ -201,7 +202,7 @@ test('real maintained speaking facts preserve the confirmed deliveries and separ
     }
   }
   assert.equal(confirmedLanguages.filter((language) => language === 'en').length, 9);
-  assert.equal(confirmedLanguages.filter((language) => language === 'es').length, 19);
+  assert.equal(confirmedLanguages.filter((language) => language === 'es').length, 20);
 
   const titleLanguageAnchors = [
     ['valkey-cache', 'Cache me if you can, Valkey edition', 'en'],
@@ -225,6 +226,27 @@ test('real maintained speaking facts preserve the confirmed deliveries and separ
     assert.equal(record.occurrences.length, 2, `${id} has two separately maintained slots`);
     assert.equal(new Set(record.occurrences.map((occurrence) => occurrence.id)).size, 2);
   }
+});
+
+test('the October 22 meetup preserves both owner-confirmed speaking occurrences', async () => {
+  const records = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
+  const meetup = records.find((record) => record.id === 'cordoba-agent-economics-2026');
+  assert.ok(meetup, 'the maintained meetup record remains available');
+  assert.equal(meetup.year, 2026);
+  assert.deepEqual(meetup.title, {
+    en: 'La Economía de los Agentes de IA',
+    es: 'La Economía de los Agentes de IA'
+  });
+  const expected = [
+    { id: 'talk', kind: 'talk', status: 'delivered', language: 'es' },
+    { id: 'certification-panel', kind: 'panel', status: 'delivered', language: 'es' }
+  ];
+  assert.deepEqual(meetup.occurrences, expected, 'the talk and panel were separately confirmed by the owner');
+  const build = await inputBuilder();
+  const result = build({ ...fixture(), talks: [meetup] });
+  assert.deepEqual(result.curated.talks, expected.map((occurrence) => ({
+    ...occurrence, id: `cordoba-agent-economics-2026/${occurrence.id}`
+  })), 'the protected projection retains each delivered occurrence exactly once');
 });
 
 test('real book facts retain the verified historical publication credits with title languages', () => {

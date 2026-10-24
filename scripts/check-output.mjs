@@ -287,6 +287,36 @@ function checkWorkHighlights(page, html) {
   }
 }
 
+function checkOctoberMeetup(page, html) {
+  const talksSection = extractElement(html, 'section', 'id', 'talks');
+  const year = extractElement(talksSection.html, 'section', 'aria-labelledby', 'talk-year-2026');
+  assert.ok(year, `${page.lang} speaking archive retains its 2026 group`);
+  const title = 'La Economía de los Agentes de IA';
+  const rows = [...year.html.matchAll(/<article\b[^>]*class="talk-archive-item"[^>]*>([\s\S]*?)<\/article>/g)]
+    .map((match) => match[1]).filter((row) => row.includes(title));
+  assert.equal(rows.length, 1, `${page.lang} October meetup has one archive entry`);
+  const row = rows[0];
+  const expected = page.lang === 'en' ? {
+    format: 'Meetup talk and panel',
+    text: 'On October 22, 2026, I spoke about calculating cost per outcome and the real costs of an Amazon Bedrock AgentCore agent before production. I also joined the event’s AWS certification panel.',
+    cta: 'Watch the talk'
+  } : {
+    format: 'Charla de meetup y panel',
+    text: 'El 22 de octubre de 2026 hablé sobre cómo calcular el costo por resultado y los costos reales de un agente con Amazon Bedrock AgentCore antes de llevarlo a producción. También participé del panel sobre certificaciones de AWS.',
+    cta: 'Ver la charla'
+  };
+  for (const value of [title, 'AWS User Group Córdoba & AWS AI User Group Argentina', expected.format, expected.text]) {
+    mustContainText(row, value, `${page.lang} confirmed October meetup copy: ${value}`);
+  }
+  assert.doesNotMatch(row, /\bupcoming\b|pr[oó]xima/i, `${page.lang} delivered meetup is no longer upcoming`);
+  const links = [...row.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)];
+  assert.equal(links.length, 1, `${page.lang} meetup has one ordinary recording link`);
+  assert.equal(links[0][1].match(/\shref="([^"]+)"/)?.[1], 'https://www.youtube.com/live/QLt6OAZhNxw?t=5325s',
+    `${page.lang} meetup opens its verified talk timestamp`);
+  assert.equal(normalizedText(links[0][2]).replace(/\s*↗$/, ''), normalizedText(expected.cta),
+    `${page.lang} meetup recording action is localized`);
+}
+
 // Approved speaker-resource content and owner-confirmed presentation languages.
 // Inventory title language and recording speech language are separate facts.
 function checkSpeakerResources(page, html) {
@@ -1160,6 +1190,7 @@ for (const page of pages) {
   for (const talk of talks) mustContainText(html, talk.title[page.lang], `${page.lang} archive item ${talk.id}`);
   checkWorkHighlights(page, html);
   checkSpeakerResources(page, html);
+  checkOctoberMeetup(page, html);
 }
 
 const notFound = read('404.html');
