@@ -1801,6 +1801,28 @@ test("input 3 publishes independent article, delivered-session, and published-bo
   }
 });
 
+test("the real inventory counts both October 22 appearances without counting future re:Invent slots", async () => {
+  const { buildContentStatsInputs } = await import('../scripts/build-content-stats-inputs.mjs');
+  const talks = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
+  const books = JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'));
+  const input = buildContentStatsInputs({ articleConfig: phaseTwoInput(), talks, books });
+  assert.equal(talks.length, 37, 'two meetup appearances remain one archive record');
+  assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('cordoba-agent-economics-2026/')), [
+    talkFact('cordoba-agent-economics-2026/talk', 'talk', 'delivered', 'es'),
+    talkFact('cordoba-agent-economics-2026/certification-panel', 'panel', 'delivered', 'es')
+  ]);
+  assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('reinvent-2026-agent-evaluations/')), [
+    talkFact('reinvent-2026-agent-evaluations/com317-r', 'session', 'scheduled', 'en'),
+    talkFact('reinvent-2026-agent-evaluations/com317-r1', 'session', 'scheduled', 'en')
+  ]);
+  const harness = createHarness({ input, fetchFn: builderApiFetch() });
+  await harness.handler({}, {});
+  assert.equal(harness.putCalls.length, 1);
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(output.groups.talks.counts, { all: 30, en: 9, es: 21 });
+  assert.deepEqual(output.groups.books.counts, { all: 2, en: 2, es: 0 });
+});
+
 test("input 3 publishes measured zero counts for empty eligible inventories", async () => {
   const harness = createHarness({
     input: phaseThreeInput(),

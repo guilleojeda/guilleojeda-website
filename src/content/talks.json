@@ -27,8 +27,8 @@
   {
     "id": "cordoba-agent-economics-2026",
     "occurrences": [
-      { "id": "talk", "kind": "talk", "status": "scheduled", "language": "es" },
-      { "id": "certification-panel", "kind": "panel", "status": "scheduled", "language": "es" }
+      { "id": "talk", "kind": "talk", "status": "delivered", "language": "es" },
+      { "id": "certification-panel", "kind": "panel", "status": "delivered", "language": "es" }
     ],
     "year": 2026,
     "event": {
@@ -36,21 +36,21 @@
       "es": "AWS User Group Córdoba & AWS AI User Group Argentina"
     },
     "format": {
-      "en": "Upcoming meetup talk",
-      "es": "Próxima charla de meetup"
+      "en": "Meetup talk and panel",
+      "es": "Charla de meetup y panel"
     },
     "title": {
       "en": "La Economía de los Agentes de IA",
       "es": "La Economía de los Agentes de IA"
     },
     "text": {
-      "en": "October 22, 2026: calculating cost per outcome and the real costs of an Amazon Bedrock AgentCore agent before production. Also joining the event’s AWS certification panel.",
-      "es": "22 de octubre de 2026: cómo calcular el costo por resultado y los costos reales de un agente con Amazon Bedrock AgentCore antes de llevarlo a producción. También participo del panel sobre certificaciones de AWS."
+      "en": "On October 22, 2026, I spoke about calculating cost per outcome and the real costs of an Amazon Bedrock AgentCore agent before production. I also joined the event’s AWS certification panel.",
+      "es": "El 22 de octubre de 2026 hablé sobre cómo calcular el costo por resultado y los costos reales de un agente con Amazon Bedrock AgentCore antes de llevarlo a producción. También participé del panel sobre certificaciones de AWS."
     },
-    "href": "https://www.meetup.com/es-es/aws-user-group-cordoba-argentina/events/316964435/",
+    "href": "https://www.youtube.com/live/QLt6OAZhNxw?t=5325s",
     "cta": {
-      "en": "View the event",
-      "es": "Ver el evento"
+      "en": "Watch the talk",
+      "es": "Ver la charla"
     }
   },
   {
