@@ -46,12 +46,18 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
 
 <section class="section" id="work" aria-labelledby="work-title">
   <div class="section-shell">
-    <div class="section-heading">
-      <div class="section-kicker">{text(content.work.kicker, locale)}</div>
-      <div>
-        <h2 id="work-title">{text(content.work.title, locale)}</h2>
-        <p>{text(content.work.intro, locale)}</p>
-      </div>
+    <div class="section-heading work-heading">
+      <h2 id="work-title">{text(content.work.title, locale)}</h2>
+    </div>
+
+    <div class="work-highlights">
+      {content.workHighlights.map((highlight) => (
+        <a class="support-card work-highlight" href={highlight.href} target="_blank" rel="noreferrer">
+          <span class="work-kicker">{text(highlight.label, locale)}</span>
+          <h3>{text(highlight.title, locale)}</h3>
+          <p>{text(highlight.text, locale)}</p>
+        </a>
+      ))}
     </div>
 
     <article class="lead-work">

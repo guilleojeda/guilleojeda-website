@@ -28,14 +28,17 @@ Edit the small files in `src/content/`:
 
 | File | Content |
 | --- | --- |
-| `profile.json` | Bio, role, hero recognition, community activities, course, interface copy, primary links, and metadata |
+| `profile.json` | Bio, role, recognition, section copy, community activities, course, primary links, and metadata |
 | `projects.json` | Selected work and its destinations |
-| `talks.json` | Talks, workshops, hosting, podcasts, training, and video appearances; highlight selection and public links |
+| `highlights.json` | The three homepage work recommendations and bilingual purpose copy; existing talks and projects are referenced by ID |
+| `talks.json` | Talks, workshops, hosting, podcasts, training, video appearances, and optional direct recording metadata |
 | `books.json` | Authored books, descriptions, and per-book publication/status labels |
 
-Keep common identifiers, dates, and URLs in each record once. Put the two translations beside each other under `en` and `es`. To add a talk or project, copy an existing record, give it a distinct ID, and update its facts, links, and both translations. Set a project’s `featured: true` to show a card; other projects appear in the compact work archive. Page components should not need edits. Publication titles can stay in their original language.
+Keep common identifiers, dates, and URLs in each record once. Put the two translations beside each other under `en` and `es`. The homepage highlights are ordered in `highlights.json`: the article’s title and URL live with that selection, while talk and project selections reference their existing IDs so those records remain authoritative for titles and destinations. A talk’s optional `recording` stores a direct video/audio URL and its confirmed speech language separately from the talk’s event-page `href`/`cta` and occurrence-language facts. Recommendation labels use the content language, independent of the visitor’s interface language. Publication titles can stay in their original language.
 
-Every record in `talks.json` appears in the complete archive, grouped by its numeric `year`. Set `featured: true` for a highlight card; provide paired `event`, `format`, `title`, and `text`. A repeated talk at a different event is a separate record. Add `href` and a paired `cta` when a public recording, deck, or event page exists; otherwise omit both. A missing recording does not require omitting a supported appearance.
+To add a talk or project, copy an existing record, give it a distinct ID, and update its facts, links, and both translations. Set a project’s `featured: true` to show it among the existing project cards; other projects appear in the compact work archive. Update page components only when the rendering structure itself changes.
+
+Every record in `talks.json` appears in the complete archive, grouped by its numeric `year`. Set `featured: true` for a talk card; provide paired `event`, `format`, `title`, and `text`. A repeated talk at a different event is a separate record. Add `href` and a paired `cta` for its public page when one exists; otherwise omit both. Add `recording.href` and `recording.language` only when the direct recording destination and spoken language are confirmed. A direct recording selection does not replace an existing event-page link or change occurrence-language facts. A missing recording does not require omitting a supported appearance.
 
 Use `format` and the description to distinguish speaking, hosting, and video commentary. Hosting an event does not imply presenting its guest talks, and reacting to a keynote does not imply speaking at the conference. Label announced sessions as scheduled until delivery is confirmed. White papers belong in `projects.json`, with the author or co-author role stated explicitly. If an old publication URL redirects to a different edition, use a reliable link to the original edition or its author announcement.
 

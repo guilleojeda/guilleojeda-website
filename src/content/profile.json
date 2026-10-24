@@ -78,17 +78,9 @@
     }
   },
   "work": {
-    "kicker": {
-      "en": "01 — Selected work",
-      "es": "01 — Trabajo seleccionado"
-    },
     "title": {
-      "en": "Work that makes the complex clearer.",
-      "es": "Trabajo para volver más claro lo complejo."
-    },
-    "intro": {
-      "en": "A curated view of the places where I build, explain, and share what I’m learning.",
-      "es": "Una selección de los proyectos donde construyo, explico y comparto lo que aprendo."
+      "en": "Highlights of my work",
+      "es": "Trabajos destacados"
     },
     "newsletterKicker": {
       "en": "Biweekly newsletter",

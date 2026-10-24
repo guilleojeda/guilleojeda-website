@@ -18,6 +18,13 @@ export type TalkOccurrenceStatus = 'delivered' | 'scheduled' | 'unknown';
 
 export type LocalizedText = Record<Locale, string>;
 
+export interface WorkHighlight {
+  label: LocalizedText;
+  title: LocalizedText;
+  href: string;
+  text: LocalizedText;
+}
+
 export interface TalkOccurrence {
   id: string;
   kind: TalkOccurrenceKind;
@@ -50,6 +57,10 @@ export interface TalkRecord {
   text: LocalizedText;
   href?: string;
   cta?: LocalizedText;
+  recording?: {
+    href: string;
+    language: ContentLanguage;
+  };
   featured?: boolean;
 }
 
@@ -79,7 +90,8 @@ export interface SiteContent {
   };
   nav: Record<'work' | 'talks' | 'about' | 'switchTo' | 'switchLabel', LocalizedText>;
   hero: Record<'eyebrow' | 'title' | 'intro' | 'recognition' | 'primaryCta' | 'contactCta' | 'roleContext' | 'portraitNote', LocalizedText>;
-  work: Record<'kicker' | 'title' | 'intro' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterSubscribeCta' | 'newsletterReadCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
+  work: Record<'title' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterSubscribeCta' | 'newsletterReadCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
+  workHighlights: WorkHighlight[];
   projects: ProjectRecord[];
   talks: Record<'kicker' | 'title' | 'intro' | 'availabilityLabel' | 'availabilityText' | 'availabilityCta' | 'archiveLabel', LocalizedText>;
   talkItems: TalkRecord[];
