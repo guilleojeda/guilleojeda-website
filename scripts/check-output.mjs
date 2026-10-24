@@ -287,6 +287,138 @@ function checkWorkHighlights(page, html) {
   }
 }
 
+// Approved speaker-resource content and owner-confirmed presentation languages.
+// Inventory title language and recording speech language are separate facts.
+function checkSpeakerResources(page, html) {
+  const { lang } = page;
+  const expected = lang === 'en' ? {
+    title: 'Talks',
+    availability: 'Open to speaking opportunities.',
+    invite: 'Invite me to speak at your event',
+    summary: 'Speaker resources',
+    labels: ['Bio', 'Topics', 'Presentation languages', 'Photo', 'Recording'],
+    bio: "Guille Ojeda is a Principal Innovation Architect in Caylent's Office of the CTO, based in Córdoba, Argentina. He writes Simple AWS and speaks about AWS architecture and applied AI. He is an AWS Community Builder, leads AWS AI User Group Argentina, and was named AWS Builder of the Year for LATAM-ES 2025.",
+    topics: ['Agent evaluation', 'Agent economics', 'AWS architecture'],
+    languages: 'English and Spanish',
+    download: 'Download Guille’s photo',
+    recordingLanguage: 'In English'
+  } : {
+    title: 'Charlas',
+    availability: 'Abierto a propuestas para dar charlas.',
+    invite: 'Invitame a dar una charla en tu evento',
+    summary: 'Recursos para organizadores',
+    labels: ['Biografía', 'Temas', 'Idiomas de las charlas', 'Foto', 'Grabación'],
+    bio: 'Guille Ojeda es Principal Innovation Architect en la oficina del CTO de Caylent y vive en Córdoba, Argentina. Escribe Simple AWS y da charlas sobre arquitectura AWS e IA aplicada. Es AWS Community Builder, lidera AWS AI User Group Argentina y fue reconocido como AWS Builder of the Year para LATAM-ES 2025.',
+    topics: ['Evaluación de agentes', 'Economía de agentes', 'Arquitectura AWS'],
+    languages: 'Inglés y español',
+    download: 'Descargar foto de Guille',
+    recordingLanguage: 'En inglés'
+  };
+  const visibleText = (value) => normalizedText(value
+    .replace(/&#(?:39|x27);|&apos;/gi, "'")
+    .replace(/[↗↘↓]/g, ''));
+  const href = (attributes) => attributes.match(/\shref=["']([^"']+)["']/i)?.[1] ?? '';
+  const opening = (element, tag) => element.html.match(new RegExp(`^<${tag}\\b[^>]*>`, 'i'))?.[0] ?? '';
+  const talksSection = extractElement(html, 'section', 'id', 'talks');
+  assert.ok(talksSection, `${lang} homepage keeps its Talks section`);
+  const heading = extractElement(talksSection.html, 'h2', 'id', 'talks-title');
+  assert.ok(heading, `${lang} Talks has its section heading`);
+  assert.equal(visibleText(heading.html), visibleText(expected.title), `${lang} Talks uses its descriptive heading`);
+  const featured = extractElement(talksSection.html, 'div', 'class', 'talk-grid');
+  assert.ok(featured, `${lang} Talks keeps its featured cards`);
+  assert.equal(visibleText(talksSection.html.slice(0, featured.start)), visibleText(expected.title),
+    `${lang} Talks has no redundant kicker or narrative introduction`);
+  assert.doesNotMatch(talksSection.html.slice(0, featured.start), /<(?:details|summary)\b/i,
+    `${lang} featured talks stay outside disclosures`);
+
+  const featuredRecords = talks.filter((talk) => talk.featured);
+  const cards = [...featured.html.matchAll(/<(a|article)\b([^>]*\sclass=["']talk-card["'][^>]*)>([\s\S]*?)<\/\1>/gi)];
+  assert.equal(cards.length, featuredRecords.length, `${lang} Talks retains every featured card`);
+  for (const [index, talk] of featuredRecords.entries()) {
+    mustContainText(cards[index][3], talk.title[lang], `${lang} featured talk ${talk.id}`);
+    assert.equal(href(cards[index][2]), talk.href ?? '', `${lang} featured talk ${talk.id} keeps its destination`);
+  }
+
+  const archive = extractElement(talksSection.html, 'details', 'class', 'talk-archive');
+  const availability = extractElement(talksSection.html, 'div', 'class', 'availability');
+  assert.ok(archive && availability, `${lang} Talks retains its archive and speaking invitation`);
+  assert.ok(featured.end <= archive.start && archive.end <= availability.start,
+    `${lang} speaking invitation follows the featured talks and complete archive`);
+  assert.doesNotMatch(opening(archive, 'details'), /\sopen(?:\s|=|>)/i, `${lang} speaking archive starts closed`);
+  assert.equal((archive.html.match(/class=["']talk-archive-item["']/g) ?? []).length, talks.length,
+    `${lang} complete archive retains every speaking record`);
+  for (const talk of talks) {
+    mustContainText(archive.html, talk.title[lang], `${lang} archive title for ${talk.id}`);
+    mustContainText(archive.html, talk.text[lang], `${lang} archive description/status for ${talk.id}`);
+    if (talk.href) mustContain(archive.html, `href="${escapeHtml(talk.href)}"`, `${lang} archive destination for ${talk.id}`);
+  }
+
+  const resources = extractElement(availability.html, 'details', 'class', 'speaker-resources');
+  assert.ok(resources, `${lang} speaking invitation offers native speaker resources`);
+  assert.equal((html.match(/<details\b[^>]*\sclass=["']speaker-resources["']/gi) ?? []).length, 1,
+    `${lang} homepage has one speaker-resource disclosure`);
+  assert.doesNotMatch(opening(resources, 'details'), /\sopen(?:\s|=|>)/i, `${lang} speaker resources start closed`);
+  const archiveName = opening(archive, 'details').match(/\sname=["']([^"']+)["']/i)?.[1];
+  const resourcesName = opening(resources, 'details').match(/\sname=["']([^"']+)["']/i)?.[1];
+  assert.ok(!archiveName || archiveName !== resourcesName, `${lang} archive and resources do not form an exclusive accordion`);
+  const summary = resources.html.match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i)?.[1] ?? '';
+  assert.equal(visibleText(summary), visibleText(expected.summary), `${lang} speaker-resource summary is localized`);
+
+  const invitation = availability.html.slice(0, resources.start);
+  const inviteLinks = [...invitation.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  assert.equal(inviteLinks.length, 1, `${lang} speaking invitation has one direct contact action`);
+  assert.equal(href(inviteLinks[0][1]), 'https://www.linkedin.com/in/guilleojeda', `${lang} speaking inquiry still opens LinkedIn`);
+  assert.equal(visibleText(inviteLinks[0][2]), visibleText(expected.invite), `${lang} invitation clearly refers to speaking at the visitor's event`);
+  assert.equal(visibleText(invitation), visibleText(`${expected.availability} ${expected.invite}`),
+    `${lang} availability stays outside the closed kit without a redundant Speaking label`);
+
+  const fields = ['bio', 'topics', 'languages', 'photo', 'recording'].map((name, index) => {
+    const id = `speaker-${name}-title`;
+    const field = extractElement(resources.html, 'section', 'aria-labelledby', id);
+    assert.ok(field, `${lang} resources include the ${name} field`);
+    const label = extractElement(field.html, 'h3', 'id', id);
+    assert.ok(label, `${lang} ${name} field has its accessible heading`);
+    assert.equal(visibleText(label.html), visibleText(expected.labels[index]), `${lang} ${name} label is localized`);
+    return field;
+  });
+  let previousEnd = 0;
+  for (const [index, field] of fields.entries()) {
+    assert.ok(field.start >= previousEnd, `${lang} speaker-resource fields retain their reading order`);
+    assert.equal(visibleText(resources.html.slice(previousEnd, field.start)), index === 0 ? visibleText(expected.summary) : '',
+      `${lang} speaker resources avoid additional introductory or decorative copy`);
+    previousEnd = field.end;
+  }
+  assert.equal(visibleText(resources.html.slice(previousEnd)), '', `${lang} speaker resources have no trailing internal notes`);
+  const [bio, topics, languages, photo, recording] = fields;
+  assert.equal(visibleText(bio.html), visibleText(`${expected.labels[0]} ${expected.bio}`), `${lang} speaker bio matches the approved facts`);
+  assert.deepEqual([...topics.html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map((match) => visibleText(match[1])),
+    expected.topics.map(visibleText), `${lang} speaker topics match the three approved subjects`);
+  assert.equal(visibleText(topics.html), visibleText(`${expected.labels[1]} ${expected.topics.join(' ')}`),
+    `${lang} topic copy stays concise`);
+  assert.equal(visibleText(languages.html), visibleText(`${expected.labels[2]} ${expected.languages}`),
+    `${lang} offered talk languages are owner-confirmed English and Spanish`);
+
+  const resourceLinks = [...resources.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  assert.equal(resourceLinks.length, 2, `${lang} kit has direct photo and recording links`);
+  const photoLink = photo.html.match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
+  assert.ok(photoLink, `${lang} photo is an ordinary link`);
+  assert.equal(href(photoLink[1]), '/images/guille-portrait.jpg', `${lang} photo uses the same repository-owned image`);
+  assert.match(photoLink[1], /\sdownload=["']guille-ojeda\.jpg["']/i, `${lang} photo requests a named native download`);
+  assert.equal(visibleText(photoLink[2]), visibleText(expected.download), `${lang} photo download has its localized label`);
+  assert.equal(visibleText(photo.html), visibleText(`${expected.labels[3]} ${expected.download} JPG · 800 × 800`),
+    `${lang} photo copy contains only the useful label, action and file facts`);
+  const recordingLink = recording.html.match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
+  assert.ok(recordingLink, `${lang} representative recording is an ordinary link`);
+  assert.equal(href(recordingLink[1]), 'https://www.youtube.com/watch?v=QKM876A_AM4', `${lang} kit opens the direct approved recording`);
+  assert.equal(visibleText(recordingLink[2]), visibleText('The Unit Economics of AI Agents'), `${lang} recording retains its original title`);
+  assert.equal(visibleText(recording.html), visibleText(`${expected.labels[4]} The Unit Economics of AI Agents ${expected.recordingLanguage}`),
+    `${lang} representative recording identifies its English speech independently of offered languages`);
+  assert.doesNotMatch(resources.html, /<(?:form|input|iframe|script|button)\b/i,
+    `${lang} resources use readable text and links without embeds, forms or custom controls`);
+  assert.equal((resources.html.match(/<details\b/gi) ?? []).length, 1, `${lang} kit fields need no nested disclosures`);
+  assert.doesNotMatch(availability.html, /\son[a-z]+\s*=/i, `${lang} invitation and resources need no inline event handlers`);
+}
+
 function checkContentStatsShell(page, html) {
   const locale = page.lang;
   const sectionIdPosition = html.indexOf('id="content-stats"');
@@ -1027,6 +1159,7 @@ for (const page of pages) {
   assert.equal(yearGroups.length, new Set(talks.map((talk) => talk.year)).size, `${page.lang} archive year count`);
   for (const talk of talks) mustContainText(html, talk.title[page.lang], `${page.lang} archive item ${talk.id}`);
   checkWorkHighlights(page, html);
+  checkSpeakerResources(page, html);
 }
 
 const notFound = read('404.html');

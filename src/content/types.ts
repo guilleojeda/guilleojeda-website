@@ -25,6 +25,39 @@ export interface WorkHighlight {
   text: LocalizedText;
 }
 
+export interface SpeakerResources {
+  summary: LocalizedText;
+  bio: {
+    label: LocalizedText;
+    text: LocalizedText;
+  };
+  topics: {
+    label: LocalizedText;
+    items: LocalizedText[];
+  };
+  languages: {
+    label: LocalizedText;
+    value: LocalizedText;
+  };
+  photo: {
+    label: LocalizedText;
+    downloadLabel: LocalizedText;
+  };
+  recording: {
+    label: LocalizedText;
+    talkId: string;
+  };
+}
+
+export interface ResolvedSpeakerResources extends Omit<SpeakerResources, 'recording'> {
+  recording: {
+    label: LocalizedText;
+    title: LocalizedText;
+    href: string;
+    languageLabel: LocalizedText;
+  };
+}
+
 export interface TalkOccurrence {
   id: string;
   kind: TalkOccurrenceKind;
@@ -93,7 +126,8 @@ export interface SiteContent {
   work: Record<'title' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterSubscribeCta' | 'newsletterReadCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
   workHighlights: WorkHighlight[];
   projects: ProjectRecord[];
-  talks: Record<'kicker' | 'title' | 'intro' | 'availabilityLabel' | 'availabilityText' | 'availabilityCta' | 'archiveLabel', LocalizedText>;
+  talks: Record<'title' | 'availabilityText' | 'availabilityCta' | 'archiveLabel', LocalizedText>;
+  speakerResources: ResolvedSpeakerResources;
   talkItems: TalkRecord[];
   talkArchive: TalkRecord[];
   authorship: Record<'kicker' | 'title' | 'intro' | 'courseTitle' | 'courseText' | 'courseMeta', LocalizedText>;
