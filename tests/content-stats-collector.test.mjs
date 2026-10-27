@@ -10201,6 +10201,15 @@ function assertNoArticleInventoryCanaries(harness, ...values) {
   }
 }
 
+function assertPublicArticleMetadataNotLogged(harness, group, ...values) {
+  const catalog = JSON.stringify(group);
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(catalog.includes(value), true, "approved public metadata appears in the Article catalog");
+    assert.equal(logs.includes(value), false, "collector logs omit Article titles and destinations");
+  }
+}
+
 test("input12 keeps strict root validation and the existing source dependencies before provider work", async () => {
   const valid = phaseTwelveArticleInventoryInput();
   const missingInventory = structuredClone(valid);
@@ -10308,7 +10317,6 @@ test("input12 joins all six automatic sources with manual publications by normal
     ]
   };
   const requestLog = [];
-  const privateValues = manualInventory.publications.flatMap(({ title, url }) => [title, url]);
   const manualBuilderViews = manualBuilderArticleViewsInput({
     observedAt: "2026-10-16T12:00:00.000Z",
     views: { en: 23, es: 7 }
@@ -10379,9 +10387,7 @@ test("input12 joins all six automatic sources with manual publications by normal
   delete refreshedSiblings.articles;
   assert.deepEqual(refreshedSiblings, baselineSiblings,
     "input12 preserves every healthy sibling family, including non-empty talks and books, exactly");
-  assert.deepEqual(Object.keys(group).sort(), [
-    "basis", "collectedAt", "counts", "definitionVersion", "scopeId", "sources"
-  ], "phase 4 continues to publish the established count-only Articles group");
+  assertPhaseFiveCatalogShape(group);
   assert.notEqual(group.scopeId, baseline.groups.articles.scopeId,
     "the selected individual records and exclusions belong to the Articles scope");
   assert.deepEqual(group.counts, { all: 13, en: 10, es: 3 },
@@ -10417,7 +10423,11 @@ test("input12 joins all six automatic sources with manual publications by normal
       );
     }
   }
-  assertNoArticleInventoryCanaries(harness, ...privateValues);
+  assertPublicArticleMetadataNotLogged(
+    harness,
+    group,
+    ...manualInventory.publications.flatMap(({ title, url }) => [title, url.replace(/\/+$/, "")])
+  );
 });
 
 test("input12 exclusions match stable source URLs across title edits without hiding a same-title destination", async () => {
@@ -10891,7 +10901,11 @@ test("input12 retains Articles only for an exact validated scope and recovers wi
   assert.deepEqual(repeated.counts, recovered.counts, "a repeated invocation recomputes the same full count");
   assert.equal(repeated.scopeId, recovered.scopeId);
   assert.equal(outputReads() - readsBeforeInvocation, 0);
-  assertNoArticleInventoryCanaries(harness, ...inventory.publications.map(({ title, url }) => [title, url]).flat());
+  assertPublicArticleMetadataNotLogged(
+    harness,
+    repeated,
+    ...inventory.publications.flatMap(({ title, url }) => [title, url.replace(/\/+$/, "")])
+  );
 });
 
 test("input12 without a valid manual Builder observation retains a valid prior v1 or v2 group", async () => {
@@ -11088,4 +11102,723 @@ test("implementation regression: Hashnode retries one transient GraphQL error wi
   assert.equal(harness.logs.join("\n").includes(privateMessage), false);
   assert.equal(harness.logs.join("\n").includes(privateCursor), false);
   assertNoCloudyCanaries(harness, article.title, article.url, privateMessage, privateCursor);
+});
+
+function phaseFiveCatalogTitle(title) {
+  return title.normalize("NFC")
+    .replace(/^[\s\p{White_Space}]+|[\s\p{White_Space}]+$/gu, "")
+    .replace(/[\s\p{White_Space}]+/gu, " ")
+    .toLowerCase();
+}
+
+function phaseFiveCatalogId(title, language) {
+  return createHash("sha256")
+    .update(JSON.stringify([phaseFiveCatalogTitle(title), language]))
+    .digest("hex");
+}
+
+function phaseFiveInputWithoutInventory(input12) {
+  const input = structuredClone(input12);
+  input.schemaVersion = 11;
+  delete input.articleInventory;
+  return input;
+}
+
+function phaseFiveCatalogRows() {
+  const sharedTitle = "  Shared   Catalog Café! ";
+  const sharedCaylentDate = Date.parse("2025-01-03T04:05:06.000Z");
+  const sharedCaylentUrl = "/blog/phase5-shared-catalog";
+  return {
+    sharedTitle,
+    sharedCaylentUrl,
+    caylentRows: [
+      article({ id: "phase5-shared-caylent-a", title: sharedTitle, publishedDate: sharedCaylentDate, url: sharedCaylentUrl }),
+      article({ id: "phase5-shared-caylent-b", title: sharedTitle, publishedDate: sharedCaylentDate, url: sharedCaylentUrl }),
+      article({
+        id: "phase5-cafe-tools-caylent",
+        title: "Café & Tools",
+        publishedDate: Date.parse("2024-12-31T23:00:00.000Z"),
+        url: "/blog/phase5-cafe-tools"
+      })
+    ],
+    builderArticles: [
+      builderArticle({
+        id: "phase5-shared-builder",
+        title: "SHARED CATALOG CAFÉ!",
+        lastPublishedAt: Date.parse("2025-01-04T00:00:00.000Z"),
+        slug: "phase5-shared"
+      }),
+      builderArticle({
+        id: "phase5-builder-date-unknown",
+        title: "Builder eligibility date is not publication date",
+        lastPublishedAt: Date.parse("2026-09-02T10:00:00.000Z"),
+        slug: "phase5-date-unknown"
+      })
+    ],
+    simpleArticles: [
+      beehiivPost({
+        id: "phase5-shared-simple",
+        title: "Shared Catalog Café!",
+        publishDate: "2025-01-04T00:00:00.000Z",
+        platform: "both",
+        web_url: "https://newsletter.simpleaws.dev/p/phase5-shared"
+      }),
+      beehiivPost({
+        id: "phase5-shared-email-only",
+        title: "shared catalog café!",
+        publishDate: "2025-01-04T01:00:00.000Z",
+        platform: "email",
+        web_url: "https://private.example.invalid/shared-email-url-canary",
+        preview_text: "synthetic-private-shared-email-preview-canary"
+      }),
+      beehiivPost({
+        id: "phase5-web-no-url",
+        title: "Simple AWS web post without a destination",
+        publishDate: "2025-02-06T12:00:00.000Z",
+        platform: "web"
+      }),
+      beehiivPost({
+        id: "phase5-both-null-url",
+        title: "Simple AWS both post with a null destination",
+        publishDate: "2025-02-07T12:00:00.000Z",
+        platform: "both",
+        web_url: null
+      }),
+      beehiivPost({
+        id: "phase5-email-only",
+        title: "Email-only publication without a public destination",
+        publishDate: "2025-02-01T12:00:00.000Z",
+        platform: "email",
+        web_url: "https://private.example.invalid/email-only-canary",
+        preview_url: "https://private.example.invalid/preview-only-canary",
+        preview_text: "synthetic-private-email-preview-canary"
+      })
+    ],
+    cloudyRows: [
+      cloudyArticle({
+        id: "phase5-cloudy-shared-private-id",
+        slug: "phase5-cloudy-shared",
+        title: "SHARED CATALOG CAFÉ!",
+        publishedAt: "2025-01-05T09:00:00-03:00"
+      }),
+      cloudyArticle({
+        id: "phase5-cloudy-cafe-private-id",
+        slug: "phase5-cloudy-cafe-tools",
+        title: "CAFE\u0301 & Tools",
+        publishedAt: "2025-01-01T00:00:00.000Z"
+      }),
+      cloudyArticle({ id: "phase5-cloudy-unaccented-private-id", slug: "phase5-unaccented-tools", title: "Cafe & Tools" })
+    ],
+    dondeArticles: [
+      dondeAprendoArticle({ title: "Shared Catalog Café!", slug: "phase5-shared-spanish", publishedAt: "2025-01-07" }),
+      dondeAprendoArticle({
+        title: "Literal <b>HTML & title</b>",
+        slug: "phase5-literal-html",
+        publishedAt: "2025-02-02"
+      }),
+      dondeAprendoArticle({
+        title: "Future catalog row is not eligible",
+        slug: "phase5-future-row",
+        publishedAt: "2026-10-17"
+      })
+    ],
+    awsRows: [
+      awsForEngineersArticle({
+        title: "SHARED CATALOG CAFÉ!",
+        slug: "phase5-shared-aws",
+        publishedAt: "2025-01-03T01:05:06.000-03:00"
+      }),
+      awsForEngineersArticle({
+        title: "AWS for Engineers date-preserving row",
+        slug: "phase5-aws-date",
+        publishedAt: "2025-02-03T20:30:00.000000+00:00"
+      })
+    ],
+    manualPublications: [
+      manualArticlePublication(
+        "dev-community", "shared catalog café!", "en", "2025-01-08T10:00:00-05:00",
+        "https://dev.to/guille/phase5-shared-catalog"
+      ),
+      manualArticlePublication(
+        "dev-community", "SHARED CATALOG CAFÉ!", "en", "2025-01-09T10:00:00-05:00",
+        "https://dev.to/guille/phase5-shared-catalog-copy"
+      ),
+      manualArticlePublication(
+        "linkedin-articles", "LinkedIn individual catalog row", "en", "2025-02-04T09:30:00+01:00",
+        "https://www.linkedin.com/pulse/phase5-linkedin-row"
+      ),
+      manualArticlePublication(
+        "spainclouds", "Artículo individual de SpainClouds", "es", "2025-02-05",
+        "https://www.spainclouds.com/blog/phase5-spainclouds-row"
+      ),
+      manualArticlePublication(
+        "hackernoon", "HackerNoon without an established date", "en", null,
+        "https://hackernoon.com/phase5-hackernoon-row"
+      )
+    ]
+  };
+}
+
+function phaseFiveFetchForCatalogRows(rows, requestLog = []) {
+  return phaseFourInventoryFetch({
+    requestLog,
+    caylentRows: rows.caylentRows,
+    builderArticles: rows.builderArticles,
+    simpleArticles: rows.simpleArticles,
+    hashnodeRows: rows.cloudyRows,
+    dondeArticles: rows.dondeArticles,
+    awsResponder: () => awsForEngineersIndex(rows.awsRows)
+  });
+}
+
+function assertPhaseFiveCatalogShape(group) {
+  assert.ok(Array.isArray(group.records), "input12 publishes the complete Article records with its counts");
+  assert.deepEqual(Object.keys(group).sort(), [
+    "basis", "collectedAt", "counts", "definitionVersion", "records", "scopeId", "sources"
+  ], "the catalog extends the existing Articles group without a second public object");
+  assert.equal(group.definitionVersion, 2);
+  assert.equal(group.basis, "cumulative");
+  assert.deepEqual(Object.keys(group.counts).sort(), ["all", "en", "es"]);
+  assert.equal(group.counts.all, group.records.length, "one count is published for each title-language identity");
+  assert.equal(group.counts.en, group.records.filter(({ language }) => language === "en").length);
+  assert.equal(group.counts.es, group.records.filter(({ language }) => language === "es").length);
+  assert.equal(group.counts.all, group.counts.en + group.counts.es);
+  assert.deepEqual(group.records.map(({ id }) => id), group.records.map(({ id }) => id).slice().sort(),
+    "records have a stable lexical ID order");
+
+  const ids = new Set();
+  const sourceOrder = [
+    "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers",
+    "dev-community", "linkedin-articles", "spainclouds", "hackernoon"
+  ];
+  for (const record of group.records) {
+    assert.deepEqual(Object.keys(record).sort(), ["id", "language", "publishedAt", "publications", "title"]);
+    assert.equal(record.id, phaseFiveCatalogId(record.title, record.language));
+    assert.equal(ids.has(record.id), false, "each normalized title-language identity appears once");
+    ids.add(record.id);
+    assert.ok(record.title.trim(), "the representative title is readable");
+    assert.ok(["en", "es"].includes(record.language));
+    assert.ok(Array.isArray(record.publications) && record.publications.length > 0);
+    const dated = [];
+    let previousSourceIndex = -1;
+    for (const publication of record.publications) {
+      assert.deepEqual(Object.keys(publication).sort(), ["emailOnly", "publishedAt", "sourceId", "title", "url"]);
+      assert.equal(phaseFiveCatalogTitle(publication.title), phaseFiveCatalogTitle(record.title));
+      assert.equal(publication.sourceId in Object.fromEntries(sourceOrder.map((id) => [id, true])), true);
+      const index = sourceOrder.indexOf(publication.sourceId);
+      assert.ok(index >= previousSourceIndex, "publication copies follow canonical source order");
+      previousSourceIndex = index;
+      assert.equal(typeof publication.emailOnly, "boolean");
+      if (publication.publishedAt !== null) {
+        assert.equal(typeof publication.publishedAt, "string");
+        assert.ok(Number.isFinite(Date.parse(publication.publishedAt)), "publication dates are parseable");
+        assert.ok(Date.parse(publication.publishedAt) <= Date.parse(group.collectedAt), "future publications are absent");
+        dated.push(publication.publishedAt);
+      }
+      if (publication.sourceId === "simple-aws" && publication.emailOnly) {
+        assert.equal(publication.url, null, "email-only Beehiiv publication has no public destination");
+      } else {
+        assert.equal(typeof publication.url, "string", "web destinations and other sources keep their public URL");
+        assert.equal(publication.emailOnly, false);
+      }
+    }
+    const compareString = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+    const minimum = dated.sort((left, right) => Date.parse(left) - Date.parse(right) || compareString(left, right))[0] ?? null;
+    assert.equal(record.publishedAt, minimum, "the row date is the earliest backed publication date");
+
+    const compareNullableText = (left, right) => left === null ? (right === null ? 0 : -1)
+      : right === null ? 1 : compareString(left, right);
+    const comparePublicationDate = (left, right) => left === null ? (right === null ? 0 : -1)
+      : right === null ? 1 : Date.parse(left) - Date.parse(right) || compareString(left, right);
+    const orderedCopies = record.publications.slice().sort((left, right) =>
+      sourceOrder.indexOf(left.sourceId) - sourceOrder.indexOf(right.sourceId) ||
+      compareNullableText(left.url, right.url) ||
+      (left.url === null || right.url === null ? 0 : compareString(left.url, right.url)) ||
+      comparePublicationDate(left.publishedAt, right.publishedAt) ||
+      compareString(left.title, right.title));
+    assert.deepEqual(record.publications, orderedCopies,
+      "copies sort by source, null-first URL, date, and original title using stable string comparison");
+  }
+  assert.deepEqual(group.sources.map(({ id }) => id), group.sources.map(({ id }) => id).slice().sort((a, b) =>
+    sourceOrder.indexOf(a) - sourceOrder.indexOf(b)), "coverage is emitted in canonical source order");
+}
+
+test("input12 publishes complete deterministic records for six adapters and individual destinations", async () => {
+  const rows = phaseFiveCatalogRows();
+  const articleInventory = {
+    publications: rows.manualPublications,
+    exclusions: [{ sourceId: "medium", url: "https://medium.com/@guille/phase5-not-imported" }]
+  };
+  const input12 = phaseTwelveArticleInventoryInput({
+    articleInventory,
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T10:00:00.000Z",
+      views: { en: 20, es: 4 }
+    })
+  });
+  const input11 = phaseFiveInputWithoutInventory(input12);
+  const requestLog = [];
+  const harness = createHarness({
+    input: input11,
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: phaseFiveFetchForCatalogRows(rows, requestLog)
+  });
+
+  await harness.handler({}, {});
+  const legacy = await readPut(harness.putCalls[0]);
+  assert.equal(legacy.groups.articles.definitionVersion, 1, "inputs1–11 retain the count-only Articles contract");
+  assert.equal(Object.hasOwn(legacy.groups.articles, "records"), false);
+
+  harness.setInput(input12);
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[1]);
+  const group = output.groups.articles;
+  assertPhaseFiveCatalogShape(group);
+  assert.deepEqual(group.counts, { all: 13, en: 10, es: 3 });
+  assert.deepEqual(group.sources.map(({ id }) => id), [
+    "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers",
+    "dev-community", "linkedin-articles", "spainclouds", "hackernoon"
+  ]);
+
+  const sharedEnglish = group.records.find(({ id }) => id === phaseFiveCatalogId(rows.sharedTitle, "en"));
+  assert.ok(sharedEnglish);
+  assert.equal(sharedEnglish.title, rows.sharedTitle, "the first source in canonical order supplies the stable row title");
+  assert.equal(sharedEnglish.publishedAt, "2025-01-03T01:05:06.000-03:00",
+    "the row keeps the string-lexically first date when numeric and offset dates represent the same instant");
+  assert.deepEqual(sharedEnglish.publications.map(({ sourceId }) => sourceId), [
+    "caylent", "builder-center", "simple-aws", "simple-aws", "simple-aws", "simple-aws",
+    "cloudy-things", "aws-for-engineers",
+    "dev-community", "dev-community"
+  ]);
+  const sharedSimpleCopies = sharedEnglish.publications.filter(({ sourceId }) => sourceId === "simple-aws");
+  assert.deepEqual(sharedSimpleCopies.map(({ url }) => url), [
+    null, null, null, "https://newsletter.simpleaws.dev/p/phase5-shared"
+  ], "null destinations sort before public web destinations within a source");
+  assert.equal(sharedSimpleCopies[0].emailOnly, true);
+  assert.equal(sharedSimpleCopies[1].emailOnly, false, "web without a URL is not mislabeled email-only");
+  assert.equal(sharedSimpleCopies[2].emailOnly, false, "both-platform with a null URL is not mislabeled email-only");
+  assert.equal(sharedSimpleCopies[3].emailOnly, false);
+  assert.equal(sharedEnglish.publications.filter(({ sourceId }) => sourceId === "caylent").length, 1,
+    "exact copies collapse by their public metadata despite distinct provider IDs");
+  assert.deepEqual(sharedEnglish.publications.filter(({ sourceId }) => sourceId === "dev-community").map(({ url }) => url), [
+    "https://dev.to/guille/phase5-shared-catalog",
+    "https://dev.to/guille/phase5-shared-catalog-copy"
+  ], "same-source destinations remain separate and sort lexically");
+  const sharedPublicationBySource = Object.fromEntries(sharedEnglish.publications.map((publication) => [
+    `${publication.sourceId}:${publication.url ?? "email"}`, publication
+  ]));
+  assert.equal(sharedPublicationBySource["caylent:https://caylent.com/blog/phase5-shared-catalog"].title, rows.sharedTitle,
+    "the raw Caylent source title is retained on its destination copy");
+  assert.equal(sharedPublicationBySource["builder-center:https://builder.aws.com/content/phase5-shared-builder/phase5-shared"].title,
+    "SHARED CATALOG CAFÉ!");
+  assert.equal(sharedPublicationBySource["simple-aws:https://newsletter.simpleaws.dev/p/phase5-shared"].publishedAt,
+    "2025-01-04T00:00:00.000Z", "Beehiiv's numeric source date becomes canonical UTC ISO");
+  assert.equal(sharedPublicationBySource["cloudy-things:https://blog.guilleojeda.com/phase5-cloudy-shared"].publishedAt,
+    "2025-01-05T09:00:00-03:00", "Cloudy retains its original offset date");
+  assert.equal(sharedPublicationBySource["aws-for-engineers:https://awsforengineers.com/blog/phase5-shared-aws/"].publishedAt,
+    "2025-01-03T01:05:06.000-03:00", "AWS for Engineers retains its original offset date");
+  assert.equal(sharedEnglish.publications.find(({ sourceId, url }) =>
+    sourceId === "dev-community" && url === "https://dev.to/guille/phase5-shared-catalog").publishedAt,
+  "2025-01-08T10:00:00-05:00", "manual publication copies keep their original offset date");
+  assert.equal(sharedEnglish.publications.find(({ sourceId }) => sourceId === "builder-center").publishedAt, null,
+    "lastPublishedAt keeps Builder eligibility but is not asserted to be its original publication date");
+  assert.equal(sharedEnglish.publications.find(({ sourceId }) => sourceId === "donde-aprendo-aws"), undefined,
+    "the same title in Spanish remains a separate record rather than an English copy");
+  assert.equal(group.records.some(({ id }) => id === phaseFiveCatalogId(rows.sharedTitle, "es")), true);
+
+  const spanishShared = group.records.find(({ id }) => id === phaseFiveCatalogId(rows.sharedTitle, "es"));
+  assert.equal(spanishShared.publications[0].sourceId, "donde-aprendo-aws");
+  assert.equal(spanishShared.publishedAt, "2025-01-07", "native date-only values remain date-only");
+  const cafe = group.records.find(({ id }) => id === phaseFiveCatalogId("Café & Tools", "en"));
+  const unaccented = group.records.find(({ id }) => id === phaseFiveCatalogId("Cafe & Tools", "en"));
+  assert.ok(cafe && unaccented && cafe.id !== unaccented.id, "accent differences remain distinct identities");
+  assert.deepEqual(cafe.publications.map(({ sourceId }) => sourceId), ["caylent", "cloudy-things"]);
+  assert.equal(cafe.publishedAt, "2024-12-31T23:00:00.000Z");
+  const emailOnlyRecord = group.records.find(({ title }) => title === "Email-only publication without a public destination");
+  assert.equal(emailOnlyRecord.publications.length, 1);
+  assert.deepEqual(emailOnlyRecord.publications[0], {
+    sourceId: "simple-aws",
+    title: "Email-only publication without a public destination",
+    publishedAt: "2025-02-01T12:00:00.000Z",
+    url: null,
+    emailOnly: true
+  }, "email-only metadata ignores provider web URLs and previews");
+  for (const title of [
+    "Simple AWS web post without a destination",
+    "Simple AWS both post with a null destination"
+  ]) {
+    const publication = group.records.find((record) => record.title === title).publications[0];
+    assert.equal(publication.url, null);
+    assert.equal(publication.emailOnly, false, "a missing/null web URL does not imply an email-only publication");
+  }
+  const builderDateUnknown = group.records.find(({ title }) => title === "Builder eligibility date is not publication date");
+  assert.equal(builderDateUnknown.publishedAt, null);
+  assert.equal(builderDateUnknown.publications[0].publishedAt, null);
+  const htmlTitle = "Literal <b>HTML & title</b>";
+  const htmlRecord = group.records.find(({ title }) => title === htmlTitle);
+  assert.ok(htmlRecord, "literal HTML-like source titles are retained as text data");
+  assert.equal(htmlRecord.publications[0].title, htmlTitle);
+  assert.equal(group.records.some(({ title }) => title === "Future catalog row is not eligible"), false,
+    "a future native publication is excluded from the public catalog");
+  const noDateRecord = group.records.find(({ title }) => title === "HackerNoon without an established date");
+  assert.equal(noDateRecord.publishedAt, null);
+  assert.equal(noDateRecord.publications[0].publishedAt, null);
+  const awsDatedRecord = group.records.find(({ title }) => title === "AWS for Engineers date-preserving row");
+  assert.equal(awsDatedRecord.publications[0].publishedAt, "2025-02-03T20:30:00.000000+00:00",
+    "native offset and fractional precision are retained in the publication copy");
+  assert.deepEqual(output.groups.talks, legacy.groups.talks);
+  for (const family of Object.keys(legacy.groups).filter((name) => name !== "articles")) {
+    assert.deepEqual(output.groups[family], legacy.groups[family], `${family} remains byte-for-byte equivalent across input 11 and 12`);
+  }
+
+  const publicTitlesAndUrls = rows.manualPublications.flatMap(({ title, url }) => [title, url])
+    .concat(rows.caylentRows.flatMap(({ data }) => [data.title, `https://caylent.com${data.url}`]))
+    .concat(rows.builderArticles.map(({ title }) => title))
+    .concat(rows.simpleArticles.map(({ title }) => title))
+    .concat(rows.cloudyRows.flatMap(({ title, url }) => [title, url]))
+    .concat(rows.dondeArticles.filter(({ publishedAt }) => publishedAt <= "2026-10-16")
+      .flatMap(({ title, url }) => [title, url]))
+    .concat(rows.awsRows.flatMap(({ title, url }) => [title, url]));
+  const serialized = JSON.stringify(output);
+  for (const value of publicTitlesAndUrls) {
+    assert.equal(serialized.includes(value), true, "approved public title/destination is represented in the catalog");
+    assert.equal(harness.logs.join("\n").includes(value), false, "collector logs do not expose catalog metadata");
+  }
+  const privateValues = [
+    ...rows.caylentRows.map(({ id }) => id),
+    ...rows.simpleArticles.map(({ id }) => id),
+    ...rows.cloudyRows.map(({ id }) => id),
+    "phase5-email-only",
+    "private.example.invalid",
+    "preview-only-canary",
+    "synthetic-private-email-preview-canary",
+    "shared-email-url-canary",
+    "synthetic-private-shared-email-preview-canary",
+  ];
+  for (const value of privateValues) {
+    assert.equal(serialized.includes(value), false, `provider/private field is omitted: ${value}`);
+    assert.equal(harness.logs.join("\n").includes(value), false, `provider/private field is not logged: ${value}`);
+  }
+
+  const reversedRows = {
+    ...rows,
+    caylentRows: [...rows.caylentRows].reverse(),
+    builderArticles: [...rows.builderArticles].reverse(),
+    simpleArticles: [...rows.simpleArticles].reverse(),
+    cloudyRows: [...rows.cloudyRows].reverse(),
+    dondeArticles: [...rows.dondeArticles].reverse(),
+    awsRows: [...rows.awsRows].reverse(),
+    manualPublications: [...rows.manualPublications].reverse()
+  };
+  const reorderedInput = phaseTwelveArticleInventoryInput({
+    articleInventory: { publications: reversedRows.manualPublications, exclusions: articleInventory.exclusions },
+    sources: [...input12.sources].reverse()
+  });
+  const reorderedHarness = createHarness({
+    input: reorderedInput,
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: phaseFiveFetchForCatalogRows(reversedRows)
+  });
+  await reorderedHarness.handler({}, {});
+  const reordered = (await readPut(reorderedHarness.putCalls[0])).groups.articles;
+  assertPhaseFiveCatalogShape(reordered);
+  assert.deepEqual(reordered.records, group.records,
+    "input selector order and provider row order do not change record IDs or metadata ordering");
+  assert.deepEqual(reordered.sources, group.sources);
+  assert.deepEqual(reordered.counts, group.counts);
+  assert.equal(reordered.scopeId, group.scopeId);
+});
+
+test("input12 publishes an explicit empty catalog when all six selected sources are valid and empty", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseTwelveArticleInventoryInput(),
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      caylentRows: [],
+      builderArticles: [],
+      simpleArticles: [],
+      hashnodeRows: [],
+      dondeArticles: [],
+      awsResponder: () => awsForEngineersIndex([])
+    })
+  });
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  const group = output.groups.articles;
+  assertPhaseFiveCatalogShape(group);
+  assert.deepEqual(group.records, []);
+  assert.deepEqual(group.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(group.sources.map(({ id }) => id), [
+    "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers"
+  ], "healthy empty sources remain explicit coverage");
+  assert.equal(harness.getCalls.some(({ Key }) => Key === outputKey), false,
+    "a healthy zero catalog needs no previous snapshot");
+  assert.equal(requestLog.filter(({ kind }) => kind === "hashnode-user-posts").length, 1);
+});
+
+test("input12 retains and recovers an exact v2 catalog after a late source failure", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const simpleUrl = "https://newsletter.simpleaws.dev/p/phase5-retention-simple";
+  const inventory = { publications: [], exclusions: [] };
+  const inputFor = (articleInventory = inventory) => phaseTwelveArticleInventoryInput({
+    articleInventory,
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T10:00:00.000Z",
+      views: { en: 20, es: 4 }
+    })
+  });
+  let awsFails = false;
+  let awsTitle = "Phase five AWS source before failure";
+  const requestLog = [];
+  const harness = createHarness({
+    input: inputFor(),
+    clock,
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      caylentRows: [],
+      builderArticles: [],
+      simpleArticles: [beehiivPost({
+        id: "phase5-retention-simple-private-id",
+        title: "Phase five Simple AWS retained source",
+        publishDate: "2025-04-01T00:00:00.000Z",
+        platform: "web",
+        web_url: simpleUrl
+      })],
+      hashnodeRows: [],
+      dondeArticles: [],
+      awsResponder: () => awsFails
+        ? new Response("phase5-private-late-source-error-canary", { status: 503 })
+        : awsForEngineersIndex([awsForEngineersArticle({ title: awsTitle, slug: "phase5-retention-aws" })])
+    })
+  });
+
+  await harness.handler({}, {});
+  const firstOutput = await readPut(harness.putCalls[0]);
+  const first = firstOutput.groups.articles;
+  assertPhaseFiveCatalogShape(first);
+  assert.deepEqual(first.counts, { all: 2, en: 2, es: 0 });
+  assert.equal(harness.getCalls.some(({ Key }) => Key === outputKey), false);
+  const independentScopes = manualGroupScopeIds(firstOutput.groups);
+  delete independentScopes.articles;
+  const builderViews = firstOutput.groups.builderArticleViews;
+
+  awsFails = true;
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const failed = await readPut(harness.putCalls[1]);
+  assert.deepEqual(failed.groups.articles, first, "late failure retains records and counts together with old metadata");
+  assert.notEqual(failed.groups.talks.collectedAt, firstOutput.groups.talks.collectedAt,
+    "healthy sibling families continue to refresh");
+  assert.deepEqual(failed.groups.builderArticleViews, builderViews,
+    "manual Builder history stays independent when Article records are retained");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1,
+    "one failed full-source refresh reads the previous snapshot once");
+
+  const changedInventory = {
+    publications: [],
+    exclusions: [{ sourceId: "simple-aws", url: simpleUrl }]
+  };
+  harness.setInput(inputFor(changedInventory));
+  clock.set("2026-10-18T12:00:00.000Z");
+  const readsBeforeScopeChange = harness.getCalls.filter(({ Key }) => Key === outputKey).length;
+  await harness.handler({}, {});
+  const changedScope = await readPut(harness.putCalls[2]);
+  assert.equal(Object.hasOwn(changedScope.groups, "articles"), false,
+    "an editorial exclusion changes scope, so a failed source cannot retain an incompatible prior catalog");
+  assert.ok(changedScope.groups.talks && changedScope.groups.books);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length - readsBeforeScopeChange, 1);
+
+  awsFails = false;
+  awsTitle = "Phase five AWS source after recovery";
+  clock.set("2026-10-19T12:00:00.000Z");
+  const readsBeforeRecovery = harness.getCalls.filter(({ Key }) => Key === outputKey).length;
+  await harness.handler({}, {});
+  const recoveredOutput = await readPut(harness.putCalls[3]);
+  const recovered = recoveredOutput.groups.articles;
+  assertPhaseFiveCatalogShape(recovered);
+  assert.deepEqual(recovered.counts, { all: 1, en: 1, es: 0 }, "recovery applies the exclusion and current source rows");
+  assert.equal(recovered.records[0].title, awsTitle);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length - readsBeforeRecovery, 0);
+  const recoveredScopes = manualGroupScopeIds(recoveredOutput.groups);
+  delete recoveredScopes.articles;
+  assert.deepEqual(recoveredScopes, independentScopes,
+    "an Article scope change does not alter independent family scopes");
+
+  await harness.handler({}, {});
+  const repeated = (await readPut(harness.putCalls[4])).groups.articles;
+  assert.deepEqual(repeated.records, recovered.records, "a later invocation recomputes instead of accumulating records");
+  assert.deepEqual(repeated.counts, recovered.counts);
+  assert.equal(repeated.scopeId, recovered.scopeId);
+  const outputText = harness.putCalls.map(({ Body }) => bodyText(Body)).join("\n");
+  assert.equal(outputText.includes("phase5-private-late-source-error-canary"), false);
+});
+
+test("input12 rejects malformed previous v2 catalogs locally instead of retaining partial records", async () => {
+  const previous = await (async () => {
+    const seed = createHarness({
+      input: phaseTwelveArticleInventoryInput(),
+      fetchFn: phaseFourInventoryFetch({
+        caylentRows: [article({ id: "phase5-invalid-prior-seed", title: "Prior v2 record seed" })],
+        builderArticles: [],
+        simpleArticles: [],
+        hashnodeRows: [],
+        dondeArticles: [],
+        awsResponder: () => awsForEngineersIndex([])
+      })
+    });
+    await seed.handler({}, {});
+    return JSON.parse(seed.objects.get(outputKey));
+  })();
+  assert.ok(previous.groups.articles, "the fixture starts from an actual public input12 catalog");
+  assertPhaseFiveCatalogShape(previous.groups.articles);
+
+  const mutations = [
+    ["record ID does not hash its identity", (group) => { group.records[0].id = "0".repeat(64); }],
+    ["counts disagree with records while preserving the language sum", (group) => {
+      group.counts.all += 1;
+      group.counts[group.records[0].language] += 1;
+    }],
+    ["row date disagrees with its publication date", (group) => { group.records[0].publishedAt = "2025-01-01"; }],
+    ["publication contains a provider-only field", (group) => {
+      group.records[0].publications[0].providerId = "synthetic-private-prior-provider-id";
+    }],
+    ["identity is duplicated while count totals remain arithmetically valid", (group) => {
+      group.records.push(structuredClone(group.records[0]));
+      group.counts.all += 1;
+      group.counts[group.records[0].language] += 1;
+      group.records.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+    }]
+  ];
+  for (const [name, mutate] of mutations) {
+    const stored = structuredClone(previous);
+    mutate(stored.groups.articles);
+    const harness = createHarness({
+      input: phaseTwelveArticleInventoryInput(),
+      fetchFn: phaseFourInventoryFetch({
+        caylentRows: [],
+        builderArticles: [],
+        simpleArticles: [],
+        hashnodeRows: [],
+        dondeArticles: [],
+        awsResponder: () => new Response("synthetic v2 validation source failure", { status: 503 })
+      })
+    });
+    harness.objects.set(outputKey, JSON.stringify(stored));
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), false, `${name} invalidates the whole old Article family`);
+    assert.ok(output.groups.talks && output.groups.books, `${name} remains local to Articles`);
+  }
+});
+
+test("input12 keeps title-language identity when distinct titles share a public URL", async () => {
+  const sharedUrl = "/blog/phase5-same-destination";
+  const englishTitle = "Same destination first identity";
+  const harness = createHarness({
+    input: phaseTwelveArticleInventoryInput(),
+    fetchFn: phaseFourInventoryFetch({
+      caylentRows: [
+        article({ id: "phase5-same-url-first", title: englishTitle, url: sharedUrl }),
+        article({ id: "phase5-same-url-second", title: "Same destination second identity", url: sharedUrl })
+      ],
+      builderArticles: [],
+      simpleArticles: [],
+      hashnodeRows: [],
+      dondeArticles: [dondeAprendoArticle({ title: englishTitle, slug: "phase5-same-destination-es" })],
+      awsResponder: () => awsForEngineersIndex([])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const group = (await readPut(harness.putCalls[0])).groups.articles;
+  assertPhaseFiveCatalogShape(group);
+  assert.deepEqual(group.counts, { all: 3, en: 2, es: 1 },
+    "title differences remain separate and the same title in another language is another identity");
+  const firstEnglish = group.records.find(({ id }) => id === phaseFiveCatalogId(englishTitle, "en"));
+  const secondEnglish = group.records.find(({ id }) => id === phaseFiveCatalogId("Same destination second identity", "en"));
+  const translatedSpanish = group.records.find(({ id }) => id === phaseFiveCatalogId(englishTitle, "es"));
+  assert.ok(firstEnglish && secondEnglish && translatedSpanish);
+  assert.equal(firstEnglish.publications[0].url, "https://caylent.com/blog/phase5-same-destination");
+  assert.equal(secondEnglish.publications[0].url, firstEnglish.publications[0].url,
+    "the same destination can belong to two title identities without URL-based merging");
+  assert.notEqual(firstEnglish.id, translatedSpanish.id, "language is part of the stable record identity");
+  assert.equal(translatedSpanish.publications[0].sourceId, "donde-aprendo-aws");
+});
+
+const phaseFiveInvalidSimpleUrls = [
+  "https://unapproved.example.invalid/not-a-simple-aws-article",
+  "https://newsletter.simpleaws.dev/admin",
+  "https://newsletter.simpleaws.dev/preview/phase5",
+  "http://newsletter.simpleaws.dev/p/http-is-not-https",
+  "https://user@newsletter.simpleaws.dev/p/credentials",
+  "https://newsletter.simpleaws.dev:444/p/nonstandard-port",
+  "https://newsletter.simpleaws.dev/p/query?preview=1",
+  "https://newsletter.simpleaws.dev/p/fragment#preview"
+];
+
+for (const [index, webUrl] of phaseFiveInvalidSimpleUrls.entries()) {
+  test(`input12 rejects an invalid explicit Simple AWS destination (${index + 1})`, async () => {
+    const harness = createHarness({
+      input: phaseTwelveArticleInventoryInput(),
+      fetchFn: phaseFourInventoryFetch({
+        caylentRows: [],
+        builderArticles: [],
+        simpleArticles: [beehiivPost({
+          id: `phase5-invalid-url-${index}`,
+          title: "Invalid public URL canary",
+          platform: "both",
+          web_url: webUrl
+        })],
+        hashnodeRows: [],
+        dondeArticles: [],
+        awsResponder: () => awsForEngineersIndex([])
+      })
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), false,
+      `invalid Simple AWS destination is rejected: ${webUrl}`);
+    assert.ok(output.groups.talks && output.groups.books, "the invalid URL remains local to Articles");
+    assert.equal(JSON.stringify(output).includes("Invalid public URL canary"), false);
+    assert.equal(JSON.stringify(output).includes(webUrl), false);
+    assert.equal(harness.logs.join("\n").includes(webUrl), false);
+  });
+}
+
+test("input12 may retain a valid v1 count-only Articles group during the v2 transition", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  let awsFails = false;
+  const harness = createHarness({
+    input: phaseTwelveArticleInventoryInput(),
+    clock,
+    fetchFn: phaseFourInventoryFetch({
+      caylentRows: [],
+      builderArticles: [],
+      simpleArticles: [],
+      hashnodeRows: [],
+      dondeArticles: [],
+      awsResponder: () => awsFails
+        ? new Response("synthetic transition source outage", { status: 503 })
+        : awsForEngineersIndex([awsForEngineersArticle({ title: "Transition catalog source", slug: "phase5-transition" })])
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assertPhaseFiveCatalogShape(first.groups.articles);
+  const previousV1 = structuredClone(first.groups.articles);
+  previousV1.definitionVersion = 1;
+  delete previousV1.records;
+  harness.objects.set(outputKey, JSON.stringify({ schemaVersion: 1, groups: { articles: previousV1 } }));
+
+  awsFails = true;
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const failed = await readPut(harness.putCalls[1]);
+  assert.deepEqual(failed.groups.articles, previousV1,
+    "the same validated scope can retain a transitional v1 aggregate without fabricating records");
+  assert.equal(Object.hasOwn(failed.groups.articles, "records"), false);
+  assert.ok(failed.groups.talks && failed.groups.books, "siblings refresh with legacy Article fallback");
 });
