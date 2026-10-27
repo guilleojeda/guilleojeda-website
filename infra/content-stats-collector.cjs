@@ -59,13 +59,20 @@ const GOOGLE_SEARCH_ARTICLE_URL_PATTERN = String.raw`(?-i)^https://newsletter\.s
 const GOOGLE_SEARCH_TIME_ZONE = "America/Los_Angeles";
 const DIRECTORY_ANALYTICS_PUBLICATION = Object.freeze({ id: "donde-aprendo-aws", label: "Dónde Aprendo AWS" });
 const DIRECTORY_ANALYTICS_HOSTNAME = "dondeaprendoaws.com";
+const AWS_FOR_ENGINEERS_ORIGIN = "https://awsforengineers.com";
+const AWS_FOR_ENGINEERS_INDEX_URL = `${AWS_FOR_ENGINEERS_ORIGIN}/article-index.json`;
+const AWS_FOR_ENGINEERS_AUTHOR = Object.freeze({
+  name: "Guille Ojeda",
+  url: `${AWS_FOR_ENGINEERS_ORIGIN}/authors/guille-ojeda/`
+});
 const BUILDER_VIEWS_START_DATE = "2026-01-06";
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center",
   "simple-aws": "Simple AWS",
   "cloudy-things": "Cloudy Things",
-  "donde-aprendo-aws": "Dónde Aprendo AWS"
+  "donde-aprendo-aws": "Dónde Aprendo AWS",
+  "aws-for-engineers": "AWS for Engineers"
 });
 
 class CollectorError extends Error {
@@ -182,6 +189,11 @@ function validateDondeAprendoAwsSource(source) {
   return { id: "donde-aprendo-aws" };
 }
 
+function validateAwsForEngineersSource(source) {
+  if (!exactKeys(source, ["id"]) || source.id !== "aws-for-engineers") throw fail("INPUT_SCHEMA_INVALID");
+  return { id: "aws-for-engineers" };
+}
+
 function isValidIanaTimeZone(value) {
   if (typeof value !== "string" || value.trim() === "") return false;
   try {
@@ -292,6 +304,7 @@ function validateInput(input) {
     else if (source.id === "builder-center") sourcesById.set(source.id, validateBuilderSource(source));
     else if (source.id === "cloudy-things") sourcesById.set(source.id, validateCloudySource(source));
     else if (source.id === "donde-aprendo-aws") sourcesById.set(source.id, validateDondeAprendoAwsSource(source));
+    else if (source.id === "aws-for-engineers") sourcesById.set(source.id, validateAwsForEngineersSource(source));
     else if (source.id === "simple-aws") {
       if (!simpleAwsAllowed || !exactKeys(source, ["id"])) throw fail("INPUT_SCHEMA_INVALID");
       sourcesById.set(source.id, { id: "simple-aws" });
@@ -301,6 +314,7 @@ function validateInput(input) {
   const hasSimpleAws = sourcesById.has("simple-aws");
   const hasCloudyThings = sourcesById.has("cloudy-things");
   const hasDondeAprendoAws = sourcesById.has("donde-aprendo-aws");
+  const hasAwsForEngineers = sourcesById.has("aws-for-engineers");
   if (!sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
     throw fail("SOURCE_SET_INVALID");
   }
@@ -310,6 +324,7 @@ function validateInput(input) {
     if (!hasSimpleAws) {
       if (hasCloudyThings) sources.push(sourcesById.get("cloudy-things"));
       if (hasDondeAprendoAws) sources.push(sourcesById.get("donde-aprendo-aws"));
+      if (hasAwsForEngineers) sources.push(sourcesById.get("aws-for-engineers"));
       return { sources, newsletter: newsletterValue };
     }
     const newsletter = validateNewsletterSelection(newsletterValue);
@@ -321,6 +336,7 @@ function validateInput(input) {
     });
     if (hasCloudyThings) sources.push(sourcesById.get("cloudy-things"));
     if (hasDondeAprendoAws) sources.push(sourcesById.get("donde-aprendo-aws"));
+    if (hasAwsForEngineers) sources.push(sourcesById.get("aws-for-engineers"));
     return { sources, newsletter };
   };
 
@@ -448,7 +464,8 @@ function validateInput(input) {
       sourcesById.get("caylent"),
       sourcesById.get("builder-center"),
       ...(hasCloudyThings ? [sourcesById.get("cloudy-things")] : []),
-      ...(hasDondeAprendoAws ? [sourcesById.get("donde-aprendo-aws")] : [])
+      ...(hasDondeAprendoAws ? [sourcesById.get("donde-aprendo-aws")] : []),
+      ...(hasAwsForEngineers ? [sourcesById.get("aws-for-engineers")] : [])
     ]
   };
 }
@@ -884,6 +901,7 @@ function scopeFingerprint(sources) {
       return { id: source.id, authorName: source.authorName, language: source.language };
     }
     if (source.id === "donde-aprendo-aws") return { id: source.id };
+    if (source.id === "aws-for-engineers") return { id: source.id };
     return { id: source.id, authorId: source.authorId };
   })
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -1985,13 +2003,6 @@ function readCloudyBody(response) {
   });
 }
 
-function readDondeAprendoBody(response) {
-  return readBoundedBody(response, {
-    tooLargeCode: "DONDE_BODY_TOO_LARGE",
-    readFailedCode: "DONDE_BODY_READ_FAILED"
-  });
-}
-
 async function fetchCloudyArchive(url, page) {
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     let response;
@@ -2035,11 +2046,11 @@ async function fetchCloudyArchive(url, page) {
   throw fail("SOURCE_NETWORK_FAILED");
 }
 
-async function fetchDondeAprendoIndex() {
+async function fetchNativeArticleIndex({ url, sourceId, errorPrefix }) {
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     let response;
     try {
-      response = await fetch(DONDE_APRENDO_INDEX_URL, {
+      response = await fetch(url, {
         method: "GET",
         headers: { accept: "application/json" },
         redirect: "error",
@@ -2048,7 +2059,7 @@ async function fetchDondeAprendoIndex() {
     } catch (error) {
       if (isRejectedRedirect(error)) throw fail("SOURCE_REDIRECT_REJECTED");
       if (attempt < MAX_TRANSIENT_RETRIES) {
-        log("warn", { event: "content_stats_source_retry", sourceId: "donde-aprendo-aws", page: 1, reason: "network" });
+        log("warn", { event: "content_stats_source_retry", sourceId, page: 1, reason: "network" });
         continue;
       }
       throw fail("SOURCE_NETWORK_FAILED");
@@ -2059,7 +2070,7 @@ async function fetchDondeAprendoIndex() {
     }
     if (!response.ok) {
       if (isTransientStatus(response.status) && attempt < MAX_TRANSIENT_RETRIES) {
-        log("warn", { event: "content_stats_source_retry", sourceId: "donde-aprendo-aws", page: 1, status: response.status });
+        log("warn", { event: "content_stats_source_retry", sourceId, page: 1, status: response.status });
         continue;
       }
       throw fail(`SOURCE_HTTP_${response.status}`);
@@ -2067,10 +2078,14 @@ async function fetchDondeAprendoIndex() {
 
     let raw;
     try {
-      raw = await readDondeAprendoBody(response);
+      raw = await readBoundedBody(response, {
+        tooLargeCode: `${errorPrefix}_BODY_TOO_LARGE`,
+        readFailedCode: `${errorPrefix}_BODY_READ_FAILED`
+      });
     } catch (error) {
-      if (error instanceof CollectorError && error.code === "DONDE_BODY_READ_FAILED" && attempt < MAX_TRANSIENT_RETRIES) {
-        log("warn", { event: "content_stats_source_retry", sourceId: "donde-aprendo-aws", page: 1, reason: "body" });
+      if (error instanceof CollectorError && error.code === `${errorPrefix}_BODY_READ_FAILED` &&
+          attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId, page: 1, reason: "body" });
         continue;
       }
       throw error;
@@ -2079,11 +2094,27 @@ async function fetchDondeAprendoIndex() {
     try {
       return JSON.parse(raw);
     } catch {
-      throw fail("DONDE_INDEX_JSON_INVALID");
+      throw fail(`${errorPrefix}_INDEX_JSON_INVALID`);
     }
   }
 
   throw fail("SOURCE_NETWORK_FAILED");
+}
+
+function fetchDondeAprendoIndex() {
+  return fetchNativeArticleIndex({
+    url: DONDE_APRENDO_INDEX_URL,
+    sourceId: "donde-aprendo-aws",
+    errorPrefix: "DONDE"
+  });
+}
+
+function fetchAwsForEngineersIndex() {
+  return fetchNativeArticleIndex({
+    url: AWS_FOR_ENGINEERS_INDEX_URL,
+    sourceId: "aws-for-engineers",
+    errorPrefix: "AWS_FOR_ENGINEERS"
+  });
 }
 
 async function collectCloudyThings(source, now) {
@@ -2214,6 +2245,146 @@ function validateDondeAprendoIndex(envelope, now) {
 async function collectDondeAprendoAws(source, now) {
   const envelope = await fetchDondeAprendoIndex();
   const publications = validateDondeAprendoIndex(envelope, now);
+  return { publications, pages: 1 };
+}
+
+function normalizedAwsForEngineersArticleUrl(value) {
+  if (typeof value !== "string" || value.trim() !== value || value === "") throw fail("AWS_FOR_ENGINEERS_RECORD_INVALID");
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw fail("AWS_FOR_ENGINEERS_RECORD_INVALID");
+  }
+  if (parsed.href !== value || parsed.origin !== AWS_FOR_ENGINEERS_ORIGIN ||
+      parsed.username !== "" || parsed.password !== "" || parsed.search !== "" || parsed.hash !== "" ||
+      !/^\/blog\/[^/]+\/$/.test(parsed.pathname) || /%(?:2f|5c)/i.test(parsed.pathname)) {
+    throw fail("AWS_FOR_ENGINEERS_RECORD_INVALID");
+  }
+  return value;
+}
+
+function normalizedAwsForEngineersAuthorUrl(value) {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.trim() !== value || value === "") {
+    throw fail("AWS_FOR_ENGINEERS_AUTHOR_INVALID");
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw fail("AWS_FOR_ENGINEERS_AUTHOR_INVALID");
+  }
+  if (parsed.href !== value || !["https:", "http:"].includes(parsed.protocol) ||
+      parsed.username !== "" || parsed.password !== "") {
+    throw fail("AWS_FOR_ENGINEERS_AUTHOR_INVALID");
+  }
+  return value;
+}
+
+function parseAwsForEngineersTimestamp(value) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/);
+  if (!match) return null;
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction = "", zone] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+
+  const local = new Date(0);
+  local.setUTCFullYear(year, month - 1, day);
+  local.setUTCHours(hour, minute, second, 0);
+  if (!Number.isFinite(local.getTime()) ||
+      local.getUTCFullYear() !== year || local.getUTCMonth() !== month - 1 || local.getUTCDate() !== day ||
+      local.getUTCHours() !== hour || local.getUTCMinutes() !== minute || local.getUTCSeconds() !== second) {
+    return null;
+  }
+
+  let offsetMinutes = 0;
+  if (zone !== "Z") {
+    const offset = zone.match(/^([+-])(\d{2}):(\d{2})$/);
+    const offsetHours = Number(offset[2]);
+    const offsetRemainder = Number(offset[3]);
+    if (offsetHours > 14 || offsetRemainder > 59 || (offsetHours === 14 && offsetRemainder !== 0)) return null;
+    offsetMinutes = (offsetHours * 60 + offsetRemainder) * (offset[1] === "+" ? 1 : -1);
+  }
+
+  const utcMilliseconds = local.getTime() - offsetMinutes * 60_000;
+  if (!Number.isSafeInteger(utcMilliseconds)) return null;
+  const nanosecondFraction = BigInt(fraction.slice(0, 9).padEnd(9, "0") || "0");
+  return {
+    nanoseconds: BigInt(utcMilliseconds) * 1_000_000n + nanosecondFraction,
+    subNanosecondRemainderNonzero: /[1-9]/.test(fraction.slice(9))
+  };
+}
+
+function awsForEngineersPublicationIsCurrent(value, now, today) {
+  if (isRealIsoDate(value)) return value <= today;
+  const timestamp = parseAwsForEngineersTimestamp(value);
+  if (timestamp === null) throw fail("AWS_FOR_ENGINEERS_RECORD_INVALID");
+  const cutoffNanoseconds = BigInt(now) * 1_000_000n;
+  return timestamp.nanoseconds < cutoffNanoseconds ||
+    timestamp.nanoseconds === cutoffNanoseconds && !timestamp.subNanosecondRemainderNonzero;
+}
+
+function validateAwsForEngineersIndex(envelope, now) {
+  if (!exactKeys(envelope, ["schemaVersion", "source", "articles"]) ||
+      envelope.schemaVersion !== 1 ||
+      !exactKeys(envelope.source, ["id", "label"]) ||
+      envelope.source.id !== "aws-for-engineers" ||
+      envelope.source.label !== SOURCE_LABELS["aws-for-engineers"] ||
+      !Array.isArray(envelope.articles)) {
+    throw fail("AWS_FOR_ENGINEERS_INDEX_INVALID");
+  }
+
+  const today = new Date(now).toISOString().slice(0, 10);
+  const seenUrls = new Map();
+  const publications = [];
+  for (const article of envelope.articles) {
+    if (!exactKeys(article, ["title", "language", "publishedAt", "url", "author"]) ||
+        article.language !== "en" || typeof article.publishedAt !== "string" ||
+        !exactKeys(article.author, ["name", "url"])) {
+      throw fail("AWS_FOR_ENGINEERS_RECORD_INVALID");
+    }
+
+    const title = normalizedTitle(article.title);
+    const url = normalizedAwsForEngineersArticleUrl(article.url);
+    const authorName = requireString(article.author.name, "AWS_FOR_ENGINEERS_AUTHOR_INVALID");
+    if (article.author.name !== authorName) throw fail("AWS_FOR_ENGINEERS_AUTHOR_INVALID");
+    const authorUrl = normalizedAwsForEngineersAuthorUrl(article.author.url);
+    const isCurrent = awsForEngineersPublicationIsCurrent(article.publishedAt, now, today);
+    const metadata = JSON.stringify([article.title, article.language, article.publishedAt, authorName, authorUrl]);
+    const previousMetadata = seenUrls.get(url);
+    if (previousMetadata !== undefined) {
+      if (previousMetadata !== metadata) throw fail("AWS_FOR_ENGINEERS_URL_CONTRADICTORY");
+      continue;
+    }
+    seenUrls.set(url, metadata);
+
+    if (authorName !== AWS_FOR_ENGINEERS_AUTHOR.name) continue;
+    if (authorUrl !== AWS_FOR_ENGINEERS_AUTHOR.url) throw fail("AWS_FOR_ENGINEERS_AUTHOR_INVALID");
+    if (!isCurrent) continue;
+
+    publications.push({
+      sourceId: "aws-for-engineers",
+      providerId: url,
+      title,
+      language: "en",
+      url,
+      publishedAt: article.publishedAt
+    });
+  }
+  return publications;
+}
+
+async function collectAwsForEngineers(source, now) {
+  const envelope = await fetchAwsForEngineersIndex();
+  const publications = validateAwsForEngineersIndex(envelope, now);
   return { publications, pages: 1 };
 }
 
@@ -2415,6 +2586,7 @@ async function collectPublications(sources, now, env, getBuilderCollection) {
     else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
     else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
     else if (source.id === "donde-aprendo-aws") result = await collectDondeAprendoAws(source, now);
+    else if (source.id === "aws-for-engineers") result = await collectAwsForEngineers(source, now);
     else throw fail("SOURCE_UNSUPPORTED");
     pagesBySource[source.id] = result.pages;
     publications.push(...result.publications);
@@ -2467,7 +2639,7 @@ function validSourceList(sources, family) {
   if (!Array.isArray(sources)) return false;
   if (family === "articles") {
     if (sources.length === 0) return false;
-    const orderedIds = ["caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws"];
+    const orderedIds = ["caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers"];
     const seen = new Set();
     let previousIndex = -1;
     for (const source of sources) {

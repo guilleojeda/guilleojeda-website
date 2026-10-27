@@ -17,7 +17,7 @@ const TALK_KINDS = new Set([
 const TALK_STATUSES = new Set(['delivered', 'scheduled', 'unknown']);
 const BOOK_STATUSES = new Set(['published', 'in-progress', 'unknown']);
 const LANGUAGES = new Set(['en', 'es', null]);
-const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws']);
+const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws', 'aws-for-engineers']);
 const REQUIRED_ARTICLE_SOURCE_IDS = ['caylent', 'builder-center'];
 
 function invalid(message) {
@@ -55,6 +55,10 @@ function validateArticleConfig(articleConfig) {
     if (source.id === 'donde-aprendo-aws'
       && (Object.keys(source).length !== 1 || !Object.hasOwn(source, 'id'))) {
       invalid('Dónde Aprendo AWS article source must contain only its id');
+    }
+    if (source.id === 'aws-for-engineers'
+      && (Object.keys(source).length !== 1 || !Object.hasOwn(source, 'id'))) {
+      invalid('AWS for Engineers article source must contain only its id');
     }
     if (source.id === 'cloudy-things') {
       const keys = Object.keys(source).sort();
