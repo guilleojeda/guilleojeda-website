@@ -1595,3 +1595,52 @@ test('the maintained article inventory is exactly the approved 88 destinations a
   assert.deepEqual(result.articleInventory.publications, articles.publications);
   assert.equal(result.articleInventory.exclusions.length, 11);
 });
+
+test('implementation regression: build accepts article paths and rejects platform profile paths', async () => {
+  const build = await inputBuilder();
+  const validDestinations = [
+    ['dev-community', 'https://dev.to/guilleojeda/an-article'],
+    ['linkedin-articles', 'https://www.linkedin.com/pulse/an-article-guille-ojeda'],
+    ['spainclouds', 'https://www.spainclouds.com/blog/an-article']
+  ];
+  for (const [index, [sourceId, url]] of validDestinations.entries()) {
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    source.articles.publications.push({
+      sourceId,
+      title: `Valid destination ${index}`,
+      language: sourceId === 'spainclouds' ? 'es' : 'en',
+      publishedAt: '2025-01-17',
+      url
+    });
+    assert.doesNotThrow(() => build(source), `${sourceId} article URL remains valid`);
+  }
+
+  const invalidDestinations = [
+    ['dev-community', 'https://dev.to/guilleojeda'],
+    ['linkedin-articles', 'https://www.linkedin.com/in/guilleojeda/'],
+    ['spainclouds', 'https://www.spainclouds.com/about']
+  ];
+  for (const [index, [sourceId, url]] of invalidDestinations.entries()) {
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    source.articles.publications.push({
+      sourceId,
+      title: `Invalid profile path ${index}`,
+      language: sourceId === 'spainclouds' ? 'es' : 'en',
+      publishedAt: '2025-01-17',
+      url
+    });
+    assert.throws(() => build(source), /article|path|url|invalid/i,
+      `${sourceId} profile or informational path cannot pass build validation`);
+  }
+
+  const whitespaceTitle = { ...fixture(), articles: individualArticleFacts() };
+  whitespaceTitle.articles.publications.push({
+    sourceId: 'dev-community',
+    title: '\u0085',
+    language: 'en',
+    publishedAt: '2025-01-17',
+    url: 'https://dev.to/guilleojeda/whitespace-title'
+  });
+  assert.throws(() => build(whitespaceTitle), /article|title|invalid/i,
+    'the build rejects Unicode whitespace that the runtime identity normalizer removes');
+});

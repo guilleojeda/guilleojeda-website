@@ -10925,6 +10925,54 @@ test("input12 without a valid manual Builder observation retains a valid prior v
   }
 });
 
+test("implementation regression: Simple AWS URL exclusions require a matchable web destination", async () => {
+  const url = "https://newsletter.simpleaws.dev/p/phase4-excluded-simple-aws";
+  const privateTitle = "Synthetic Simple AWS URL exclusion canary";
+  const input = phaseTwelveArticleInventoryInput({
+    articleInventory: {
+      publications: [],
+      exclusions: [{ sourceId: "simple-aws", url }]
+    }
+  });
+  const requestLog = [];
+  const availableUrlHarness = createHarness({
+    input,
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      simpleArticles: [beehiivPost({
+        id: "phase4-simple-aws-url-exclusion",
+        title: privateTitle,
+        platform: "web",
+        web_url: url
+      })]
+    })
+  });
+  await availableUrlHarness.handler({}, {});
+  const excluded = (await readPut(availableUrlHarness.putCalls[0])).groups.articles;
+  assert.deepEqual(excluded.counts, { all: 4, en: 3, es: 1 },
+    "a Beehiiv web_url is matched by source and normalized destination before title-language counting");
+  assertNoArticleInventoryCanaries(availableUrlHarness, url, privateTitle);
+
+  const unavailableUrlHarness = createHarness({
+    input,
+    fetchFn: phaseFourInventoryFetch({
+      simpleArticles: [beehiivPost({
+        id: "phase4-simple-aws-url-missing",
+        title: privateTitle,
+        platform: "email"
+      })]
+    })
+  });
+  await unavailableUrlHarness.handler({}, {});
+  const unavailable = await readPut(unavailableUrlHarness.putCalls[0]);
+  assert.equal(Object.hasOwn(unavailable.groups, "articles"), false,
+    "an email-only Beehiiv row without a URL cannot silently pass an explicit Simple AWS URL exclusion");
+  assert.ok(unavailable.groups.talks && unavailable.groups.books,
+    "the unavailable Article family does not block healthy curated groups");
+  assert.ok(unavailableUrlHarness.logs.join("\n").includes("ARTICLE_INVENTORY_SOURCE_URL_UNAVAILABLE"));
+  assertNoArticleInventoryCanaries(unavailableUrlHarness, url, privateTitle);
+});
+
 test("input12 supports individual articles without optional Newsletter, analytics, or manual Builder selections", async () => {
   const requestLog = [];
   const input = phaseTwelveArticleInventoryInput({
