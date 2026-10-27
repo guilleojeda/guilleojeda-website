@@ -653,7 +653,9 @@ function dondeAprendoApiFetch({ requestLog = [], responder, response, ...apiOpti
     if (value instanceof Response || (value && typeof value.text === "function" && typeof value.status === "number")) {
       return value;
     }
-    return jsonResponse(value ?? dondeAprendoIndex([]));
+    return new Response(JSON.stringify(value ?? dondeAprendoIndex([])), {
+      headers: { "content-type": "application/json" }
+    });
   };
 }
 
