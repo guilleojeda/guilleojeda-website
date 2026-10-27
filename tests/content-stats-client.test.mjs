@@ -16,6 +16,12 @@ const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
 const cloudyThings = { id: 'cloudy-things', label: 'Cloudy Things' };
 const dondeAprendoAws = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS' };
 const awsForEngineers = { id: 'aws-for-engineers', label: 'AWS for Engineers' };
+const devCommunity = { id: 'dev-community', label: 'DEV Community' };
+const linkedinArticles = { id: 'linkedin-articles', label: 'LinkedIn' };
+const spainClouds = { id: 'spainclouds', label: 'SpainClouds' };
+const hackerNoon = { id: 'hackernoon', label: 'HackerNoon' };
+const automaticArticleSources = [caylent, builderCenter, simpleAws, cloudyThings, dondeAprendoAws, awsForEngineers];
+const individualArticleSources = [devCommunity, linkedinArticles, spainClouds, hackerNoon];
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const directoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
@@ -326,6 +332,19 @@ function articleSearchRecords() {
 function snapshotWithArticleSearchClicks({ records = articleSearchRecords(), definitionVersion = 1, includeViews = true } = {}) {
   const data = includeViews ? snapshotWithArticleViews() : snapshotWithNewsletter();
   data.groups.articleSearchClicks = { definitionVersion, records };
+  return data;
+}
+
+function snapshotWithIndividualArticleSources({
+  sources = individualArticleSources,
+  automaticSources = automaticArticleSources,
+  counts = { all: 618, en: 398, es: 220 },
+  collectedAt = '2026-10-26T16:00:00.000Z'
+} = {}) {
+  const data = snapshotWithArticleSearchClicks();
+  data.groups.articles.sources = [...automaticSources, ...sources];
+  data.groups.articles.counts = { ...counts };
+  data.groups.articles.collectedAt = collectedAt;
   return data;
 }
 
@@ -2303,6 +2322,156 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.fetchCount, 1, `${description} does not cause another request`);
     }
   });
+
+  test(`${locale} selected individual articles use the count-only schema and filter beside unchanged metrics`, async () => {
+    const collectedAt = '2026-10-26T16:00:00.000Z';
+    const data = snapshotWithIndividualArticleSources({ collectedAt });
+    const expectedCoverage = [...automaticArticleSources, ...individualArticleSources]
+      .map((source) => source.label)
+      .join(', ');
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(data.schemaVersion, 1, 'individual coverage keeps the public root schema at version 1');
+    assert.deepEqual(Object.keys(data.groups.articles).sort(),
+      ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'].sort(),
+      'Articles remains a counts-only group with its existing exact keys');
+    assert.equal(data.groups.articles.definitionVersion, 1);
+    assert.deepEqual(data.groups.articles.counts, { all: 618, en: 398, es: 220 });
+    assert.equal(page.cards.articles.results.hidden, false);
+    assert.equal(page.cards.articles.status.hidden, true);
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(618));
+    assert.equal(page.cards.articles.coverage.textContent, expectedCoverage, 'All preserves exact automatic and individually selected source coverage');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+    assertOverviewCount(page, locale, 'articles', 618);
+
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assertCuratedCoverage(page, 'talks', locale);
+    assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
+    assert.equal(page.cards.books.count.textContent, '3');
+    assertCuratedCoverage(page, 'books', locale);
+    assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label);
+    assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
+    assertViewsVisible(page, locale, '12m');
+    assertSearchVisible(page, locale, '12m');
+
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    assertViewsVisible(page, locale, '30d');
+    assertSearchVisible(page, locale, '30d');
+    for (const [language, expected] of [
+      ['all', { articles: 618, talks: 6, books: 3 }],
+      ['en', { articles: 398, talks: 2, books: 2 }],
+      ['es', { articles: 220, talks: 4, books: 1 }]
+    ]) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(expected.articles));
+      assert.equal(page.cards.articles.coverage.textContent, expectedCoverage);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assert.equal(page.cards.talks.count.textContent, String(expected.talks));
+      assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
+      assert.equal(page.cards.books.count.textContent, String(expected.books));
+      assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
+      assertOverviewCount(page, locale, 'articles', 618);
+      if (language === 'es') {
+        assertViewsUnavailable(page, locale);
+        assertSearchUnavailable(page, locale);
+        assert.equal(page.cards.newsletter.card.hidden, true);
+      } else {
+        assertViewsVisible(page, locale, '30d');
+        assertSearchVisible(page, locale, '30d');
+        assert.equal(page.cards.newsletter.count.textContent, '27');
+        assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
+      }
+    }
+    assert.equal(page.periodSelector.value, '30d', 'the cumulative count does not reset the activity period');
+    assert.equal(page.fetchCount, 1, 'period and language changes reuse the single snapshot request');
+    assert.equal(page.location.href, 'https://guilleojeda.com/', 'local filters do not navigate');
+  });
+
+  for (const [description, sources, automaticSources = automaticArticleSources] of [
+    ...individualArticleSources.map((source) => [`single ${source.label} selection`, [source]]),
+    ['a partial DEV Community and HackerNoon selection', [devCommunity, hackerNoon]],
+    ['individual articles beside only Caylent and Builder', [devCommunity], [caylent, builderCenter]]
+  ]) {
+    test(`${locale} accepts ${description} in All with exact source labels`, async () => {
+      const collectedAt = '2026-10-26T16:00:00.000Z';
+      const data = snapshotWithIndividualArticleSources({ sources, automaticSources, collectedAt });
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      const expectedCoverage = [...automaticSources, ...sources].map((source) => source.label).join(', ');
+      assert.equal(page.selector.value, 'all');
+      assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(618));
+      assert.equal(page.cards.articles.coverage.textContent, expectedCoverage);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+
+  test(`${locale} an individual-source snapshot preserves a measured zero for all content languages`, async () => {
+    const collectedAt = '2026-10-26T16:00:00.000Z';
+    const data = snapshotWithIndividualArticleSources({
+      sources: [linkedinArticles, spainClouds],
+      counts: { all: 0, en: 0, es: 0 },
+      collectedAt
+    });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    const expectedCoverage = [...automaticArticleSources, linkedinArticles, spainClouds]
+      .map((source) => source.label)
+      .join(', ');
+    for (const language of ['all', 'en', 'es']) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.results.hidden, false);
+      assert.equal(page.cards.articles.status.hidden, true);
+      assert.equal(page.cards.articles.count.textContent, '0');
+      assert.equal(page.cards.articles.coverage.textContent, expectedCoverage);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assertOverviewCount(page, locale, 'articles', 0);
+    }
+    assert.equal(page.fetchCount, 1);
+  });
+
+  for (const [description, sources] of [
+    ['unknown platform', [...automaticArticleSources, { id: 'unknown-platform', label: 'Unknown Platform' }]],
+    ['duplicate individual platform', [...automaticArticleSources, devCommunity, { ...devCommunity }]],
+    ['misordered individual platforms', [...automaticArticleSources, linkedinArticles, devCommunity]],
+    ['wrong individual platform label', [...automaticArticleSources, { ...devCommunity, label: 'DEV' }]],
+    ['excluded Medium platform', [...automaticArticleSources, { id: 'medium', label: 'Medium' }]]
+  ]) {
+    test(`${locale} invalid individual article coverage (${description}) invalidates only Articles`, async () => {
+      const collectedAt = '2026-10-26T16:00:00.000Z';
+      const data = snapshotWithArticleSearchClicks();
+      data.groups.articles.sources = sources;
+      data.groups.articles.collectedAt = collectedAt;
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assertUnavailable(page, locale, 'articles');
+      assertOverviewUnavailable(page, locale, 'articles');
+      assert.equal(page.cards.talks.count.textContent, '6');
+      assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
+      assert.equal(page.cards.newsletter.count.textContent, '27');
+      assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
+      assertViewsVisible(page, locale, '12m');
+      assertSearchVisible(page, locale, '12m');
+
+      page.selector.value = 'en';
+      page.selector.dispatch('change');
+      assertUnavailable(page, locale, 'articles');
+      assertViewsVisible(page, locale, '12m');
+      assertSearchVisible(page, locale, '12m');
+      assert.equal(page.fetchCount, 1, `${description} stays isolated and does not refetch`);
+    });
+  }
 
   for (const [description, extraSource] of [
     ['unknown Simple AWS ID', [{ id: 'simpleaws', label: 'Simple AWS' }]],

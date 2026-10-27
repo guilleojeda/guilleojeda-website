@@ -10126,3 +10126,835 @@ test("a Builder article-list failure does not block a valid manual observation",
   assert.deepEqual(output.groups.books.counts, { all: 0, en: 0, es: 0 });
   assert.ok(requestLog.some(({ kind }) => kind === "builder-list"));
 });
+
+const manualArticleSourceLabels = {
+  "dev-community": "DEV Community",
+  "linkedin-articles": "LinkedIn",
+  spainclouds: "SpainClouds",
+  hackernoon: "HackerNoon"
+};
+
+function phaseTwelveArticleInventoryInput({
+  articleInventory = { publications: [], exclusions: [] },
+  builderArticleViews,
+  sources,
+  baseInput
+} = {}) {
+  const input = baseInput === undefined ? awsSixSourceInput(sources) : structuredClone(baseInput);
+  if (baseInput === undefined) input.directoryAnalytics.outboundClicks = true;
+  else if (sources !== undefined) input.sources = structuredClone(sources);
+  input.schemaVersion = 12;
+  input.articleInventory = structuredClone(articleInventory);
+  if (builderArticleViews !== undefined) input.builderArticleViews = structuredClone(builderArticleViews);
+  else if (baseInput === undefined || !Object.hasOwn(input, "builderArticleViews")) {
+    delete input.builderArticleViews;
+  }
+  return input;
+}
+
+function phaseFourInventoryFetch({ requestLog = [], ...sourceOptions } = {}) {
+  const newsletterResponder = sourceOptions.newsletterResponder ?? (({ request }) => {
+    const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    return jsonResponse(newsletterEnvelope(publicationId, 20, 88));
+  });
+  const engagementResponder = sourceOptions.engagementResponder
+    ?? (({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request)));
+  const reportResponder = sourceOptions.reportResponder ?? (({ request }) => {
+    const isDirectory = request.url.includes("/properties/" + directoryGooglePropertyId + ":");
+    const metricName = request.json.metrics[0]?.name;
+    const value = metricName === "eventCount" ? 17 : isDirectory ? 23 : 31;
+    return jsonResponse(ga4Report({
+      views: value,
+      metricName,
+      timeZone: isDirectory ? directoryTimeZone : googleTimeZone
+    }));
+  });
+  const searchResponder = sourceOptions.searchResponder
+    ?? (() => jsonResponse(searchConsoleResponse({ clicks: 29 })));
+  return awsSixSourceFetch({
+    ...sourceOptions,
+    requestLog,
+    newsletterResponder,
+    engagementResponder,
+    reportResponder,
+    searchResponder
+  });
+}
+
+function manualArticlePublication(sourceId, title, language, publishedAt, url) {
+  return { sourceId, title, language, publishedAt, url };
+}
+
+function assertNoArticleInventoryCanaries(harness, ...values) {
+  const published = harness.putCalls.map((call) => bodyText(call.Body)).join("\n");
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(published.includes(value), false, "public aggregate must omit " + value);
+    assert.equal(logs.includes(value), false, "collector logs must omit " + value);
+  }
+}
+
+test("input12 keeps strict root validation and the existing source dependencies before provider work", async () => {
+  const valid = phaseTwelveArticleInventoryInput();
+  const missingInventory = structuredClone(valid);
+  delete missingInventory.articleInventory;
+  const unknownRootField = { ...structuredClone(valid), unexpectedInventoryCanary: true };
+  const manualSourceInSelectorList = structuredClone(valid);
+  manualSourceInSelectorList.sources.push({ id: "dev-community" });
+  const missingNewsletter = structuredClone(valid);
+  delete missingNewsletter.newsletter;
+  const invalidInputs = [
+    ["missing required article inventory", missingInventory],
+    ["unknown root field", unknownRootField],
+    ["manual platform is not an automatic source selector", manualSourceInSelectorList],
+    ["missing newsletter required by selected Simple AWS and Analytics", missingNewsletter]
+  ];
+
+  for (const [name, input] of invalidInputs) {
+    const requestLog = [];
+    const harness = createHarness({
+      input,
+      fetchFn: awsSixSourceFetch({ requestLog })
+    });
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      if (name === "manual platform is not an automatic source selector") {
+        assert.equal(error.code, "SOURCE_UNSUPPORTED", name);
+      } else {
+        assert.equal(error.code, "INPUT_SCHEMA_INVALID", name);
+      }
+      return true;
+    });
+    assert.deepEqual(requestLog, [], name + " must be rejected before provider work");
+    assert.equal(harness.putCalls.length, 0, name + " must not publish a snapshot");
+  }
+});
+
+test("input12 joins all six automatic sources with manual publications by normalized title and language", async () => {
+  const manualInventory = {
+    publications: [
+      manualArticlePublication(
+        "dev-community",
+        "  CAFE\u0301   SHARED IDENTITY ",
+        "en",
+        "2024-02-03T09:15:00-03:00",
+        "https://dev.to/guille/shared-identity"
+      ),
+      manualArticlePublication(
+        "dev-community",
+        "Café, Shared Identity!",
+        "en",
+        "2024-02-04",
+        "https://dev.to/guille/punctuated-shared-identity"
+      ),
+      manualArticlePublication(
+        "linkedin-articles",
+        "Beehiiv email shared",
+        "en",
+        "2025-01-10T08:00:00.000-03:00",
+        "https://www.linkedin.com/pulse/beehiiv-email-shared/"
+      ),
+      manualArticlePublication(
+        "spainclouds",
+        " Café TRANSLATION ",
+        "es",
+        "2024-05-02",
+        "https://www.spainclouds.com/blog/cafe-translation"
+      ),
+      manualArticlePublication(
+        "hackernoon",
+        "Guide: AWS!",
+        "en",
+        "2024-01-01",
+        "https://hackernoon.com/guide-aws"
+      ),
+      manualArticlePublication(
+        "dev-community",
+        "Destination copies",
+        "en",
+        "2023-07-04T12:30:00Z",
+        "https://dev.to/guille/destination-copy-one"
+      ),
+      manualArticlePublication(
+        "dev-community",
+        "Destination copies",
+        "en",
+        "2023-07-04T12:30:00Z",
+        "https://dev.to/guille/destination-copy-two"
+      ),
+      manualArticlePublication(
+        "linkedin-articles",
+        "Café Shared Identity",
+        "es",
+        "2022-06-03",
+        "https://es.linkedin.com/pulse/cafe-shared-identity"
+      ),
+      manualArticlePublication(
+        "hackernoon",
+        "Approved article with no established date",
+        "en",
+        null,
+        "https://hackernoon.com/approved-undated-article"
+      )
+    ],
+    exclusions: [
+      { sourceId: "medium", url: "https://medium.com/@guille/not-an-included-source" }
+    ]
+  };
+  const requestLog = [];
+  const privateValues = manualInventory.publications.flatMap(({ title, url }) => [title, url]);
+  const manualBuilderViews = manualBuilderArticleViewsInput({
+    observedAt: "2026-10-16T12:00:00.000Z",
+    views: { en: 23, es: 7 }
+  });
+  const curated = {
+    talks: [talkFact("phase4-delivered-spanish-talk", "talk", "delivered", "es")],
+    books: [bookFact("phase4-published-english-book", "published", "en")]
+  };
+  const baseInput = awsSixSourceInput();
+  baseInput.directoryAnalytics.outboundClicks = true;
+  baseInput.curated = structuredClone(curated);
+  const baselineInput = phaseElevenInput({
+    baseInput,
+    builderArticleViews: manualBuilderViews
+  });
+  const inventoryInput = phaseTwelveArticleInventoryInput({
+    baseInput: baselineInput,
+    articleInventory: manualInventory
+  });
+  const harness = createHarness({
+    input: baselineInput,
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      caylentRows: [article({ id: "phase4-caylent-copy", title: "Café Shared Identity" })],
+      builderArticles: [builderArticle({
+        id: "phase4-builder-copy",
+        title: "Café translation",
+        locale: "es"
+      })],
+      simpleArticles: [
+        beehiivPost({ id: "phase4-web-post", title: "Beehiiv web unique", platform: "web" }),
+        beehiivPost({ id: "phase4-email-post", title: "Beehiiv email shared", platform: "email" }),
+        beehiivPost({ id: "phase4-both-post", title: "Beehiiv both unique", platform: "both" })
+      ],
+      cloudyRows: [cloudyArticle({ id: "phase4-cloudy", title: "Cloudy unique" })],
+      dondeArticles: [dondeAprendoArticle({ title: "Directory Spanish unique", slug: "phase4-directory" })],
+      awsResponder: () => awsForEngineersIndex([
+        awsForEngineersArticle({ title: "AWS for Engineers unique", slug: "phase4-aws-unique" })
+      ])
+    })
+  });
+
+  await harness.handler({}, {});
+  const baseline = await readPut(harness.putCalls[0]);
+  const familyNames = [
+    "articles", "talks", "books", "newsletter", "newsletterEmailsSent", "articleViews",
+    "directoryViews", "directoryOutboundClicks", "articleSearchClicks", "newsletterEmailOpens",
+    "newsletterEmailVerifiedClicks", "builderArticleViews"
+  ];
+  assert.deepEqual(Object.keys(baseline.groups).sort(), familyNames.slice().sort(),
+    "the fixture publishes all twelve healthy families before adding individual article facts");
+  assert.deepEqual(baseline.groups.articles.counts, { all: 8, en: 6, es: 2 });
+  assert.deepEqual(baseline.groups.talks.counts, { all: 1, en: 0, es: 1 });
+  assert.deepEqual(baseline.groups.books.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0,
+    "the complete baseline does not need a prior snapshot read");
+
+  harness.setInput(inventoryInput);
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[1]);
+  const group = output.groups.articles;
+  assert.equal(output.schemaVersion, 1, "individual source records do not create another public root");
+  assert.deepEqual(Object.keys(output.groups).sort(), familyNames.slice().sort());
+  const baselineSiblings = { ...baseline.groups };
+  const refreshedSiblings = { ...output.groups };
+  delete baselineSiblings.articles;
+  delete refreshedSiblings.articles;
+  assert.deepEqual(refreshedSiblings, baselineSiblings,
+    "input12 preserves every healthy sibling family, including non-empty talks and books, exactly");
+  assert.deepEqual(Object.keys(group).sort(), [
+    "basis", "collectedAt", "counts", "definitionVersion", "scopeId", "sources"
+  ], "phase 4 continues to publish the established count-only Articles group");
+  assert.notEqual(group.scopeId, baseline.groups.articles.scopeId,
+    "the selected individual records and exclusions belong to the Articles scope");
+  assert.deepEqual(group.counts, { all: 13, en: 10, es: 3 },
+    "manual copies deduplicate by title/language, punctuation and language differences remain distinct, and destinations do not add identities");
+  assert.deepEqual(group.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "simple-aws", label: "Simple AWS" },
+    { id: "cloudy-things", label: "Cloudy Things" },
+    { id: "donde-aprendo-aws", label: "Dónde Aprendo AWS" },
+    { id: "aws-for-engineers", label: "AWS for Engineers" },
+    { id: "dev-community", label: manualArticleSourceLabels["dev-community"] },
+    { id: "linkedin-articles", label: manualArticleSourceLabels["linkedin-articles"] },
+    { id: "spainclouds", label: manualArticleSourceLabels.spainclouds },
+    { id: "hackernoon", label: manualArticleSourceLabels.hackernoon }
+  ], "only selected automated sources and platforms with included manual entries appear in canonical order");
+  assert.deepEqual(output.groups.builderArticleViews.views, { all: 30, en: 23, es: 7 },
+    "manual Builder views remain a separate group while article inventory changes");
+  assert.equal(output.groups.builderArticleViews.observedAt, manualBuilderViews.observedAt);
+  assertBeehiivPostRequests(harness, requestLog, beehiivPublicationId, [1, 1]);
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 0,
+    "the complete input12 refresh also does not need a prior snapshot read");
+  const mixedPlatformHosts = new Set([
+    "dev.to", "www.linkedin.com", "es.linkedin.com", "spainclouds.com",
+    "www.spainclouds.com", "hackernoon.com", "medium.com"
+  ]);
+  for (const request of requestLog) {
+    if (request.url) {
+      assert.equal(
+        mixedPlatformHosts.has(new URL(String(request.url)).hostname),
+        false,
+        "manual records do not trigger requests to mixed article platforms"
+      );
+    }
+  }
+  assertNoArticleInventoryCanaries(harness, ...privateValues);
+});
+
+test("input12 exclusions match stable source URLs across title edits without hiding a same-title destination", async () => {
+  const excludedUrl = "https://builder.aws.com/content/phase4-excluded-builder/excluded-destination/";
+  const articleInventory = {
+    publications: [],
+    exclusions: [{ sourceId: "builder-center", url: excludedUrl }]
+  };
+  const requestLog = [];
+  const builderPages = new Map([[
+    "",
+    {
+      articles: [
+        builderArticle({
+          id: "phase4-excluded-builder",
+          title: "Stable exclusion target",
+          slug: "excluded-destination"
+        }),
+        builderArticle({
+          id: "phase4-included-same-title",
+          title: "Stable exclusion target",
+          slug: "other-destination"
+        })
+      ],
+      resultsSize: 2
+    }
+  ]]);
+  const harness = createHarness({
+    input: phaseTwelveArticleInventoryInput({ articleInventory }),
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      builderPages,
+      awsResponder: () => awsForEngineersIndex([
+        awsForEngineersArticle({ title: "Phase 4 AWS unique", slug: "phase4-aws" })
+      ])
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = (await readPut(harness.putCalls[0])).groups.articles;
+  assert.deepEqual(first.counts, { all: 6, en: 5, es: 1 },
+    "the non-excluded Builder destination still contributes when it shares a title with the excluded URL");
+  assert.equal(first.scopeId.length, 64);
+
+  builderPages.set("", {
+    articles: [
+      builderArticle({
+        id: "phase4-excluded-builder",
+        title: "Renamed after exclusion",
+        slug: "excluded-destination"
+      }),
+      builderArticle({
+        id: "phase4-included-same-title",
+        title: "Stable exclusion target",
+        slug: "other-destination"
+      })
+    ],
+    resultsSize: 2
+  });
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const second = (await readPut(harness.putCalls[1])).groups.articles;
+  assert.deepEqual(second.counts, first.counts,
+    "changing the excluded article title does not readmit its stable source URL");
+  assert.equal(second.scopeId, first.scopeId, "remote title edits do not change the maintained selection scope");
+  assert.notEqual(second.collectedAt, first.collectedAt, "the refresh date remains current");
+  assertNoArticleInventoryCanaries(harness, excludedUrl);
+  for (const request of requestLog.filter(({ kind }) => kind === "builder-list")) {
+    assert.ok(request.url === undefined || !String(request.url).includes(excludedUrl));
+  }
+});
+
+test("invalid input12 article facts invalidate only Articles and never publish a valid prefix", async () => {
+  const validPrefix = manualArticlePublication(
+    "dev-community",
+    "Synthetic valid prefix must not escape",
+    "en",
+    "2025-01-02T03:04:05Z",
+    "https://dev.to/guille/valid-prefix"
+  );
+  const invalidRows = [
+    ["unknown publication field", {
+      ...validPrefix,
+      extra: "synthetic-field-canary"
+    }],
+    ["unsupported included source", manualArticlePublication(
+      "medium",
+      "Unsupported automatic import",
+      "en",
+      "2025-01-02",
+      "https://medium.com/@guille/unsupported-import"
+    )],
+    ["unsupported language", manualArticlePublication(
+      "dev-community",
+      "Invalid language",
+      "fr",
+      "2025-01-02",
+      "https://dev.to/guille/invalid-language"
+    )],
+    ["impossible calendar date", manualArticlePublication(
+      "dev-community",
+      "Impossible date",
+      "en",
+      "2025-02-30T12:00:00+00:00",
+      "https://dev.to/guille/impossible-date"
+    )],
+    ["timestamp without an explicit zone", manualArticlePublication(
+      "dev-community",
+      "Unzoned timestamp",
+      "en",
+      "2025-01-02T12:00:00",
+      "https://dev.to/guille/unzoned-timestamp"
+    )],
+    ["future publication date", manualArticlePublication(
+      "dev-community",
+      "Future individual record",
+      "en",
+      "2026-10-17T00:00:00.000Z",
+      "https://dev.to/guille/future-record"
+    )],
+    ["URL from another platform", manualArticlePublication(
+      "dev-community",
+      "Foreign host",
+      "en",
+      "2025-01-02",
+      "https://www.linkedin.com/pulse/not-dev"
+    )],
+    ["URL with query", manualArticlePublication(
+      "dev-community",
+      "Query URL",
+      "en",
+      "2025-01-02",
+      "https://dev.to/guille/query-url?tracking=canary"
+    )],
+    ["URL with credentials", manualArticlePublication(
+      "dev-community",
+      "Credential URL",
+      "en",
+      "2025-01-02",
+      "https://user:password@dev.to/guille/credential-url"
+    )],
+    ["URL with non-default port", manualArticlePublication(
+      "dev-community",
+      "Port URL",
+      "en",
+      "2025-01-02",
+      "https://dev.to:8443/guille/port-url"
+    )],
+    ["URL with fragment", manualArticlePublication(
+      "dev-community",
+      "Fragment URL",
+      "en",
+      "2025-01-02",
+      "https://dev.to/guille/fragment-url#canary"
+    )],
+    ["duplicate source URL with conflicting metadata", manualArticlePublication(
+      "dev-community",
+      "Contradictory duplicate",
+      "en",
+      "2025-01-03",
+      "https://dev.to/guille/valid-prefix/"
+    )]
+  ];
+  const invalidInventories = invalidRows.map(([name, invalidRecord]) => ({
+    name,
+    inventory: {
+      publications: [validPrefix, invalidRecord],
+      exclusions: []
+    }
+  }));
+  invalidInventories.push({
+    name: "included and excluded normalized URL conflict",
+    inventory: {
+      publications: [validPrefix],
+      exclusions: [{ sourceId: "dev-community", url: "https://dev.to/guille/valid-prefix/" }]
+    }
+  });
+  invalidInventories.push({
+    name: "unknown exclusion field",
+    inventory: {
+      publications: [validPrefix],
+      exclusions: [{ sourceId: "medium", url: "https://medium.com/@guille/no-import", title: "must not be projected" }]
+    }
+  });
+  invalidInventories.push({
+    name: "unknown exclusion source",
+    inventory: {
+      publications: [validPrefix],
+      exclusions: [{ sourceId: "unknown-platform", url: "https://example.com/not-an-exclusion" }]
+    }
+  });
+  invalidInventories.push({
+    name: "unknown article inventory field",
+    inventory: {
+      publications: [validPrefix],
+      exclusions: [],
+      unapprovedImport: true
+    }
+  });
+  invalidInventories.push(
+    { name: "null article inventory", inventory: null, canaries: ["synthetic-null-inventory-canary"] },
+    {
+      name: "publications is not an array",
+      inventory: { publications: "synthetic-publications-shape-canary", exclusions: [] },
+      canaries: ["synthetic-publications-shape-canary"]
+    },
+    {
+      name: "exclusions is not an array",
+      inventory: { publications: [validPrefix], exclusions: "synthetic-exclusions-shape-canary" },
+      canaries: ["synthetic-exclusions-shape-canary"]
+    }
+  );
+
+  for (const invalid of invalidInventories) {
+    const requestLog = [];
+    const input = phaseTwelveArticleInventoryInput({
+      articleInventory: invalid.inventory,
+      builderArticleViews: manualBuilderArticleViewsInput({ views: { en: 8, es: 2 } })
+    });
+    const harness = createHarness({
+      input,
+      fetchFn: phaseFourInventoryFetch({
+        requestLog,
+        awsResponder: () => awsForEngineersIndex([
+          awsForEngineersArticle({ title: "Healthy sibling source", slug: "healthy-sibling" })
+        ])
+      })
+    });
+
+    await harness.handler({}, {});
+
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), false,
+      invalid.name + " must not publish automatic totals or a partial manual prefix");
+    assert.deepEqual(Object.keys(output.groups).sort(), [
+      "articleSearchClicks", "articleViews", "books", "builderArticleViews",
+      "directoryOutboundClicks", "directoryViews", "newsletter", "newsletterEmailOpens",
+      "newsletterEmailVerifiedClicks", "newsletterEmailsSent", "talks"
+    ], invalid.name + " leaves every other selected family healthy");
+    assert.deepEqual(output.groups.talks.counts, { all: 0, en: 0, es: 0 },
+      invalid.name + " leaves healthy talks available");
+    assert.deepEqual(output.groups.books.counts, { all: 0, en: 0, es: 0 },
+      invalid.name + " leaves healthy books available");
+    assert.deepEqual(output.groups.builderArticleViews.views, { all: 10, en: 8, es: 2 },
+      invalid.name + " does not block the independent manual Builder family");
+    const publications = Array.isArray(invalid.inventory?.publications)
+      ? invalid.inventory.publications
+      : [];
+    const exclusions = Array.isArray(invalid.inventory?.exclusions)
+      ? invalid.inventory.exclusions
+      : [];
+    assertNoArticleInventoryCanaries(
+      harness,
+      ...(invalid.canaries ?? []),
+      ...publications.flatMap(({ title, url }) => [title, url]),
+      ...exclusions.flatMap(({ title, url }) => [title, url].filter(Boolean))
+    );
+  }
+});
+
+test("input12 scope is canonical for manual facts, refreshes, Builder changes, and source ordering", async () => {
+  const publication = manualArticlePublication(
+    "dev-community",
+    "Scope anchor",
+    "en",
+    "2025-03-04T10:00:00-03:00",
+    "https://dev.to/guille/scope-anchor/"
+  );
+  const secondPublication = manualArticlePublication(
+    "linkedin-articles",
+    "Second scope anchor",
+    "es",
+    "2024-11-12",
+    "https://www.linkedin.com/pulse/second-scope-anchor"
+  );
+  const exclusion = { sourceId: "medium", url: "https://medium.com/@guille/old-link/" };
+  const secondExclusion = { sourceId: "builder-center", url: "https://builder.aws.com/content/old-post/old-destination/" };
+  const inventory = {
+    publications: [publication, secondPublication],
+    exclusions: [exclusion, secondExclusion]
+  };
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseTwelveArticleInventoryInput({
+      articleInventory: inventory,
+      builderArticleViews: manualBuilderArticleViewsInput({
+        observedAt: "2026-10-16T12:00:00.000Z",
+        views: { en: 15, es: 4 }
+      })
+    }),
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      awsResponder: () => awsForEngineersIndex([
+        awsForEngineersArticle({ title: "Stable automatic source", slug: "stable-auto" })
+      ])
+    })
+  });
+  await harness.handler({}, {});
+  const firstOutput = await readPut(harness.putCalls[0]);
+  const first = firstOutput.groups.articles;
+  const firstIndependentScopes = manualGroupScopeIds(firstOutput.groups);
+  delete firstIndependentScopes.articles;
+  assert.match(first.scopeId, /^[a-f0-9]{64}$/);
+
+  const reorderedInventory = {
+    publications: [secondPublication, { ...publication, url: "https://dev.to/guille/scope-anchor" }],
+    exclusions: [secondExclusion, exclusion]
+  };
+  const reorderedInput = phaseTwelveArticleInventoryInput({
+    articleInventory: reorderedInventory,
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T11:00:00.000Z",
+      views: { en: 10, es: 3 }
+    }),
+    sources: [...phaseTwelveArticleInventoryInput().sources].reverse()
+  });
+  reorderedInput.sources.find(({ id }) => id === "caylent").apiKey = "synthetic-rotated-caylent-key";
+  harness.setInput(reorderedInput);
+  await harness.handler({}, {});
+  const reorderedOutput = await readPut(harness.putCalls[1]);
+  const reordered = reorderedOutput.groups.articles;
+  assert.deepEqual(reordered.counts, first.counts, "repeat collection recomputes rather than accumulates manual identities");
+  assert.equal(reordered.scopeId, first.scopeId,
+    "record ordering, trailing slash normalization, API key rotation, and Builder observation do not change semantic Articles scope");
+  assert.equal(reordered.collectedAt, first.collectedAt);
+  const secondIndependentScopes = manualGroupScopeIds(reorderedOutput.groups);
+  delete secondIndependentScopes.articles;
+  assert.deepEqual(secondIndependentScopes, firstIndependentScopes,
+    "changing Articles inventory leaves Builder, talks, books, and other metric scopes independent");
+
+  const changedInventory = {
+    publications: [
+      { ...publication, publishedAt: "2025-03-05T10:00:00-03:00" },
+      secondPublication
+    ],
+    exclusions: [exclusion, secondExclusion]
+  };
+  harness.setInput(phaseTwelveArticleInventoryInput({
+    articleInventory: changedInventory,
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T11:00:00.000Z",
+      views: { en: 10, es: 3 }
+    })
+  }));
+  await harness.handler({}, {});
+  const changedOutput = await readPut(harness.putCalls[2]);
+  const changed = changedOutput.groups.articles;
+  assert.deepEqual(changed.counts, first.counts, "changing source date metadata does not alter the title-language identity");
+  assert.notEqual(changed.scopeId, first.scopeId, "a changed maintained publication fact changes Articles scope");
+  const changedIndependentScopes = manualGroupScopeIds(changedOutput.groups);
+  delete changedIndependentScopes.articles;
+  assert.deepEqual(changedIndependentScopes, firstIndependentScopes,
+    "changing a maintained article date does not alter independent family scopes");
+
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const later = (await readPut(harness.putCalls[3])).groups.articles;
+  assert.equal(later.scopeId, changed.scopeId, "execution time does not salt the semantic Articles scope");
+  assert.notEqual(later.collectedAt, changed.collectedAt);
+});
+
+test("input12 retains Articles only for an exact validated scope and recovers without accumulation", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const inventory = {
+    publications: [
+      manualArticlePublication(
+        "dev-community",
+        "Phase 4 retained inventory item",
+        "en",
+        "2025-03-04",
+        "https://dev.to/guille/retained-inventory-item"
+      )
+    ],
+    exclusions: []
+  };
+  let awsFails = false;
+  const requestLog = [];
+  const builderPages = new Map([["", {
+    articles: [builderArticle({ id: "phase4-retention-builder", title: "Builder retained article" })],
+    resultsSize: 1
+  }]]);
+  const inputFor = (nextInventory = inventory) => phaseTwelveArticleInventoryInput({
+    articleInventory: nextInventory,
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T10:00:00.000Z",
+      views: { en: 20, es: 4 }
+    })
+  });
+  const harness = createHarness({
+    input: inputFor(),
+    clock,
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      builderPages,
+      awsResponder: () => awsFails
+        ? new Response("synthetic AWS source failure", { status: 503 })
+        : awsForEngineersIndex([
+          awsForEngineersArticle({ title: "AWS retained source", slug: "aws-retained" })
+        ])
+    })
+  });
+
+  await harness.handler({}, {});
+  const firstOutput = await readPut(harness.putCalls[0]);
+  const first = firstOutput.groups.articles;
+  assert.deepEqual(first.counts, { all: 7, en: 6, es: 1 },
+    "the prior Articles group includes the Builder publication that the later exclusion removes");
+  const builderViewScope = firstOutput.groups.builderArticleViews.scopeId;
+  const outputReads = () => harness.getCalls.filter(({ Key }) => Key === outputKey).length;
+  assert.equal(outputReads(), 0, "the first all-family collection has no hidden prior-output read");
+
+  awsFails = true;
+  clock.set("2026-10-17T12:00:00.000Z");
+  let readsBeforeInvocation = outputReads();
+  await harness.handler({}, {});
+  const failed = await readPut(harness.putCalls[1]);
+  assert.deepEqual(failed.groups.articles, first,
+    "a complete-source failure retains the exact prior counts, coverage, scope, and date when the validated inventory scope matches");
+  assert.equal(failed.groups.talks.collectedAt, "2026-10-17T12:00:00.000Z",
+    "healthy sibling groups refresh while Articles is retained");
+  assert.equal(failed.groups.builderArticleViews.observedAt, "2026-10-16T10:00:00.000Z",
+    "the separate manual Builder observation keeps its source date");
+  assert.deepEqual(failed.groups.builderArticleViews.views, { all: 24, en: 20, es: 4 });
+  assert.equal(failed.groups.builderArticleViews.scopeId, builderViewScope,
+    "retaining or refreshing Articles does not change the independent manual Builder scope");
+  assert.equal(outputReads() - readsBeforeInvocation, 1,
+    "one failed refresh reads the prior output exactly once to retain the compatible Article group");
+
+  const excludedInventory = {
+    publications: inventory.publications,
+    exclusions: [{
+      sourceId: "builder-center",
+      url: "https://builder.aws.com/content/phase4-retention-builder/shared-slug/"
+    }]
+  };
+  harness.setInput(inputFor(excludedInventory));
+  clock.set("2026-10-18T12:00:00.000Z");
+  readsBeforeInvocation = outputReads();
+  await harness.handler({}, {});
+  const changedSelection = await readPut(harness.putCalls[2]);
+  assert.equal(Object.hasOwn(changedSelection.groups, "articles"), false,
+    "a Builder exclusion cannot retain a count-only group whose old scope still included that article");
+  assert.deepEqual(changedSelection.groups.talks.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(changedSelection.groups.books.counts, { all: 0, en: 0, es: 0 });
+  assert.ok(changedSelection.groups.builderArticleViews,
+    "Builder's manual family remains available when Articles has no scope-compatible prior group");
+  assert.deepEqual(Object.keys(changedSelection.groups).sort(), [
+    "articleSearchClicks", "articleViews", "books", "builderArticleViews",
+    "directoryOutboundClicks", "directoryViews", "newsletter", "newsletterEmailOpens",
+    "newsletterEmailVerifiedClicks", "newsletterEmailsSent", "talks"
+  ], "the selection mismatch omits only Articles while every healthy sibling refreshes");
+  assert.equal(outputReads() - readsBeforeInvocation, 1,
+    "scope-mismatch fallback shares only one prior-output read with the other independent families");
+
+  awsFails = false;
+  clock.set("2026-10-19T12:00:00.000Z");
+  readsBeforeInvocation = outputReads();
+  await harness.handler({}, {});
+  const recoveredOutput = await readPut(harness.putCalls[3]);
+  const recovered = recoveredOutput.groups.articles;
+  assert.equal(recovered.counts.all, first.counts.all - 1,
+    "recovery removes the excluded Builder identity from the full result rather than retaining or accumulating it");
+  assert.equal(recovered.counts.all, recovered.counts.en + recovered.counts.es);
+  assert.notEqual(recovered.scopeId, first.scopeId, "recovery uses the newly validated inventory scope");
+  assert.equal(recoveredOutput.groups.builderArticleViews.scopeId, builderViewScope);
+  assert.equal(outputReads() - readsBeforeInvocation, 0, "healthy recovery does not read a prior output");
+
+  readsBeforeInvocation = outputReads();
+  await harness.handler({}, {});
+  const repeated = (await readPut(harness.putCalls[4])).groups.articles;
+  assert.deepEqual(repeated.counts, recovered.counts, "a repeated invocation recomputes the same full count");
+  assert.equal(repeated.scopeId, recovered.scopeId);
+  assert.equal(outputReads() - readsBeforeInvocation, 0);
+  assertNoArticleInventoryCanaries(harness, ...inventory.publications.map(({ title, url }) => [title, url]).flat());
+});
+
+test("input12 without a valid manual Builder observation retains a valid prior v1 or v2 group", async () => {
+  const previousGroups = [
+    priorBuilderArticleViewsGroup(),
+    priorManualBuilderArticleViewsGroup()
+  ];
+
+  for (const previous of previousGroups) {
+    for (const builderArticleViews of [undefined, { observedAt: "invalid-date", views: { en: 1, es: 2 } }]) {
+      const harness = createHarness({
+        input: phaseTwelveArticleInventoryInput({ builderArticleViews }),
+        fetchFn: phaseFourInventoryFetch({
+          awsResponder: () => awsForEngineersIndex([
+            awsForEngineersArticle({ title: "Input 12 Builder retention source", slug: "input12-builder-retention" })
+          ])
+        })
+      });
+      harness.objects.set(outputKey, JSON.stringify({
+        schemaVersion: 1,
+        groups: { builderArticleViews: previous }
+      }));
+
+      await harness.handler({}, {});
+
+      const output = await readPut(harness.putCalls[0]);
+      assert.deepEqual(output.groups.builderArticleViews, previous,
+        "input12 without its optional manual observation preserves valid v1/v2 provenance exactly");
+      assert.ok(output.groups.articles, "the article inventory refreshes independently of retained Builder views");
+      assert.deepEqual(output.groups.articles.counts, { all: 6, en: 5, es: 1 },
+        "an explicitly empty individual inventory still counts the complete automatic union");
+      assert.deepEqual(output.groups.articles.sources.map(({ id }) => id), [
+        "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers"
+      ], "an empty individual inventory does not claim coverage of mixed platforms");
+      assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1,
+        "retaining Builder history shares the one prior-output read with any article failures");
+    }
+  }
+});
+
+test("input12 supports individual articles without optional Newsletter, analytics, or manual Builder selections", async () => {
+  const requestLog = [];
+  const input = phaseTwelveArticleInventoryInput({
+    baseInput: phaseThreeInput(),
+    articleInventory: {
+      publications: [manualArticlePublication(
+        "dev-community", "Minimal Spanish individual article", "es", "2024-02-29",
+        "https://dev.to/guille/minimal-spanish-individual-article"
+      )],
+      exclusions: []
+    }
+  });
+  const harness = createHarness({ input: phaseThreeInput(), fetchFn: phaseFourInventoryFetch({ requestLog }) });
+  await harness.handler({}, {});
+  const baseline = await readPut(harness.putCalls[0]);
+  assert.deepEqual(baseline.groups.articles.counts, { all: 2, en: 2, es: 0 },
+    "the minimal fixture is healthy before individual articles are selected");
+  harness.setInput(input);
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[1]);
+  assert.deepEqual(Object.keys(output.groups).sort(), ["articles", "books", "talks"],
+    "the inventory does not imply unrelated Newsletter or activity selections");
+  assert.deepEqual(output.groups.articles.counts, { all: 3, en: 2, es: 1 });
+  assert.deepEqual(output.groups.articles.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "dev-community", label: "DEV Community" }
+  ]);
+  assert.deepEqual(harness.secretCalls, [], "individual records add no credential requirement");
+  assert.deepEqual(harness.parameterCalls, []);
+  assert.deepEqual([...new Set(requestLog.map(({ kind }) => kind))].sort(), ["builder-list", "caylent-list"],
+    "only the two selected automatic sources are queried");
+});

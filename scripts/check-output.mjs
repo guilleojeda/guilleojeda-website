@@ -920,6 +920,40 @@ function checkContentStatsShell(page, html) {
   assert.match(articleCountDisclosure, /\bweb\b/i, `${locale} Simple AWS count disclosure includes web posts`);
   assert.match(articleCountDisclosure, locale === 'en' ? /\bemail\b|e-mail/i : /correo(?:\s+electr[oó]nico)?|email/i,
     `${locale} Simple AWS count disclosure includes email posts`);
+  assert.match(articleCountDisclosure, locale === 'en'
+    ? /individually\s+(?:registered|maintained|selected)|selected\s+(?:individual\s+)?articles?/i
+    : /art[ií]culos?[\s\S]{0,100}(?:individual|seleccion)|(?:registro|inventario)[\s\S]{0,100}individual/i,
+  `${locale} article-count disclosure explains individual article selection`);
+  for (const [pattern, name] of [
+    [/dev community/i, 'DEV Community'],
+    [/linkedin/i, 'LinkedIn'],
+    [/spainclouds/i, 'SpainClouds'],
+    [/hackernoon/i, 'HackerNoon']
+  ]) {
+    assert.match(articleCountDisclosure, pattern, `${locale} individual article coverage names ${name}`);
+  }
+  assert.match(articleCountDisclosure, locale === 'en'
+    ? /registered sources?[\s\S]{0,80}(?:updates?|updated|refresh(?:es|ed)?)[\s\S]{0,50}automatic(?:ally)?|registered sources?[\s\S]{0,80}automatic(?:ally)?[\s\S]{0,50}(?:updates?|updated|refresh(?:es|ed)?)|automatic(?:ally)?[\s\S]{0,80}(?:updates?|updated|refresh(?:es|ed)?)[\s\S]{0,50}registered sources?/i
+    : /fuentes? registradas?[\s\S]{0,80}(?:se\s+)?actualiz\w*[\s\S]{0,50}automatic(?:amente)?|fuentes? registradas?[\s\S]{0,80}automatic(?:amente)?[\s\S]{0,50}(?:se\s+)?actualiz\w*|automatic(?:amente)?[\s\S]{0,80}(?:se\s+)?actualiz\w*[\s\S]{0,50}fuentes? registradas?/i,
+  `${locale} article-count disclosure says registered sources update automatically`);
+  assert.match(articleCountDisclosure, locale === 'en'
+    ? /(?:mixed (?:platforms?|sources?)[\s\S]{0,100}(?:not|aren't|are not)[\s\S]{0,30}(?:imported|included|counted)[\s\S]{0,40}(?:in full|completely|entirely|as a whole)|(?:only|just)[\s\S]{0,80}(?:individual(?:ly)? selected|selected individual|selected)[\s\S]{0,80}articles?[\s\S]{0,80}(?:from|on|in)[\s\S]{0,40}mixed (?:platforms?|sources?))/i
+    : /(?:no[\s\S]{0,30}(?:se\s+)?importan?[\s\S]{0,40}(?:complet[oa]s?|enter[oa]s?|integralmente)[\s\S]{0,30}plataformas? mixtas?|plataformas? mixtas?[\s\S]{0,80}no[\s\S]{0,30}(?:se\s+)?importan?[\s\S]{0,40}(?:complet[oa]s?|enter[oa]s?|integralmente)|(?:solo|solamente|unicamente)[\s\S]{0,100}(?:articulos?[\s\S]{0,50}(?:individual|seleccionad)|(?:individual|seleccionad)[\s\S]{0,50}articulos?)[\s\S]{0,100}(?:de|desde|en)[\s\S]{0,40}plataformas? mixtas?)/i,
+  `${locale} individual article coverage does not imply complete imports from mixed platforms`);
+  const personalContentExclusion = locale === 'en'
+    ? /(?:personal[\s\S]{0,80}(?:exclud|omit|not included|not counted|left out)|(?:exclud|omit|not included|not counted|left out)[\s\S]{0,80}personal)/i
+    : /(?:personales?[\s\S]{0,80}(?:excluid|se excluy|omitid|no se incluye|no se cuenta)|(?:excluid|se excluy|omitid|no se incluye|no se cuenta)[\s\S]{0,80}personales?)/i;
+  assert.match(articleCountDisclosure, personalContentExclusion,
+    `${locale} editorial selection excludes personal material`);
+  const promotionWithoutSubstanceExclusion = locale === 'en'
+    ? /(?:promot(?:ion|ional)s?[\s\S]{0,80}(?:without|lacking|with no)[\s\S]{0,40}(?:substantive|substantial)[\s\S]{0,30}(?:content|material)[\s\S]{0,50}(?:exclud|omit|not included|not counted)|(?:exclud|omit|not included|not counted)[\s\S]{0,50}promot(?:ion|ional)s?[\s\S]{0,80}(?:without|lacking|with no)[\s\S]{0,40}(?:substantive|substantial)[\s\S]{0,30}(?:content|material))/i
+    : /(?:promocion(?:al(?:es)?)?[\s\S]{0,80}sin[\s\S]{0,40}contenido[\s\S]{0,40}sustantivo[\s\S]{0,50}(?:excluid|omitid|no se incluye|no se cuenta)|(?:excluid|se excluy|omitid|no se incluye|no se cuenta)[\s\S]{0,80}promocion(?:al(?:es)?)?[\s\S]{0,80}sin[\s\S]{0,40}contenido[\s\S]{0,40}sustantivo)/i;
+  assert.match(articleCountDisclosure, promotionWithoutSubstanceExclusion,
+    `${locale} editorial selection excludes promotion only when it lacks substantive content`);
+  assert.match(articleCountDisclosure, locale === 'en'
+    ? /professional[\s\S]{0,100}(?:aws|guide)|aws[\s\S]{0,100}professional[\s\S]{0,100}guide/i
+    : /(?:gu[ií]as?|art[ií]culos?)[\s\S]{0,80}profesionales?[\s\S]{0,100}aws|aws[\s\S]{0,100}(?:gu[ií]as?|art[ií]culos?)[\s\S]{0,80}profesionales?/i,
+  `${locale} editorial selection retains professional AWS guides`);
   const cloudyThingsCountDisclosure = sourceBullets.find((bullet) =>
     /Cloudy Things/i.test(bullet)
       && (locale === 'en' ? /article\s+counts?/i : /conteo\s+de\s+art[ií]culos/i).test(bullet));
@@ -1252,6 +1286,7 @@ const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
 const hasNewsletterEngagements = Object.hasOwn(sourceConfig, 'newsletterEngagements');
 const hasManualBuilderObservation = Object.hasOwn(sourceConfig, 'builderArticleViews');
+const hasIndividualArticleInventory = Object.hasOwn(inputs, 'articleInventory');
 if (hasNewsletterEngagements) assert.equal(sourceConfig.newsletterEngagements, true, 'newsletter engagement selection must be the literal true opt-in');
 const hasDirectoryOutboundClicks = hasDirectoryAnalyticsSelection
   && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'outboundClicks');
@@ -1266,15 +1301,29 @@ assert.deepEqual(Object.keys(inputs).sort(), [
   ...(hasSearchConsoleSelection ? ['searchConsole'] : []),
   ...(hasDirectoryAnalyticsSelection ? ['directoryAnalytics'] : []),
   ...(hasManualBuilderObservation ? ['builderArticleViews'] : []),
+  ...(hasIndividualArticleInventory ? ['articleInventory'] : []),
   'schemaVersion',
   'sources'
 ].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
 assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
 if (hasDirectoryOutboundClicks) assert.equal(sourceConfig.directoryAnalytics.outboundClicks, true, 'outbound clicks require the literal true selector');
-assert.equal(inputs.schemaVersion, hasManualBuilderObservation ? 11 : hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasIndividualArticleInventory ? 12 : hasManualBuilderObservation ? 11 : hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
+if (hasIndividualArticleInventory) {
+  const maintainedArticles = readContent('articles.json');
+  assert.deepEqual(Object.keys(inputs.articleInventory).sort(), ['exclusions', 'publications'],
+    'the article inventory has no separate counts or private provider data');
+  assert.deepEqual(inputs.articleInventory.publications, maintainedArticles.publications,
+    'protected input preserves the complete maintained publication metadata');
+  assert.deepEqual(inputs.articleInventory.exclusions,
+    maintainedArticles.exclusions.map(({ sourceId, url }) => ({ sourceId, url })),
+    'stable exclusions project once without editorial notes or excluded titles');
+  const individuallyMaintainedSources = new Set(['dev-community', 'linkedin-articles', 'spainclouds', 'hackernoon']);
+  assert.equal(inputs.sources.some((source) => individuallyMaintainedSources.has(source.id)), false,
+    'an individual publication never enables a complete mixed-platform import');
+}
 if (hasManualBuilderObservation) {
   assert.deepEqual(Object.keys(sourceConfig.builderArticleViews).sort(), ['observedAt', 'views'], 'maintained Builder observation contains only its real date and language totals');
   assert.deepEqual(Object.keys(sourceConfig.builderArticleViews.views).sort(), ['en', 'es'], 'All is derived, not maintained separately');
