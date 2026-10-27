@@ -882,6 +882,10 @@ function createPage({
     createDocumentFragment: () => new SemanticElement({ tagName: '#document-fragment', documentRef })
   };
 
+  if (catalog) {
+    for (const element of [catalog.root, ...catalog.root.descendants()]) element.ownerDocument = documentRef;
+  }
+
   const context = {
     document: documentRef,
     window: { location: { href: 'https://guilleojeda.com/', origin: 'https://guilleojeda.com' } },
@@ -4755,5 +4759,77 @@ test('invalid root snapshot disables catalog and statistics together without fab
   assertCatalogUnavailable(page);
   assert.equal(page.cards.articles.count.textContent, '');
   assert.equal(page.cards.talks.results.hidden, true);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 matches all Unicode White_Space characters in publication identities', async () => {
+  const record = catalogRecord(901, {
+    title: 'A title with a space', language: 'en', publishedAt: '2024-05-01',
+    publications: [catalogPublication({
+      sourceId: 'dev-community',
+      title: 'A title\u0085with a space',
+      publishedAt: '2024-05-01'
+    })]
+  });
+  const page = createPage({ data: articleCatalogSnapshot({ records: [record] }), includeCatalog: true });
+  await page.settle();
+  assert.equal(page.cards.articles.count.textContent, '1');
+  assert.equal(page.catalog.results.hidden, false);
+  assert.equal(page.catalog.list.children.length, 1);
+  assert.match(semanticText(page.catalog.list.children[0]), /A title with a space/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 compares full timestamp fractions for minimum dates and catalog ordering', async () => {
+  const earlier = '2024-05-01T12:00:00.1234Z';
+  const later = '2024-05-01T12:00:00.12345Z';
+  const minimumRecord = catalogRecord(902, {
+    title: 'Minimum fractional date', language: 'en', publishedAt: earlier,
+    publications: [
+      catalogPublication({ sourceId: 'caylent', title: 'Minimum fractional date', publishedAt: later }),
+      catalogPublication({ sourceId: 'dev-community', title: 'Minimum fractional date', publishedAt: earlier })
+    ]
+  });
+  const laterRecord = catalogRecord(903, {
+    title: 'Later fractional date', language: 'en', publishedAt: later
+  });
+  const records = [minimumRecord, laterRecord];
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+
+  assert.equal(page.cards.articles.count.textContent, '2');
+  assert.equal(page.catalog.results.hidden, false);
+  assert.deepEqual(catalogRecordIds(page), [laterRecord.id, minimumRecord.id]);
+  assert.equal(page.fetchCount, 1);
+
+  const wrongMinimum = { ...minimumRecord, publishedAt: later };
+  const invalidPage = createPage({
+    data: articleCatalogSnapshot({ records: [wrongMinimum, laterRecord] }),
+    includeCatalog: true
+  });
+  await invalidPage.settle();
+  assertCatalogUnavailable(invalidPage);
+  assert.equal(invalidPage.cards.articles.count.textContent, '');
+  assert.equal(invalidPage.cards.talks.count.textContent, '6');
+  assert.equal(invalidPage.fetchCount, 1);
+});
+
+test('Articles v2 rejects a publication fraction later than the collection timestamp', async () => {
+  const collectedAt = '2026-10-27T18:55:58.123Z';
+  const publicationAt = '2026-10-27T18:55:58.1231Z';
+  const record = catalogRecord(904, {
+    title: 'Fraction after collection', language: 'en', publishedAt: publicationAt,
+    publications: [catalogPublication({
+      sourceId: 'dev-community', title: 'Fraction after collection', publishedAt: publicationAt
+    })]
+  });
+  const page = createPage({
+    data: articleCatalogSnapshot({ records: [record], collectedAt }),
+    includeCatalog: true
+  });
+  await page.settle();
+  assertCatalogUnavailable(page);
+  assert.equal(page.cards.articles.count.textContent, '');
+  assert.equal(page.cards.talks.count.textContent, '6');
   assert.equal(page.fetchCount, 1);
 });
