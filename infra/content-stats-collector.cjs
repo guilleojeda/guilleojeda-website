@@ -8,9 +8,22 @@ const secretsManager = new SecretsManagerClient({});
 const ssm = new SSMClient({});
 const CONTENT_API_ENDPOINT = "https://cdn.builder.io/api/v3/content/blog-post";
 const BUILDER_API_ENDPOINT = "https://api.builder.aws.com/cs/v2/articles/user/";
-const CLOUDY_ARCHIVE_ORIGIN = "https://blog.guilleojeda.com";
-const CLOUDY_ARCHIVE_PATH = "/archive";
-const CLOUDY_USER_AGENT = "GuilleOjedaContentStats/1.0 (+https://guilleojeda.com)";
+const CLOUDY_ARTICLE_ORIGIN = "https://blog.guilleojeda.com";
+const CLOUDY_ARTICLE_HOST = "blog.guilleojeda.com";
+const CLOUDY_HASHNODE_ENDPOINT = "https://gql-beta.hashnode.com/";
+const CLOUDY_HASHNODE_USERNAME = "GuilleOjeda";
+const CLOUDY_HASHNODE_QUERY = [
+  "query CloudyUserPosts($username: String!, $after: String) {",
+  "  user(username: $username) {",
+  "    username",
+  "    name",
+  "    posts(first: 25, after: $after) {",
+  "      edges { node { title url publishedAt } }",
+  "      pageInfo { hasNextPage endCursor }",
+  "    }",
+  "  }",
+  "}"
+].join("\n");
 const DONDE_APRENDO_INDEX_URL = "https://dondeaprendoaws.com/article-index.json";
 const DONDE_APRENDO_ORIGIN = "https://dondeaprendoaws.com";
 const DONDE_APRENDO_AUTHOR = Object.freeze({ name: "Guille Ojeda", url: "https://guilleojeda.com/es/" });
@@ -1913,258 +1926,108 @@ async function collectSimpleAws(source, now, env) {
   return { publications, pages: totalPages === 0 ? 1 : totalPages };
 }
 
-function cloudyArchiveUrl(page) {
-  return page === 1
-    ? `${CLOUDY_ARCHIVE_ORIGIN}${CLOUDY_ARCHIVE_PATH}`
-    : `${CLOUDY_ARCHIVE_ORIGIN}${CLOUDY_ARCHIVE_PATH}?page=${page}`;
-}
-
-function cloudyElementMatches(html, tagName) {
-  const pattern = new RegExp(`<${tagName}(?=\\s|>)[^>]*>[\\s\\S]*?<\\/${tagName}\\s*>`, "gi");
-  return [...html.matchAll(pattern)].map((match) => match[0]);
-}
-
-function cloudyOpeningTag(element, tagName) {
-  const match = element.match(new RegExp(`^<${tagName}(?=\\s|>)[^>]*>`, "i"));
-  return match?.[0] ?? "";
-}
-
-function cloudyInnerHtml(element, tagName) {
-  const opening = cloudyOpeningTag(element, tagName);
-  if (opening === "") return "";
-  return element.slice(opening.length).replace(new RegExp(`</${tagName}\\s*>$`, "i"), "");
-}
-
-function cloudyAttribute(element, name) {
-  const match = cloudyOpeningTag(element, "[a-z][a-z0-9-]*")
-    .match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
-  return match?.[2];
-}
-
-function cloudyHasAttribute(element, name) {
-  return new RegExp(`(?:^|\\s)${name}(?:\\s*=|\\s|>)`, "i").test(cloudyOpeningTag(element, "[a-z][a-z0-9-]*"));
-}
-
-function decodeCloudyHtmlText(value) {
-  return value
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
-      const codePoint = Number.parseInt(hex, 16);
-      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "";
-    })
-    .replace(/&#(\d+);/g, (_, decimal) => {
-      const codePoint = Number.parseInt(decimal, 10);
-      return Number.isSafeInteger(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "";
-    })
-    .replace(/&(?:amp|#38);/gi, "&")
-    .replace(/&(?:quot|#34);/gi, '"')
-    .replace(/&(?:apos|#39);/gi, "'")
-    .replace(/&(?:lt|#60);/gi, "<")
-    .replace(/&(?:gt|#62);/gi, ">")
-    .replace(/&nbsp;/gi, " ");
-}
-
-function cloudyText(value) {
-  return decodeCloudyHtmlText(value).replace(/[\s\p{White_Space}]+/gu, " ").trim();
-}
-
-function cloudyTypeIs(value, expected) {
-  return value === expected || (Array.isArray(value) && value.includes(expected));
-}
-
-function cloudyArticleType(value) {
-  return cloudyTypeIs(value, "Article") || cloudyTypeIs(value, "BlogPosting");
-}
-
 function normalizedCloudyArticleUrl(value) {
-  if (typeof value !== "string" || value.trim() === "") throw fail("CLOUDY_RECORD_INVALID");
+  if (typeof value !== "string" || value === "" || value.trim() !== value) {
+    throw fail("CLOUDY_RECORD_INVALID");
+  }
   let parsed;
   try {
-    parsed = new URL(value.trim(), CLOUDY_ARCHIVE_ORIGIN);
+    parsed = new URL(value);
   } catch {
     throw fail("CLOUDY_RECORD_INVALID");
   }
+  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "") {
+    throw fail("CLOUDY_RECORD_INVALID");
+  }
+
   const pathname = parsed.pathname.replace(/\/+$/, "");
-  const reserved = new Set(["/archive", "/rss.xml", "/sitemap.xml", "/recommendations"]);
-  if (parsed.origin !== CLOUDY_ARCHIVE_ORIGIN ||
-      parsed.username !== "" || parsed.password !== "" || parsed.search !== "" || parsed.hash !== "" ||
-      pathname === "" || pathname === "/" || reserved.has(pathname) || pathname.includes("//") ||
-      pathname.slice(1).includes("/") || /%2f/i.test(pathname)) {
+  if (pathname === "" || pathname === "/" || pathname.includes("//") || /%(?:2f|5c)/i.test(pathname)) {
     throw fail("CLOUDY_RECORD_INVALID");
   }
-  return `${CLOUDY_ARCHIVE_ORIGIN}${pathname}`;
-}
-
-function normalizedCloudyArchiveUrl(value, page) {
-  if (typeof value !== "string" || value.trim() === "") throw fail("CLOUDY_PAGINATION_INVALID");
-  let parsed;
-  try {
-    parsed = new URL(value.trim(), CLOUDY_ARCHIVE_ORIGIN);
-  } catch {
-    throw fail("CLOUDY_PAGINATION_INVALID");
-  }
-  const expected = new URL(cloudyArchiveUrl(page));
-  if (parsed.origin !== CLOUDY_ARCHIVE_ORIGIN || parsed.protocol !== expected.protocol || parsed.hostname !== expected.hostname ||
-      parsed.username !== "" || parsed.password !== "" || parsed.pathname !== expected.pathname ||
-      parsed.search !== expected.search || parsed.hash !== "") {
-    throw fail("CLOUDY_PAGINATION_INVALID");
-  }
-  return parsed.toString();
-}
-
-function cloudyJsonLdRecords(body, expectedUrl) {
-  const scripts = [...body.matchAll(/<script(?=\s|>)[^>]*\s+type\s*=\s*(["'])application\/ld\+json\1[^>]*>([\s\S]*?)<\/script\s*>/gi)];
-  const collections = [];
-  for (const match of scripts) {
-    let value;
-    try {
-      value = JSON.parse(match[2]);
-    } catch {
-      // An unrelated JSON-LD block must not make the selected CollectionPage
-      // unavailable. A missing or malformed selected block still fails below.
-      continue;
+  const isCloudyArticle = parsed.hostname.toLowerCase() === CLOUDY_ARTICLE_HOST;
+  if (isCloudyArticle) {
+    const reserved = new Set(["/archive", "/rss.xml", "/sitemap.xml", "/recommendations"]);
+    if (parsed.port !== "" || parsed.search !== "" || parsed.hash !== "" ||
+        !/^\/[^/]+$/.test(pathname) || reserved.has(pathname)) {
+      throw fail("CLOUDY_RECORD_INVALID");
     }
-    if (isObject(value) && cloudyTypeIs(value["@type"], "CollectionPage") && typeof value.url === "string") {
-      try {
-        if (normalizedCloudyArchiveUrl(value.url, expectedUrl.page) === expectedUrl.value) collections.push(value);
-      } catch {
-        // An unrelated CollectionPage does not affect the selected archive page.
-      }
-    }
-  }
-  if (collections.length !== 1) throw fail("CLOUDY_JSONLD_INVALID");
-  const collection = collections[0];
-  if (!Array.isArray(collection.hasPart) || collection.hasPart.length === 0) {
-    throw fail("CLOUDY_JSONLD_INVALID");
+    return { url: `${CLOUDY_ARTICLE_ORIGIN}${pathname}`, isCloudyArticle: true };
   }
 
-  const records = [];
-  const urls = new Set();
-  for (const item of collection.hasPart) {
-    if (!isObject(item) || !cloudyArticleType(item["@type"]) ||
-        typeof item.headline !== "string" || item.headline.trim() === "" || typeof item.url !== "string") {
-      throw fail("CLOUDY_JSONLD_INVALID");
-    }
-    const url = normalizedCloudyArticleUrl(item.url);
-    if (urls.has(url)) throw fail("CLOUDY_URL_REPEATED");
-    urls.add(url);
-    records.push({ title: normalizedTitle(item.headline), url });
-  }
-  return records;
+  return {
+    url: `${parsed.origin}${pathname}${parsed.search}${parsed.hash}`,
+    isCloudyArticle: false
+  };
 }
 
 function parseCloudyPublishedDate(value) {
   if (typeof value !== "string") return null;
-  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/);
-  if (!match) return null;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/);
+  if (!match || !isRealIsoDate(match[1])) return null;
+  if (Number(match[2]) > 23 || Number(match[3]) > 59 || Number(match[4]) > 59) return null;
+  const offset = match[6];
+  if (offset !== "Z") {
+    const offsetMatch = offset.match(/^[+-](\d{2}):(\d{2})$/);
+    if (!offsetMatch || Number(offsetMatch[1]) > 23 || Number(offsetMatch[2]) > 59) return null;
+  }
   const parsed = Date.parse(value);
-  if (!Number.isSafeInteger(parsed)) return null;
-  const date = new Date(parsed);
-  const [, year, month, day, hours, minutes, seconds] = match;
-  if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() + 1 !== Number(month) ||
-      date.getUTCDate() !== Number(day) || date.getUTCHours() !== Number(hours) ||
-      date.getUTCMinutes() !== Number(minutes) || date.getUTCSeconds() !== Number(seconds)) {
-    return null;
-  }
-  return parsed;
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function cloudyRenderedRecords(body) {
-  const sections = [...body.matchAll(/<section(?=\s|>)[^>]*\s+aria-labelledby\s*=\s*(["'])archive-heading\1[^>]*>[\s\S]*?<\/section\s*>/gi)];
-  if (sections.length !== 1) throw fail("CLOUDY_MARKUP_INVALID");
-  const section = sections[0][0];
-  const articles = cloudyElementMatches(section, "article");
-  if (articles.length === 0) throw fail("CLOUDY_MARKUP_INVALID");
-
-  const records = [];
-  const urls = new Set();
-  for (const article of articles) {
-    const anchors = cloudyElementMatches(article, "a");
-    const times = cloudyElementMatches(article, "time");
-    const paragraphs = cloudyElementMatches(article, "p");
-    if (anchors.length !== 1 || times.length !== 1 || paragraphs.length !== 1) {
-      throw fail("CLOUDY_MARKUP_INVALID");
-    }
-    const href = cloudyAttribute(anchors[0], "href");
-    const dateTime = cloudyAttribute(times[0], "datetime");
-    const author = cloudyText(cloudyInnerHtml(paragraphs[0], "p"));
-    if (href === undefined || dateTime === undefined || author === "") throw fail("CLOUDY_MARKUP_INVALID");
-    const url = normalizedCloudyArticleUrl(href);
-    if (urls.has(url)) throw fail("CLOUDY_URL_REPEATED");
-    const publishedAt = parseCloudyPublishedDate(dateTime);
-    if (publishedAt === null) throw fail("CLOUDY_DATE_INVALID");
-    urls.add(url);
-    records.push({ url, author, publishedAt });
-  }
-  return records;
+function normalizedCloudyAuthorName(value) {
+  if (typeof value !== "string") throw fail("CLOUDY_USER_INVALID");
+  const normalized = value.replace(/[\s\p{White_Space}]+/gu, " ").trim();
+  if (normalized === "") throw fail("CLOUDY_USER_INVALID");
+  return normalized;
 }
 
-function cloudyPagination(body, page) {
-  const headers = cloudyElementMatches(body, "header");
-  const headerTotals = headers.flatMap((header) => cloudyElementMatches(header, "p"))
-    .map((paragraph) => cloudyText(cloudyInnerHtml(paragraph, "p")))
-    .filter((text) => /^\d+\s+posts\s+published\s+so\s+far$/i.test(text));
-  if (headerTotals.length !== 1) throw fail("CLOUDY_PAGINATION_INVALID");
-  const totalMatch = headerTotals[0].match(/^(\d+)\s+posts\s+published\s+so\s+far$/i);
-  const totalPosts = Number(totalMatch[1]);
-  if (!Number.isSafeInteger(totalPosts) || totalPosts < 1) throw fail("CLOUDY_PAGINATION_INVALID");
-
-  const navs = [...body.matchAll(/<nav(?=\s|>)[^>]*\s+aria-label\s*=\s*(["'])Pagination\1[^>]*>[\s\S]*?<\/nav\s*>/gi)];
-  if (navs.length !== 1) throw fail("CLOUDY_PAGINATION_INVALID");
-  const nav = navs[0][0];
-  const navText = cloudyText(nav);
-  const pageMatch = navText.match(/Page\s+(\d+)\s+of\s+(\d+)/i);
-  if (!pageMatch) throw fail("CLOUDY_PAGINATION_INVALID");
-  const currentPage = Number(pageMatch[1]);
-  const totalPages = Number(pageMatch[2]);
-  if (!Number.isSafeInteger(currentPage) || !Number.isSafeInteger(totalPages) ||
-      currentPage !== page || currentPage < 1 || totalPages < 1 || currentPage > totalPages) {
+function parseCloudyHashnodeResponse(envelope) {
+  if (!isObject(envelope) || !Object.hasOwn(envelope, "data") ||
+      Object.keys(envelope).some((key) => key !== "data" && key !== "extensions") ||
+      (Object.hasOwn(envelope, "extensions") && !isObject(envelope.extensions)) ||
+      !isObject(envelope.data) || !exactKeys(envelope.data, ["user"])) {
+    throw fail("CLOUDY_RESPONSE_INVALID");
+  }
+  const user = envelope.data.user;
+  if (!isObject(user) || !exactKeys(user, ["username", "name", "posts"])) {
+    throw fail("CLOUDY_USER_INVALID");
+  }
+  if (user.username !== CLOUDY_HASHNODE_USERNAME) throw fail("CLOUDY_USERNAME_INVALID");
+  const authorName = normalizedCloudyAuthorName(user.name);
+  const posts = user.posts;
+  if (!isObject(posts) || !exactKeys(posts, ["edges", "pageInfo"]) || !Array.isArray(posts.edges)) {
+    throw fail("CLOUDY_CONNECTION_INVALID");
+  }
+  const pageInfo = posts.pageInfo;
+  if (!isObject(pageInfo) || !exactKeys(pageInfo, ["hasNextPage", "endCursor"]) ||
+      typeof pageInfo.hasNextPage !== "boolean" ||
+      !(pageInfo.endCursor === null || (typeof pageInfo.endCursor === "string" && pageInfo.endCursor.trim() !== ""))) {
     throw fail("CLOUDY_PAGINATION_INVALID");
   }
 
-  const controls = [...nav.matchAll(/<(a|button)\b[^>]*>[\s\S]*?<\/\1\s*>/gi)]
-    .map((match) => match[0])
-    .filter((control) => cloudyText(control).toLowerCase() === "next");
-  if (controls.length !== 1) throw fail("CLOUDY_PAGINATION_INVALID");
-  const control = controls[0];
-  const isAnchor = /^<a\b/i.test(control);
-  const isDisabled = cloudyHasAttribute(control, "disabled");
-  if (currentPage < totalPages) {
-    if (!isAnchor || isDisabled) throw fail("CLOUDY_PAGINATION_INVALID");
-    const href = cloudyAttribute(control, "href");
-    if (href === undefined) throw fail("CLOUDY_PAGINATION_INVALID");
-    return {
-      totalPosts,
-      totalPages,
-      currentPage,
-      nextUrl: normalizedCloudyArchiveUrl(href, currentPage + 1)
-    };
-  }
-  if (isAnchor || !isDisabled) throw fail("CLOUDY_PAGINATION_INVALID");
-  return { totalPosts, totalPages, currentPage, nextUrl: null };
-}
+  const records = posts.edges.map((edge) => {
+    if (!isObject(edge) || !exactKeys(edge, ["node"]) ||
+        !isObject(edge.node) || !exactKeys(edge.node, ["title", "url", "publishedAt"])) {
+      throw fail("CLOUDY_RECORD_INVALID");
+    }
+    let title;
+    try {
+      title = normalizedTitle(edge.node.title);
+    } catch {
+      throw fail("CLOUDY_RECORD_INVALID");
+    }
+    const destination = normalizedCloudyArticleUrl(edge.node.url);
+    const publishedAt = parseCloudyPublishedDate(edge.node.publishedAt);
+    if (publishedAt === null) throw fail("CLOUDY_DATE_INVALID");
+    return { title, ...destination, publishedAt };
+  });
 
-function parseCloudyArchive(body, page) {
-  const expectedUrl = { page, value: cloudyArchiveUrl(page) };
-  const jsonLd = cloudyJsonLdRecords(body, expectedUrl);
-  const rendered = cloudyRenderedRecords(body);
-  const pagination = cloudyPagination(body, page);
-  if (jsonLd.length !== rendered.length) throw fail("CLOUDY_RECORD_JOIN_INVALID");
-  const renderedByUrl = new Map(rendered.map((record) => [record.url, record]));
-  if (renderedByUrl.size !== rendered.length) throw fail("CLOUDY_URL_REPEATED");
-  const publications = [];
-  for (const record of jsonLd) {
-    const renderedRecord = renderedByUrl.get(record.url);
-    if (!renderedRecord) throw fail("CLOUDY_RECORD_JOIN_INVALID");
-    publications.push({
-      title: record.title,
-      url: record.url,
-      author: renderedRecord.author,
-      publishedAt: renderedRecord.publishedAt
-    });
-  }
-  return { ...pagination, publications };
+  return {
+    authorName,
+    records,
+    hasNextPage: pageInfo.hasNextPage,
+    endCursor: pageInfo.endCursor
+  };
 }
 
 async function readBoundedBody(response, { tooLargeCode, readFailedCode }) {
@@ -2200,23 +2063,23 @@ async function readBoundedBody(response, { tooLargeCode, readFailedCode }) {
   throw fail(readFailedCode);
 }
 
-function readCloudyBody(response) {
-  return readBoundedBody(response, {
-    tooLargeCode: "CLOUDY_BODY_TOO_LARGE",
-    readFailedCode: "CLOUDY_BODY_READ_FAILED"
+async function fetchCloudyHashnodePage(after, page) {
+  const body = JSON.stringify({
+    query: CLOUDY_HASHNODE_QUERY,
+    variables: { username: CLOUDY_HASHNODE_USERNAME, after }
   });
-}
-
-async function fetchCloudyArchive(url, page) {
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     let response;
     try {
-      response = await fetch(url, {
-        headers: { accept: "text/html", "user-agent": CLOUDY_USER_AGENT },
+      response = await fetch(CLOUDY_HASHNODE_ENDPOINT, {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body,
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       });
-    } catch {
+    } catch (error) {
+      if (isRejectedRedirect(error)) throw fail("SOURCE_REDIRECT_REJECTED");
       if (attempt < MAX_TRANSIENT_RETRIES) {
         log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, reason: "network" });
         continue;
@@ -2231,28 +2094,43 @@ async function fetchCloudyArchive(url, page) {
         log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, status: response.status });
         continue;
       }
-      log("warn", {
-        event: "content_stats_cloudy_http_failure",
-        sourceId: "cloudy-things",
-        page,
-        status: response.status,
-        vercelChallenge: response.headers?.get?.("x-vercel-mitigated") === "challenge"
-      });
       throw fail(`SOURCE_HTTP_${response.status}`);
     }
-    const contentType = response.headers?.get?.("content-type");
-    if (typeof contentType !== "string" || !/^text\/html(?:\s*;|$)/i.test(contentType.trim())) {
-      throw fail("CLOUDY_CONTENT_TYPE_INVALID");
-    }
+
+    let raw;
     try {
-      return await readCloudyBody(response);
+      raw = await readBoundedBody(response, {
+        tooLargeCode: "CLOUDY_BODY_TOO_LARGE",
+        readFailedCode: "CLOUDY_BODY_READ_FAILED"
+      });
     } catch (error) {
-      if (error instanceof CollectorError && error.code === "CLOUDY_BODY_READ_FAILED" && attempt < MAX_TRANSIENT_RETRIES) {
+      if (error instanceof CollectorError && error.code === "CLOUDY_BODY_READ_FAILED" &&
+          attempt < MAX_TRANSIENT_RETRIES) {
         log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, reason: "body" });
         continue;
       }
       throw error;
     }
+
+    let envelope;
+    try {
+      envelope = JSON.parse(raw);
+    } catch {
+      throw fail("CLOUDY_JSON_INVALID");
+    }
+    if (isObject(envelope) && Object.hasOwn(envelope, "errors")) {
+      if (!Array.isArray(envelope.errors) || envelope.errors.length === 0) {
+        throw fail("CLOUDY_RESPONSE_INVALID");
+      }
+      const allInternal = envelope.errors.every((error) => isObject(error) && isObject(error.extensions) &&
+        error.extensions.code === "INTERNAL_SERVER_ERROR");
+      if (allInternal && attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, reason: "graphql" });
+        continue;
+      }
+      throw fail("CLOUDY_GRAPHQL_ERRORS");
+    }
+    return envelope;
   }
   throw fail("SOURCE_NETWORK_FAILED");
 }
@@ -2330,27 +2208,19 @@ function fetchAwsForEngineersIndex() {
 
 async function collectCloudyThings(source, now) {
   const publications = [];
-  const seenPages = new Set();
+  const seenCursors = new Set();
   const seenUrls = new Set();
-  let page = 1;
-  let declaredTotal = null;
-  let declaredPages = null;
-  while (true) {
-    if (page > MAX_CLOUDY_PAGES || seenPages.has(page)) throw fail("CLOUDY_PAGE_CAP_REACHED");
-    seenPages.add(page);
-    const body = await fetchCloudyArchive(cloudyArchiveUrl(page), page);
-    const parsed = parseCloudyArchive(body, page);
-    if (declaredTotal === null) {
-      declaredTotal = parsed.totalPosts;
-      declaredPages = parsed.totalPages;
-    } else if (parsed.totalPosts !== declaredTotal || parsed.totalPages !== declaredPages) {
-      throw fail("CLOUDY_PAGINATION_INVALID");
-    }
-    for (const record of parsed.publications) {
+  const sourceAuthorName = source.authorName;
+  let after = null;
+
+  for (let page = 1; page <= MAX_CLOUDY_PAGES; page += 1) {
+    const envelope = await fetchCloudyHashnodePage(after, page);
+    const parsed = parseCloudyHashnodeResponse(envelope);
+    const authorMatches = parsed.authorName === sourceAuthorName;
+    for (const record of parsed.records) {
       if (seenUrls.has(record.url)) throw fail("CLOUDY_URL_REPEATED");
       seenUrls.add(record.url);
-      if (record.author !== source.authorName) continue;
-      if (record.publishedAt > now) continue;
+      if (!record.isCloudyArticle || !authorMatches || record.publishedAt > now) continue;
       publications.push({
         sourceId: source.id,
         providerId: record.url,
@@ -2359,19 +2229,17 @@ async function collectCloudyThings(source, now) {
         url: record.url
       });
     }
-    if (parsed.nextUrl === null) {
-      if (parsed.currentPage !== declaredPages || seenUrls.size !== declaredTotal || publications.length > seenUrls.size) {
-        throw fail("CLOUDY_PAGINATION_INVALID");
-      }
-      return { publications, pages: seenPages.size };
-    }
-    if (parsed.currentPage >= declaredPages || seenPages.size >= MAX_CLOUDY_PAGES) {
-      throw fail("CLOUDY_PAGE_CAP_REACHED");
-    }
-    const expectedNext = cloudyArchiveUrl(parsed.currentPage + 1);
-    if (parsed.nextUrl !== expectedNext) throw fail("CLOUDY_PAGINATION_INVALID");
-    page = parsed.currentPage + 1;
+
+    if (!parsed.hasNextPage) return { publications, pages: page };
+    if (parsed.records.length === 0) throw fail("CLOUDY_PAGINATION_INVALID");
+    if (page === MAX_CLOUDY_PAGES) throw fail("CLOUDY_PAGE_CAP_REACHED");
+    const nextCursor = parsed.endCursor;
+    if (nextCursor === null || seenCursors.has(nextCursor)) throw fail("CLOUDY_CURSOR_REPEATED");
+    seenCursors.add(nextCursor);
+    after = nextCursor;
   }
+
+  throw fail("CLOUDY_PAGE_CAP_REACHED");
 }
 
 function normalizedDondeAprendoArticleUrl(value) {
