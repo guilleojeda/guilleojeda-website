@@ -11292,7 +11292,7 @@ function assertPhaseFiveCatalogShape(group) {
     "dev-community", "linkedin-articles", "spainclouds", "hackernoon"
   ];
   for (const record of group.records) {
-    assert.deepEqual(Object.keys(record).sort(), ["id", "language", "publishedAt", "publications", "title"]);
+    assert.deepEqual(Object.keys(record).sort(), ["id", "language", "publications", "publishedAt", "title"]);
     assert.equal(record.id, phaseFiveCatalogId(record.title, record.language));
     assert.equal(ids.has(record.id), false, "each normalized title-language identity appears once");
     ids.add(record.id);
@@ -11315,11 +11315,13 @@ function assertPhaseFiveCatalogShape(group) {
         assert.ok(Date.parse(publication.publishedAt) <= Date.parse(group.collectedAt), "future publications are absent");
         dated.push(publication.publishedAt);
       }
-      if (publication.sourceId === "simple-aws" && publication.emailOnly) {
+      if (publication.emailOnly) {
+        assert.equal(publication.sourceId, "simple-aws", "only Simple AWS can be email-only");
         assert.equal(publication.url, null, "email-only Beehiiv publication has no public destination");
+      } else if (publication.url === null) {
+        assert.equal(publication.sourceId, "simple-aws", "only Simple AWS may lack a public destination");
       } else {
         assert.equal(typeof publication.url, "string", "web destinations and other sources keep their public URL");
-        assert.equal(publication.emailOnly, false);
       }
     }
     const compareString = (left, right) => left < right ? -1 : left > right ? 1 : 0;
@@ -11386,18 +11388,15 @@ test("input12 publishes complete deterministic records for six adapters and indi
   assert.equal(sharedEnglish.publishedAt, "2025-01-03T01:05:06.000-03:00",
     "the row keeps the string-lexically first date when numeric and offset dates represent the same instant");
   assert.deepEqual(sharedEnglish.publications.map(({ sourceId }) => sourceId), [
-    "caylent", "builder-center", "simple-aws", "simple-aws", "simple-aws", "simple-aws",
-    "cloudy-things", "aws-for-engineers",
+    "caylent", "builder-center", "simple-aws", "simple-aws", "cloudy-things", "aws-for-engineers",
     "dev-community", "dev-community"
   ]);
   const sharedSimpleCopies = sharedEnglish.publications.filter(({ sourceId }) => sourceId === "simple-aws");
   assert.deepEqual(sharedSimpleCopies.map(({ url }) => url), [
-    null, null, null, "https://newsletter.simpleaws.dev/p/phase5-shared"
+    null, "https://newsletter.simpleaws.dev/p/phase5-shared"
   ], "null destinations sort before public web destinations within a source");
   assert.equal(sharedSimpleCopies[0].emailOnly, true);
-  assert.equal(sharedSimpleCopies[1].emailOnly, false, "web without a URL is not mislabeled email-only");
-  assert.equal(sharedSimpleCopies[2].emailOnly, false, "both-platform with a null URL is not mislabeled email-only");
-  assert.equal(sharedSimpleCopies[3].emailOnly, false);
+  assert.equal(sharedSimpleCopies[1].emailOnly, false);
   assert.equal(sharedEnglish.publications.filter(({ sourceId }) => sourceId === "caylent").length, 1,
     "exact copies collapse by their public metadata despite distinct provider IDs");
   assert.deepEqual(sharedEnglish.publications.filter(({ sourceId }) => sourceId === "dev-community").map(({ url }) => url), [
@@ -11532,7 +11531,9 @@ test("input12 publishes complete deterministic records for six adapters and indi
 test("input12 publishes an explicit empty catalog when all six selected sources are valid and empty", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: phaseTwelveArticleInventoryInput(),
+    input: phaseTwelveArticleInventoryInput({
+      builderArticleViews: manualBuilderArticleViewsInput()
+    }),
     fetchFn: phaseFourInventoryFetch({
       requestLog,
       caylentRows: [],
@@ -11821,4 +11822,153 @@ test("input12 may retain a valid v1 count-only Articles group during the v2 tran
     "the same validated scope can retain a transitional v1 aggregate without fabricating records");
   assert.equal(Object.hasOwn(failed.groups.articles, "records"), false);
   assert.ok(failed.groups.talks && failed.groups.books, "siblings refresh with legacy Article fallback");
+});
+
+test("implementation regression: Article catalog date ordering and cutoff retain fractional precision", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const title = "Fractional date precision identity";
+  const earlier = "2025-01-01T00:00:00.1234Z";
+  const later = "2025-01-01T00:00:00.12345Z";
+  const input = phaseTwelveArticleInventoryInput({
+    articleInventory: {
+      publications: [
+        manualArticlePublication("dev-community", title, "en", earlier, "https://dev.to/guille/fraction-precision"),
+        manualArticlePublication("linkedin-articles", title, "en", later, "https://www.linkedin.com/pulse/fraction-precision")
+      ],
+      exclusions: []
+    },
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T10:00:00.000Z",
+      views: { en: 4, es: 2 }
+    })
+  });
+  let awsFails = false;
+  const harness = createHarness({
+    input,
+    clock,
+    fetchFn: phaseFourInventoryFetch({
+      caylentRows: [],
+      builderArticles: [],
+      simpleArticles: [],
+      hashnodeRows: [],
+      dondeArticles: [],
+      awsResponder: () => awsFails
+        ? new Response("synthetic precision-cutoff outage", { status: 503 })
+        : awsForEngineersIndex([])
+    })
+  });
+
+  await harness.handler({}, {});
+  const output = await readPut(harness.putCalls[0]);
+  const group = output.groups.articles;
+  assert.equal(group.definitionVersion, 2);
+  assert.deepEqual(group.counts, { all: 1, en: 1, es: 0 });
+  const record = group.records[0];
+  assert.equal(record.publishedAt, earlier,
+    "the shorter fraction is earlier even though Date.parse truncates both source values to milliseconds");
+  assert.deepEqual(record.publications.map(({ publishedAt }) => publishedAt), [earlier, later]);
+
+  const stored = JSON.parse(harness.objects.get(outputKey));
+  const previousRecord = stored.groups.articles.records[0];
+  const futureBySubNanosecond = "2026-10-16T12:00:00.0000000001Z";
+  previousRecord.publications[0].publishedAt = futureBySubNanosecond;
+  harness.objects.set(outputKey, JSON.stringify(stored));
+  awsFails = true;
+  await harness.handler({}, {});
+  const failed = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(failed.groups, "articles"), false,
+    "a prior v2 publication even one sub-nanosecond beyond collectedAt is rejected as future");
+  assert.ok(failed.groups.talks && failed.groups.books,
+    "invalid prior Article date metadata remains local to Articles");
+});
+
+test("implementation regression: invalid v2 source metadata stays within Articles while legacy and recovery work", async () => {
+  const privateEncodedPath = "/blog/article%2fprivate";
+  const record = article({
+    id: "phase5-encoded-caylent-url",
+    title: "Caylent URL accepted by legacy count projection",
+    url: privateEncodedPath
+  });
+  const requestLog = [];
+  const legacyHarness = createHarness({
+    input: phaseThreeInput(),
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      caylentRows: [record],
+      builderArticles: [],
+      simpleArticles: [],
+      hashnodeRows: [],
+      dondeArticles: [],
+      awsResponder: () => awsForEngineersIndex([])
+    })
+  });
+  await legacyHarness.handler({}, {});
+  const legacy = (await readPut(legacyHarness.putCalls[0])).groups.articles;
+  assert.equal(legacy.definitionVersion, 1);
+  assert.deepEqual(legacy.counts, { all: 1, en: 1, es: 0 },
+    "legacy source eligibility and count-only validation remain unchanged");
+  assert.equal(Object.hasOwn(legacy, "records"), false);
+
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const input12 = phaseTwelveArticleInventoryInput({
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T10:00:00.000Z",
+      views: { en: 4, es: 2 }
+    })
+  });
+  let awsFails = false;
+  const harness = createHarness({
+    input: input12,
+    clock,
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      caylentRows: [record],
+      builderArticles: [],
+      simpleArticles: [],
+      hashnodeRows: [],
+      dondeArticles: [],
+      awsResponder: () => awsFails
+        ? new Response("synthetic late source outage", { status: 503 })
+        : awsForEngineersIndex([])
+    })
+  });
+
+  await harness.handler({}, {});
+  const invalidFirst = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(invalidFirst.groups, "articles"), false,
+    "a catalog-invalid source omits Articles when no scope-compatible prior exists");
+  assert.ok(invalidFirst.groups.talks && invalidFirst.groups.books,
+    "healthy siblings still publish when catalog-only validation rejects source metadata");
+
+  record.data.url = "/blog/phase5-corrected-caylent-url";
+  await harness.handler({}, {});
+  const recoveredOutput = await readPut(harness.putCalls[1]);
+  const recovered = recoveredOutput.groups.articles;
+  assert.equal(recovered.definitionVersion, 2);
+  assert.deepEqual(recovered.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(recovered.records[0].publications[0].url,
+    "https://caylent.com/blog/phase5-corrected-caylent-url");
+
+  const originalV2 = structuredClone(recovered);
+  record.data.url = privateEncodedPath;
+  awsFails = true;
+  clock.set("2026-10-16T12:01:00.000Z");
+  await harness.handler({}, {});
+  const retainedOutput = await readPut(harness.putCalls[2]);
+  assert.deepEqual(retainedOutput.groups.articles, originalV2,
+    "the same exact scope retains its complete valid v2 group after local catalog validation fails");
+  assert.equal(retainedOutput.groups.talks.collectedAt, "2026-10-16T12:01:00.000Z",
+    "healthy siblings refresh beside the retained Article group");
+
+  record.data.url = "/blog/phase5-corrected-caylent-url";
+  record.data.title = "Caylent metadata recovered cleanly";
+  awsFails = false;
+  clock.set("2026-10-16T12:02:00.000Z");
+  await harness.handler({}, {});
+  const recoveredAgain = (await readPut(harness.putCalls[3])).groups.articles;
+  assert.equal(recoveredAgain.definitionVersion, 2);
+  assert.deepEqual(recoveredAgain.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(recoveredAgain.records[0].title, "Caylent metadata recovered cleanly");
+  assert.equal(recoveredAgain.scopeId, originalV2.scopeId,
+    "provider result changes do not alter the maintained selector/inventory scope");
 });
