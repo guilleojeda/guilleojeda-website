@@ -877,7 +877,7 @@ test('adding Simple AWS preserves root input4, input5, and input6 projections an
   }
 });
 
-test('the maintained four-source input8 can add Simple AWS available history without changing other selectors', async () => {
+test('the maintained article-source input8 can add Simple AWS available history without changing other selectors', async () => {
   const build = await inputBuilder();
   const articleConfig = JSON.parse(readFileSync(new URL('../public/_content-stats/inputs.json', import.meta.url), 'utf8'));
   articleConfig.sources[0].apiKey = 'synthetic-public-delivery-key';
@@ -890,7 +890,7 @@ test('the maintained four-source input8 can add Simple AWS available history wit
   };
   const before = build(source);
   assert.equal(before.schemaVersion, 8);
-  assert.deepEqual(before.sources.map(({ id }) => id), ['caylent', 'builder-center', 'simple-aws', 'cloudy-things']);
+  assert.deepEqual(before.sources, articleConfig.sources, 'input8 projects the exact maintained article selection');
 
   source.articleConfig.analytics.recordedSince = '2023-05-02';
   freeze(source);
