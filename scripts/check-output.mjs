@@ -1564,3 +1564,103 @@ for (const page of policyPages) {
 }
 
 console.log('Static output checks passed for both content-statistics privacy routes.');
+
+// The catalog is a daily snapshot consumer. Its shell and source links must
+// remain useful before JavaScript or a compatible Articles snapshot is ready.
+for (const locale of ['en', 'es']) {
+  const catalogPath = locale === 'en' ? '/articles/' : '/es/articles/';
+  const alternatePath = locale === 'en' ? '/es/articles/' : '/articles/';
+  const homeHtml = read(locale === 'en' ? 'index.html' : 'es/index.html');
+  const statistics = extractElement(homeHtml, 'section', 'id', 'content-stats');
+  const articlesCard = extractElement(statistics?.html ?? '', 'article', 'data-stats-kind', 'articles');
+  const writing = extractElement(homeHtml, 'section', 'id', 'work');
+  mustContain(articlesCard?.html ?? '', `href="${catalogPath}"`, `${locale} Articles links to its complete catalog`);
+  mustContain(writing?.html ?? '', `href="${catalogPath}"`, `${locale} writing area links to its complete catalog`);
+
+  const html = read(`${catalogPath.slice(1)}index.html`);
+  mustContain(html, `<html lang="${locale}">`, `${locale} catalog language`);
+  mustContain(html, `<link rel="canonical" href="${new URL(catalogPath, siteUrl).href}">`, `${locale} catalog canonical`);
+  for (const [language, path] of [['en', '/articles/'], ['es', '/es/articles/'], ['x-default', '/articles/']]) {
+    mustContain(html, `<link rel="alternate" hreflang="${language}" href="${new URL(path, siteUrl).href}">`, `${locale} catalog ${language} alternate`);
+  }
+  const title = html.match(/<title>([^<]+)<\/title>/i)?.[1] ?? '';
+  assert.match(title, locale === 'en' ? /articles/i : /art[ií]culos/i, `${locale} catalog page title`);
+  assert.ok((html.match(/<meta name="description" content="([^"]*)">/i)?.[1] ?? '').trim(), `${locale} catalog description`);
+  mustContain(html, `<a class="lang-toggle" href="${alternatePath}"`, `${locale} catalog language switch stays in the catalog`);
+  mustContain(html, 'href="#article-catalog"', `${locale} catalog skip link`);
+  const catalog = extractElement(html, null, 'id', 'article-catalog');
+  assert.ok(catalog, `${locale} catalog has its own accessible region`);
+  mustContain(catalog.html, 'tabindex="-1"', `${locale} catalog skip target can receive focus`);
+  mustContain(catalog.html, 'data-catalog-source="/content-stats/v1/current.json"', `${locale} catalog consumes the same statistics snapshot`);
+  mustContain(catalog.html, `data-catalog-locale="${locale}"`, `${locale} catalog interface locale`);
+  assert.match(catalog.html, /<h1\b[^>]*>[\s\S]*?<\/h1>/i, `${locale} catalog has a primary heading`);
+
+  for (const [attribute, values] of [['data-catalog-language', ['all', 'en', 'es']], ['data-catalog-size', ['10', '20', '50']]]) {
+    const control = extractElement(catalog.html, 'select', attribute);
+    assert.ok(control, `${locale} catalog ${attribute} is a native select`);
+    const id = control.html.match(/\bid="([^"]+)"/i)?.[1];
+    assert.ok(id, `${locale} catalog ${attribute} has a label target`);
+    const label = extractElement(catalog.html, 'label', 'for', id);
+    assert.ok(normalizedText(label?.html ?? ''), `${locale} catalog ${attribute} has a nonempty label`);
+    assert.deepEqual([...control.html.matchAll(/<option\b[^>]*\bvalue="([^"]+)"/gi)].map((match) => match[1]), values,
+      `${locale} catalog ${attribute} choices and initial choice`);
+    const selected = [...control.html.matchAll(/<option\b[^>]*>/gi)]
+      .filter((match) => /\bselected(?:\s|=|>)/i.test(match[0]));
+    assert.ok(selected.length <= 1, `${locale} catalog ${attribute} has one initial selection`);
+    if (selected.length === 1) {
+      assert.equal(selected[0][0].match(/\bvalue="([^"]+)"/i)?.[1], values[0], `${locale} catalog ${attribute} defaults to ${values[0]}`);
+    }
+    assert.match(control.html.slice(0, control.html.indexOf('>')), /\bdisabled(?:\s|=|$)/i,
+      `${locale} catalog ${attribute} waits for valid data`);
+  }
+  for (const attribute of ['data-catalog-previous', 'data-catalog-next']) {
+    const button = extractElement(catalog.html, 'button', attribute);
+    assert.ok(button, `${locale} catalog ${attribute} is a native button`);
+    assert.match(button.html, /\btype="button"/, `${locale} catalog ${attribute} does not submit a form`);
+    assert.match(button.html.slice(0, button.html.indexOf('>')), /\bdisabled(?:\s|=|$)/i, `${locale} catalog ${attribute} starts disabled`);
+    assert.ok(normalizedText(button.html), `${locale} catalog ${attribute} has an accessible name`);
+  }
+  const range = extractElement(catalog.html, null, 'data-catalog-range');
+  assert.ok(range, `${locale} catalog result summary exists`);
+  mustContain(range.html, 'role="status"', `${locale} catalog announces its result range`);
+  mustContain(range.html, 'aria-live="polite"', `${locale} catalog updates without moving focus`);
+  const status = extractElement(catalog.html, null, 'data-catalog-status');
+  assert.match(normalizedText(status?.html ?? ''), locale === 'en' ? /loading/ : /cargando/, `${locale} catalog initially explains loading`);
+  const results = extractElement(catalog.html, null, 'data-catalog-results');
+  assert.ok(results, `${locale} catalog result region exists`);
+  assert.match(results.html.slice(0, results.html.indexOf('>')), /\bhidden(?:\s|=|$)/i, `${locale} catalog hides unconfirmed results`);
+  const list = extractElement(results.html, 'ol', 'data-catalog-list');
+  assert.ok(list, `${locale} catalog uses a semantic list for its rows`);
+  assert.equal((list.html.match(/<li\b/gi) ?? []).length, 0, `${locale} build does not embed an independently curated catalog`);
+  for (const attribute of ['data-catalog-empty', 'data-catalog-collected-date', 'data-catalog-coverage']) {
+    assert.ok(extractElement(catalog.html, null, attribute), `${locale} catalog has ${attribute}`);
+  }
+  const fallback = extractElement(catalog.html, null, 'data-catalog-fallback');
+  assert.ok(fallback, `${locale} catalog offers static publication links`);
+  assert.ok(!results.html.includes('data-catalog-fallback'), `${locale} fallback links remain outside hidden results`);
+  assert.doesNotMatch(fallback.html.slice(0, fallback.html.indexOf('>')), /\bhidden(?:\s|=|$)/i,
+    `${locale} fallback links start visible`);
+  for (const noScript of catalog.html.matchAll(/<noscript>[\s\S]*?<\/noscript>/gi)) {
+    assert.ok(!noScript[0].includes('data-catalog-fallback'), `${locale} fallback links also work when JavaScript loads but the snapshot fails`);
+  }
+  for (const destination of [
+    'https://caylent.com/insights?author=b5b5065ade8c42a6919ca40d1239b37c',
+    'https://builder.aws.com/community/@guilleojeda',
+    'https://newsletter.simpleaws.dev/',
+    'https://blog.guilleojeda.com/',
+    'https://dondeaprendoaws.com/',
+    'https://awsforengineers.com/'
+  ]) {
+    mustContain(fallback.html, `href="${escapeHtml(destination)}"`, `${locale} catalog fallback links to ${destination}`);
+  }
+  assert.match(catalog.html, /<noscript>[\s\S]*?JavaScript[\s\S]*?<\/noscript>/i, `${locale} catalog explains its JavaScript requirement`);
+  const description = normalizedText(catalog.html);
+  assert.match(description, locale === 'en' ? /daily|once a day|every day/ : /diari[ao]|una vez al dia|cada dia/, `${locale} catalog explains its daily update`);
+  assert.match(description, locale === 'en' ? /earliest|oldest/ : /mas antigua|primera fecha/, `${locale} catalog explains the known date of copies`);
+  assert.match(description, locale === 'en' ? /known|recorded|documented/ : /conocida|registrada|documentada|respaldada/, `${locale} catalog does not claim the first historical publication`);
+  for (const assetPath of [...html.matchAll(/(?:src|href)="(\/_astro\/[^"?#]+\.(?:js|css))"/gi)].map((match) => match[1])) {
+    assert.ok(existsSync(join(dist, assetPath.slice(1))), `${locale} catalog asset is packaged: ${assetPath}`);
+  }
+  assert.match(html, /<script\b[^>]*src="\/_astro\/[^"?#]+\.js"/i, `${locale} catalog loads its local client bundle`);
+}
+console.log('Static output checks passed for both article catalog routes and homepage entry points.');

@@ -1,0 +1,165 @@
+---
+import type { Locale } from '../content/types';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const copy = locale === 'en'
+  ? {
+      title: 'Article catalog',
+      intro: 'Browse articles from registered sources and individually selected posts from mixed platforms.',
+      explanation: 'The catalog updates daily from registered sources. Each row brings together copies with the same title and content language; translations appear separately. The displayed date is the oldest known date among those copies. It may not be the first historical publication, and earlier dates or history may be missing.',
+      languageLabel: 'Content language',
+      sizeLabel: 'Articles per page',
+      all: 'All',
+      english: 'English',
+      spanish: 'Spanish',
+      loading: 'Loading articles…',
+      unavailable: 'The full article list is unavailable. Browse the registered sources below.',
+      legacyUnavailable: 'The full article list is unavailable. Browse the registered sources below.',
+      empty: 'No articles are currently listed.',
+      noResults: 'No articles match this content language.',
+      unknownDate: 'Date unknown',
+      onlyByEmail: 'Only by email',
+      linkUnavailable: 'Link unavailable',
+      published: 'Published',
+      collected: 'Last updated',
+      coverage: 'Covered sources',
+      previous: 'Previous page',
+      next: 'Next page',
+      pagination: 'Catalog pages',
+      sources: 'Browse registered sources',
+      sourcesIntro: 'These publication sites remain available if the list cannot be loaded.',
+      notes: 'About dates and copies',
+      noScript: 'Enable JavaScript to load the daily article catalog. The registered publication links above remain available.'
+    }
+  : {
+      title: 'Catálogo de artículos',
+      intro: 'Consulta artículos de fuentes registradas y publicaciones seleccionadas individualmente en plataformas mixtas.',
+      explanation: 'El catálogo se actualiza a diario desde las fuentes registradas. Cada fila reúne copias con el mismo título y en el mismo idioma del contenido; las traducciones aparecen por separado. La fecha visible es la más antigua conocida entre esas copias. No necesariamente es la primera publicación histórica, y pueden faltar fechas o registros anteriores.',
+      languageLabel: 'Idioma del contenido',
+      sizeLabel: 'Artículos por página',
+      all: 'Todos',
+      english: 'English',
+      spanish: 'Español',
+      loading: 'Cargando artículos…',
+      unavailable: 'No se puede mostrar la lista completa de artículos. Consulta las fuentes registradas abajo.',
+      legacyUnavailable: 'No se puede mostrar la lista completa de artículos. Consulta las fuentes registradas abajo.',
+      empty: 'No hay artículos para mostrar por ahora.',
+      noResults: 'No hay artículos que coincidan con este idioma de contenido.',
+      unknownDate: 'Fecha desconocida',
+      onlyByEmail: 'Sólo por email',
+      linkUnavailable: 'Enlace no disponible',
+      published: 'Publicado',
+      collected: 'Última actualización',
+      coverage: 'Fuentes cubiertas',
+      previous: 'Página anterior',
+      next: 'Página siguiente',
+      pagination: 'Páginas del catálogo',
+      sources: 'Consultar fuentes registradas',
+      sourcesIntro: 'Estos sitios de publicación siguen disponibles si no se puede cargar la lista.',
+      notes: 'Fechas y copias',
+      noScript: 'Activa JavaScript para cargar el catálogo diario de artículos. Los enlaces a las fuentes registradas siguen disponibles.'
+    };
+---
+
+<section
+  class="section article-catalog-section"
+  id="article-catalog"
+  tabindex="-1"
+  aria-labelledby="article-catalog-title"
+  data-catalog-source="/content-stats/v1/current.json"
+  data-catalog-locale={locale}
+  data-catalog-loading={copy.loading}
+  data-catalog-unavailable={copy.unavailable}
+  data-catalog-legacy-unavailable={copy.legacyUnavailable}
+  data-catalog-empty={copy.empty}
+  data-catalog-no-results={copy.noResults}
+  data-catalog-date-unknown={copy.unknownDate}
+  data-catalog-only-by-email={copy.onlyByEmail}
+  data-catalog-link-unavailable={copy.linkUnavailable}
+  data-catalog-published={copy.published}
+  data-catalog-language-english={locale === 'en' ? 'English' : 'Inglés'}
+  data-catalog-language-spanish={locale === 'en' ? 'Spanish' : 'Español'}
+  aria-busy="true"
+>
+  <div class="section-shell article-catalog-shell">
+    <div class="section-heading article-catalog-heading">
+      <h1 id="article-catalog-title">{copy.title}</h1>
+      <p>{copy.intro}</p>
+    </div>
+
+    <p class="article-catalog-explanation">
+      {locale === 'en'
+        ? 'Updated daily from registered sources.'
+        : 'Actualizado a diario desde las fuentes registradas.'}
+    </p>
+
+    <div class="article-catalog-controls">
+      <div class="article-catalog-control">
+        <label for="article-catalog-language">{copy.languageLabel}</label>
+        <select id="article-catalog-language" data-catalog-language disabled>
+          <option value="all" selected>{copy.all}</option>
+          <option value="en">{copy.english}</option>
+          <option value="es">{copy.spanish}</option>
+        </select>
+      </div>
+      <div class="article-catalog-control">
+        <label for="article-catalog-size">{copy.sizeLabel}</label>
+        <select id="article-catalog-size" data-catalog-size disabled>
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+    </div>
+
+    <dl class="article-catalog-metadata" aria-label={copy.coverage}>
+      <div>
+        <dt>{copy.collected}</dt>
+        <dd data-catalog-collected-date></dd>
+      </div>
+      <div>
+        <dt>{copy.coverage}</dt>
+        <dd data-catalog-coverage></dd>
+      </div>
+    </dl>
+
+    <p class="article-catalog-status" data-catalog-status role="status" aria-live="polite">{copy.loading}</p>
+
+    <div class="article-catalog-results" data-catalog-results hidden>
+      <p class="article-catalog-range" data-catalog-range role="status" aria-live="polite"></p>
+      <ol class="article-catalog-list" data-catalog-list></ol>
+    </div>
+    <p class="article-catalog-empty" data-catalog-empty hidden></p>
+
+    <nav class="article-catalog-pagination" aria-label={copy.pagination}>
+      <button type="button" data-catalog-previous disabled>{copy.previous}</button>
+      <button type="button" data-catalog-next disabled>{copy.next}</button>
+    </nav>
+
+    <nav class="article-catalog-fallback" data-catalog-fallback aria-label={copy.sources}>
+      <h2>{copy.sources}</h2>
+      <p>{copy.sourcesIntro}</p>
+      <ul>
+        <li><a href="https://caylent.com/insights?author=b5b5065ade8c42a6919ca40d1239b37c" target="_blank" rel="noreferrer">Caylent</a></li>
+        <li><a href="https://builder.aws.com/community/@guilleojeda" target="_blank" rel="noreferrer">AWS Builder Center</a></li>
+        <li><a href="https://newsletter.simpleaws.dev/" target="_blank" rel="noreferrer">Simple AWS</a></li>
+        <li><a href="https://blog.guilleojeda.com/" target="_blank" rel="noreferrer">Cloudy Things</a></li>
+        <li><a href="https://dondeaprendoaws.com/" target="_blank" rel="noreferrer">Dónde Aprendo AWS</a></li>
+        <li><a href="https://awsforengineers.com/" target="_blank" rel="noreferrer">AWS for Engineers</a></li>
+      </ul>
+    </nav>
+
+    <details class="article-catalog-notes">
+      <summary>{copy.notes}</summary>
+      <p>{copy.explanation}</p>
+    </details>
+
+    <noscript><p class="article-catalog-noscript">{copy.noScript}</p></noscript>
+  </div>
+</section>
+
+<script src="../scripts/content-stats.js"></script>

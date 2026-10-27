@@ -360,6 +360,7 @@ function getAttribute(element, name) {
 function matchesSimpleSelector(element, selector) {
   if (selector.startsWith('#')) return element.id === selector.slice(1);
   if (selector.startsWith('.')) return element.classList.includes(selector.slice(1));
+  if (/^[a-z][a-z0-9-]*$/i.test(selector)) return element.tagName.toLowerCase() === selector.toLowerCase();
 
   const attributeMatch = selector.match(/^\[([\w-]+)(?:=["']?([^\]"']+)["']?)?\]$/);
   if (!attributeMatch) return false;
@@ -383,13 +384,15 @@ function matchesSelector(element, selector) {
 }
 
 class SemanticElement {
-  constructor({ dataset = {}, attributes = {}, textContent = '', hidden = false, disabled = false, value = '' } = {}) {
+  constructor({ dataset = {}, attributes = {}, textContent = '', hidden = false, disabled = false, value = '', tagName = 'div', documentRef = null } = {}) {
     this.dataset = { ...dataset };
     this.attributes = new Map(Object.entries(attributes));
     this.textContent = textContent;
     this.hidden = hidden;
     this.disabled = disabled;
     this.value = value;
+    this.tagName = tagName.toUpperCase();
+    this.ownerDocument = documentRef;
     this.children = [];
     this.parentNode = null;
     this.listeners = new Map();
@@ -399,9 +402,20 @@ class SemanticElement {
   get classList() { return (this.attributes.get('class') ?? '').split(/\s+/).filter(Boolean); }
 
   appendChild(child) {
+    if (child.tagName === '#DOCUMENT-FRAGMENT') {
+      for (const fragmentChild of [...child.children]) this.appendChild(fragmentChild);
+      child.children = [];
+      return child;
+    }
     child.parentNode = this;
     this.children.push(child);
     return child;
+  }
+
+  replaceChildren(...children) {
+    for (const child of this.children) child.parentNode = null;
+    this.children = [];
+    for (const child of children) this.appendChild(child);
   }
 
   descendants() {
@@ -433,6 +447,14 @@ class SemanticElement {
 
   dispatch(name) {
     for (const callback of this.listeners.get(name) ?? []) callback({ type: name, target: this });
+  }
+
+  click() {
+    if (!this.disabled) this.dispatch('click');
+  }
+
+  focus() {
+    if (this.ownerDocument) this.ownerDocument.activeElement = this;
   }
 }
 
@@ -755,7 +777,59 @@ function makeBuilderArticleViews(locale, card) {
   return { region, label, status, result, value, coverage, since, collectedDate, provenance };
 }
 
-function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError, includeViews = true, includeSearch = true } = {}) {
+function makeArticleCatalog(locale) {
+  const root = new SemanticElement({
+    dataset: {
+      catalogSource: '/content-stats/v1/current.json',
+      catalogLocale: locale
+    },
+    attributes: { id: 'article-catalog' }
+  });
+  const language = root.appendChild(new SemanticElement({
+    dataset: { catalogLanguage: '' },
+    tagName: 'select',
+    value: 'all',
+    disabled: true
+  }));
+  for (const [value, label] of [['all', 'All'], ['en', 'English'], ['es', 'Spanish']]) {
+    language.appendChild(new SemanticElement({ tagName: 'option', attributes: { value }, textContent: label }));
+  }
+  const size = root.appendChild(new SemanticElement({
+    dataset: { catalogSize: '' },
+    tagName: 'select',
+    value: '10',
+    disabled: true
+  }));
+  for (const value of ['10', '20', '50']) size.appendChild(new SemanticElement({ tagName: 'option', attributes: { value }, textContent: value }));
+  const collectedDate = root.appendChild(new SemanticElement({ dataset: { catalogCollectedDate: '' } }));
+  const coverage = root.appendChild(new SemanticElement({ dataset: { catalogCoverage: '' } }));
+  const status = root.appendChild(new SemanticElement({
+    dataset: { catalogStatus: '' },
+    attributes: { role: 'status', 'aria-live': 'polite' },
+    textContent: locale === 'en' ? 'Loading articles…' : 'Cargando artículos…'
+  }));
+  const results = root.appendChild(new SemanticElement({ dataset: { catalogResults: '' }, hidden: true }));
+  const range = results.appendChild(new SemanticElement({
+    dataset: { catalogRange: '' },
+    attributes: { role: 'status', 'aria-live': 'polite' }
+  }));
+  const list = results.appendChild(new SemanticElement({ dataset: { catalogList: '' }, tagName: 'ol' }));
+  const empty = root.appendChild(new SemanticElement({ dataset: { catalogEmpty: '' }, hidden: true }));
+  const previous = root.appendChild(new SemanticElement({
+    dataset: { catalogPrevious: '' }, tagName: 'button', value: '', disabled: true,
+    attributes: { type: 'button' }
+  }));
+  const next = root.appendChild(new SemanticElement({
+    dataset: { catalogNext: '' }, tagName: 'button', value: '', disabled: true,
+    attributes: { type: 'button' }
+  }));
+  return { root, language, size, collectedDate, coverage, status, results, range, list, empty, previous, next };
+}
+
+function createPage({
+  locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError,
+  includeViews = true, includeSearch = true, includeCatalog = false, includeStats = true, fetchGate
+} = {}) {
   const section = new SemanticElement({
     dataset: {
       statsSource: '/content-stats/v1/current.json',
@@ -799,15 +873,27 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
   cards.directoryOutboundClicks = makeDirectoryOutboundClicks(locale, cards.directoryViews.card);
   if (includeViews) cards.articles.views = makeArticleViews(cards.articles.card, locale);
   if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
+  const catalog = includeCatalog ? makeArticleCatalog(locale) : null;
   const fetchCalls = [];
+  const documentRef = {
+    activeElement: null,
+    getElementById: (id) => id === 'content-stats' && includeStats ? section : id === 'article-catalog' ? catalog?.root ?? null : null,
+    createElement: (tagName) => new SemanticElement({ tagName, documentRef }),
+    createDocumentFragment: () => new SemanticElement({ tagName: '#document-fragment', documentRef })
+  };
+
+  if (catalog) {
+    for (const element of [catalog.root, ...catalog.root.descendants()]) element.ownerDocument = documentRef;
+  }
 
   const context = {
-    document: { getElementById: (id) => id === 'content-stats' ? section : null },
+    document: documentRef,
     window: { location: { href: 'https://guilleojeda.com/', origin: 'https://guilleojeda.com' } },
     URL,
     fetch: async (url, options) => {
       fetchCalls.push({ url: String(url), options });
       if (fetchError) throw fetchError;
+      if (fetchGate) await fetchGate;
       return {
         ok: responseOk,
         json: async () => {
@@ -833,6 +919,8 @@ function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk =
     periodSelector,
     periodOptions,
     section,
+    catalog,
+    document: documentRef,
     location: context.window.location,
     status: cards.articles.status,
     async settle() { await new Promise((resolve) => setImmediate(resolve)); },
@@ -849,6 +937,151 @@ function expectedDate(locale, timestamp = collectedAt) {
 
 function expectedDateOnly(locale, date) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
+}
+
+const articleDestination = {
+  caylent: (slug) => `https://caylent.com/blog/${slug}`,
+  'builder-center': (slug) => `https://builder.aws.com/content/guille/${slug}`,
+  'simple-aws': (slug) => `https://newsletter.simpleaws.dev/p/${slug}`,
+  'cloudy-things': (slug) => `https://blog.guilleojeda.com/${slug}`,
+  'donde-aprendo-aws': (slug) => `https://dondeaprendoaws.com/blog/${slug}`,
+  'aws-for-engineers': (slug) => `https://awsforengineers.com/blog/${slug}`,
+  'dev-community': (slug) => `https://dev.to/guille/${slug}`,
+  'linkedin-articles': (slug) => `https://www.linkedin.com/pulse/${slug}`,
+  spainclouds: (slug) => `https://spainclouds.com/blog/${slug}`,
+  hackernoon: (slug) => `https://hackernoon.com/${slug}`
+};
+
+const articleSourceCoverage = [...automaticArticleSources, ...individualArticleSources];
+const articleCatalogCollectedAt = '2026-10-27T18:55:58.115Z';
+
+function catalogPublication({ sourceId = 'dev-community', title, publishedAt = '2024-01-01', url, emailOnly = false, ...extra } = {}) {
+  const slug = String(title ?? 'fixture-article').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return {
+    sourceId,
+    title: title ?? 'Fixture article',
+    publishedAt,
+    url: url === undefined ? articleDestination[sourceId]?.(slug || 'article') ?? null : url,
+    emailOnly,
+    ...extra
+  };
+}
+
+function catalogRecord(index, {
+  id = index.toString(16).padStart(64, '0'),
+  title = `Article ${String(index).padStart(2, '0')}`,
+  language = index % 2 === 0 ? 'en' : 'es',
+  publishedAt = '2024-01-01',
+  publications,
+  ...extra
+} = {}) {
+  return {
+    id,
+    title,
+    language,
+    publishedAt,
+    publications: publications ?? [catalogPublication({ title, publishedAt })],
+    ...extra
+  };
+}
+
+function catalogCounts(records) {
+  const counts = { all: records.length, en: 0, es: 0 };
+  for (const record of records) counts[record.language] += 1;
+  return counts;
+}
+
+function articleCatalogSnapshot({ records = [], sources = articleSourceCoverage, collectedAt = articleCatalogCollectedAt, counts = catalogCounts(records) } = {}) {
+  const data = snapshotWithDirectoryOutboundClicks();
+  data.groups.talks = aggregateGroup({ sources: [websiteInventory], counts: { all: 6, en: 2, es: 4 }, collectedAt: talksCollectedAt });
+  data.groups.books = aggregateGroup({ sources: [websiteInventory], counts: { all: 3, en: 2, es: 1 }, collectedAt: booksCollectedAt });
+  data.groups.articles = {
+    ...aggregateGroup({ counts, sources: sources.map((source) => ({ ...source })), collectedAt, scopeId: 'a'.repeat(64) }),
+    definitionVersion: 2,
+    records
+  };
+  return data;
+}
+
+function mutateArticleCatalog(data, mutate) {
+  mutate(data.groups.articles);
+  return data;
+}
+
+function catalogRows(page) {
+  return page.catalog.list.children;
+}
+
+function assertCatalogUnavailable(page) {
+  assert.equal(page.catalog.results.hidden, true, 'unavailable catalog must hide any old rows');
+  assert.equal(page.catalog.list.children.length, 0, 'unavailable catalog must clear rows');
+  assert.equal(page.catalog.status.hidden, false, 'unavailable state stays visible');
+  assert.notEqual(page.catalog.status.textContent, '', 'unavailable state is explained');
+  assert.doesNotMatch(page.catalog.status.textContent, /^(?:loading articles|cargando artículos)/i, 'an unavailable catalog must not remain stuck in loading');
+}
+
+function catalogRecordIds(page) {
+  return catalogRows(page).map((row) => row.dataset.catalogRecord);
+}
+
+function semanticText(element) {
+  return [element.textContent, ...element.children.map(semanticText)].filter(Boolean).join(' ');
+}
+
+function accessibleText(element) {
+  return [element.getAttribute('aria-label') ?? '', element.textContent, ...element.children.map(accessibleText)].filter(Boolean).join(' ');
+}
+
+function catalogDisplayRecords() {
+  return [
+    catalogRecord(1, {
+      title: 'Café Guide', language: 'en', publishedAt: '2023-01-01',
+      publications: [
+        catalogPublication({ sourceId: 'caylent', title: 'Café Guide', publishedAt: '2024-05-01', url: articleDestination.caylent('cafe-guide') }),
+        catalogPublication({ sourceId: 'dev-community', title: '  café   guide ', publishedAt: '2023-01-01', url: articleDestination['dev-community']('cafe-guide') })
+      ]
+    }),
+    catalogRecord(2, { title: 'Guía de AWS', language: 'es', publishedAt: '2024-10-05' }),
+    catalogRecord(3, {
+      title: 'Builder date unknown', language: 'en', publishedAt: null,
+      publications: [catalogPublication({ sourceId: 'builder-center', title: 'Builder date unknown', publishedAt: null })]
+    }),
+    catalogRecord(4, {
+      title: 'Offset timestamp', language: 'en', publishedAt: '2024-02-03T23:30:00.123456-05:00',
+      publications: [catalogPublication({ sourceId: 'caylent', title: 'Offset timestamp', publishedAt: '2024-02-03T23:30:00.123456-05:00' })]
+    }),
+    catalogRecord(5, { title: '<img src=x onerror=alert(1)>', language: 'en', publishedAt: '2024-05-20' }),
+    catalogRecord(6, {
+      title: 'Email only article', language: 'es', publishedAt: '2024-04-10',
+      publications: [catalogPublication({ sourceId: 'simple-aws', title: 'Email only article', publishedAt: '2024-04-10', url: null, emailOnly: true })]
+    }),
+    catalogRecord(7, {
+      title: 'Web link unavailable', language: 'es', publishedAt: '2024-04-11',
+      publications: [catalogPublication({ sourceId: 'simple-aws', title: 'Web link unavailable', publishedAt: '2024-04-11', url: null, emailOnly: false })]
+    }),
+    catalogRecord(8, { title: 'Cafe Guide', language: 'en', publishedAt: '2024-04-01' }),
+    catalogRecord(9, { title: 'Café Guide!', language: 'en', publishedAt: '2024-03-01' }),
+    catalogRecord(10, { title: 'Café Guide', language: 'es', publishedAt: '2024-02-01' })
+  ];
+}
+
+function pagedCatalogRecords(count = 61) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(Date.UTC(2024, 0, 1 + index)).toISOString().slice(0, 10);
+    const title = index < 2 ? 'Shared Guide' : `Catalog article ${String(index).padStart(2, '0')}`;
+    const publications = index === 0
+      ? [
+        catalogPublication({ sourceId: 'caylent', title, publishedAt: date }),
+        catalogPublication({ sourceId: 'dev-community', title, publishedAt: date })
+      ]
+      : undefined;
+    return catalogRecord(index + 100, {
+      title,
+      language: index % 2 === 0 ? 'en' : 'es',
+      publishedAt: date,
+      publications
+    });
+  });
 }
 
 function assertUnavailable(page, locale, kind = 'articles') {
@@ -4001,3 +4234,602 @@ for (const locale of ['en', 'es']) {
     });
   }
 }
+
+function idForCatalogIndex(index) {
+  return index.toString(16).padStart(64, '0');
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} Articles v2 renders its records and keeps overview counts independent of catalog filters`, async () => {
+    const records = pagedCatalogRecords();
+    const data = articleCatalogSnapshot({ records });
+    const page = createPage({ locale, data, includeCatalog: true });
+    await page.settle();
+
+    assert.equal(page.fetchCount, 1);
+    assert.equal(page.cards.articles.count.textContent, '61');
+    assert.equal(page.overviewValues.articles.textContent, '61');
+    assert.equal(page.catalog.results.hidden, false);
+    assert.equal(catalogRows(page).length, 10, 'the catalog starts with ten records');
+    assert.equal(catalogRows(page)[0].dataset.catalogRecord, idForCatalogIndex(160), 'the newest publication is first');
+    assert.equal(page.catalog.collectedDate.textContent, expectedDate(locale, articleCatalogCollectedAt));
+    assert.match(page.catalog.coverage.textContent, /DEV Community/);
+    assert.match(page.catalog.coverage.textContent, /HackerNoon/);
+
+    for (const [language, firstId, expectedFilteredCount] of [
+      ['en', idForCatalogIndex(160), 31],
+      ['es', idForCatalogIndex(159), 30]
+    ]) {
+      page.catalog.language.value = language;
+      page.catalog.language.dispatch('change');
+      assert.equal(page.catalog.language.value, language);
+      assert.equal(catalogRows(page).length, 10);
+      assert.equal(catalogRows(page)[0].dataset.catalogRecord, firstId);
+      assert.match(page.catalog.range.textContent, new RegExp(String(expectedFilteredCount)));
+      assert.equal(page.cards.articles.count.textContent, '61', 'filtering the local catalog does not change the All summary');
+      assert.equal(page.overviewValues.articles.textContent, '61', 'the overview remains the unfiltered total');
+    }
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '31');
+    assert.equal(page.overviewValues.articles.textContent, '61');
+    assert.equal(page.catalog.language.value, 'es', 'the homepage content-language filter is independent of the catalog filter');
+
+    page.catalog.language.value = 'all';
+    page.catalog.language.dispatch('change');
+    page.catalog.size.value = '50';
+    page.catalog.size.dispatch('change');
+    page.catalog.next.click();
+    const sharedEnglish = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(100)}"]`);
+    const sharedSpanish = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(101)}"]`);
+    assert.equal(sharedEnglish.querySelectorAll('a').length, 2, 'one identity keeps all of its source copies');
+    assert.match(semanticText(sharedEnglish), /Shared Guide/);
+    assert.match(semanticText(sharedSpanish), /Shared Guide/);
+    page.catalog.language.value = 'es';
+    page.catalog.language.dispatch('change');
+    assert.equal(catalogRows(page).length, 30);
+    assert.equal(page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(100)}"]`), null);
+    assert.ok(page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(101)}"]`), 'a translation is a separate content-language identity');
+    assert.equal(page.fetchCount, 1, 'filters use the same snapshot instead of requesting providers');
+  });
+
+  test(`${locale} Articles v2 preserves identities, all copies, date semantics, and safe text destinations`, async () => {
+    const records = catalogDisplayRecords();
+    const page = createPage({ locale, data: articleCatalogSnapshot({ records }), includeCatalog: true });
+    await page.settle();
+
+    assert.equal(page.catalog.results.hidden, false);
+    assert.deepEqual(catalogRecordIds(page), [
+      idForCatalogIndex(2), idForCatalogIndex(5), idForCatalogIndex(7), idForCatalogIndex(6),
+      idForCatalogIndex(8), idForCatalogIndex(9), idForCatalogIndex(4), idForCatalogIndex(10),
+      idForCatalogIndex(1), idForCatalogIndex(3)
+    ], 'rows sort by their oldest supported publication date, with unknown dates last');
+
+    const copyRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(1)}"]`);
+    assert.equal(copyRow.querySelectorAll('a').length, 2, 'each approved copy has its own destination');
+    assert.deepEqual(copyRow.querySelectorAll('a').map((link) => link.getAttribute('href')), [
+      articleDestination.caylent('cafe-guide'), articleDestination['dev-community']('cafe-guide')
+    ]);
+    assert.match(semanticText(copyRow), /Café Guide/);
+    assert.match(semanticText(copyRow), locale === 'en' ? /\bEnglish\b/ : /\bInglés\b/i, 'the row identifies the content language');
+    for (const [sourceLabel, date] of [
+      ['Caylent', '2024-05-01'],
+      ['DEV Community', '2023-01-01']
+    ]) {
+      const publicationDate = expectedDateOnly(locale, date);
+      assert.ok(copyRow.querySelectorAll('a').some((link) => {
+        if (!accessibleText(link).includes(sourceLabel)) return false;
+        for (let current = link; current && current !== copyRow; current = current.parentNode) {
+          if (accessibleText(current).includes(sourceLabel) && accessibleText(current).includes(publicationDate)) return true;
+        }
+        return false;
+      }), `${sourceLabel} has an accessible destination name and its own publication date`);
+    }
+
+    const dateOnlyRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(2)}"]`);
+    assert.ok(semanticText(dateOnlyRow).includes(expectedDateOnly(locale, '2024-10-05')), 'date-only values keep their original calendar date');
+    const offsetRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(4)}"]`);
+    assert.ok(semanticText(offsetRow).includes(expectedDateOnly(locale, '2024-02-03')), 'an explicit offset does not shift the displayed publication day');
+
+    const unknownDateRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(3)}"]`);
+    assert.match(semanticText(unknownDateRow), /Builder date unknown/);
+    assert.match(semanticText(unknownDateRow), locale === 'en' ? /date (?:unknown|unavailable|not available)|unknown date/i : /fecha (?:de publicación )?(?:desconocida|no disponible)/i, 'an unknown source date is labeled as unknown');
+    assert.doesNotMatch(semanticText(unknownDateRow), /October 27|27 de octubre/i, 'unknown publication dates are not replaced by the collection date');
+
+    const literalHtmlRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(5)}"]`);
+    assert.match(semanticText(literalHtmlRow), /<img src=x onerror=alert\(1\)>/, 'source titles render as literal text');
+    assert.equal(literalHtmlRow.querySelector('img'), null, 'untrusted title text does not create markup');
+
+    const emailOnlyRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(6)}"]`);
+    assert.equal(emailOnlyRow.querySelectorAll('a').length, 0);
+    assert.match(semanticText(emailOnlyRow), locale === 'en' ? /Only by email/i : /S[oó]lo por email/i);
+    const missingLinkRow = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(7)}"]`);
+    assert.equal(missingLinkRow.querySelectorAll('a').length, 0);
+    assert.match(semanticText(missingLinkRow), locale === 'en' ? /Link unavailable/i : /Enlace no disponible/i);
+    assert.doesNotMatch(semanticText(missingLinkRow), locale === 'en' ? /Only by email/i : /S[oó]lo por email/i);
+
+    page.catalog.language.value = 'es';
+    page.catalog.language.dispatch('change');
+    assert.deepEqual(catalogRecordIds(page), [idForCatalogIndex(2), idForCatalogIndex(7), idForCatalogIndex(6), idForCatalogIndex(10)]);
+    const spanishRecord = page.catalog.list.querySelector(`[data-catalog-record="${idForCatalogIndex(10)}"]`);
+    assert.match(semanticText(spanishRecord), /Café Guide/);
+    assert.match(semanticText(spanishRecord), locale === 'en' ? /\bSpanish\b/ : /\bEspañol\b/i, 'the Spanish-language copy stays labeled in the content language');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} catalog pagination supports 10, 20 and 50 with local filters, honest ranges, limits, and stable focus`, async () => {
+    const page = createPage({ locale, data: articleCatalogSnapshot({ records: pagedCatalogRecords() }), includeCatalog: true });
+    await page.settle();
+    assert.equal(page.catalog.list.children.length, 10);
+    assert.equal(page.catalog.previous.disabled, true);
+    assert.equal(page.catalog.next.disabled, false);
+    assert.equal(page.catalog.range.getAttribute('role'), 'status');
+    assert.equal(page.catalog.range.getAttribute('aria-live'), 'polite');
+    assert.match(page.catalog.range.textContent, /1\D+10/);
+    assert.match(page.catalog.range.textContent, /61/);
+
+    page.catalog.next.focus();
+    page.catalog.next.click();
+    assert.equal(page.document.activeElement, page.catalog.next, 'pagination does not move focus');
+    assert.equal(page.catalog.previous.disabled, false);
+    assert.equal(catalogRows(page)[0].dataset.catalogRecord, idForCatalogIndex(150));
+
+    page.catalog.language.focus();
+    page.catalog.language.value = 'es';
+    page.catalog.language.dispatch('change');
+    assert.equal(page.document.activeElement, page.catalog.language, 'filtering does not move focus');
+    assert.equal(catalogRows(page)[0].dataset.catalogRecord, idForCatalogIndex(159), 'changing a filter resets the page');
+    assert.match(page.catalog.range.textContent, /1\D+10/);
+    assert.match(page.catalog.range.textContent, /30/);
+
+    page.catalog.language.value = 'all';
+    page.catalog.language.dispatch('change');
+    page.catalog.next.click();
+    page.catalog.next.click();
+    page.catalog.size.focus();
+    page.catalog.size.value = '50';
+    page.catalog.size.dispatch('change');
+    assert.equal(page.document.activeElement, page.catalog.size);
+    assert.equal(page.catalog.size.value, '50');
+    assert.equal(page.catalog.list.children.length, 50);
+    assert.equal(catalogRows(page)[0].dataset.catalogRecord, idForCatalogIndex(160), 'changing page size resets to the first page');
+    page.catalog.next.click();
+    assert.equal(page.catalog.list.children.length, 11, 'the final page is partial');
+    assert.match(page.catalog.range.textContent, /51\D+61/);
+    assert.equal(page.catalog.next.disabled, true);
+    const finalPageIds = catalogRecordIds(page);
+    page.catalog.next.click();
+    assert.deepEqual(catalogRecordIds(page), finalPageIds, 'a disabled next button cannot change the page');
+    page.catalog.previous.click();
+    assert.equal(page.catalog.list.children.length, 50);
+
+    page.catalog.size.value = '20';
+    page.catalog.size.dispatch('change');
+    assert.equal(page.catalog.list.children.length, 20);
+    page.catalog.next.click();
+    page.catalog.next.click();
+    page.catalog.next.click();
+    assert.equal(page.catalog.list.children.length, 1, '20 per page also keeps the one-row last page');
+    assert.match(page.catalog.range.textContent, /61\D+61/);
+    assert.equal(page.catalog.next.disabled, true);
+    assert.equal(page.fetchCount, 1, 'paging, filters, and page-size changes do not fetch again');
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} catalog stays in loading state until its single snapshot request resolves`, async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const page = createPage({
+      locale,
+      data: articleCatalogSnapshot({ records: [catalogRecord(1)] }),
+      includeCatalog: true,
+      includeStats: false,
+      fetchGate: gate
+    });
+    await page.settle();
+    assert.equal(page.fetchCount, 1);
+    assert.equal(page.catalog.status.hidden, false);
+    assert.equal(page.catalog.results.hidden, true);
+    assert.equal(page.catalog.list.children.length, 0);
+    assert.equal(page.catalog.language.disabled, true);
+    assert.equal(page.catalog.size.disabled, true);
+    assert.equal(page.catalog.previous.disabled, true);
+    assert.equal(page.catalog.next.disabled, true);
+    assert.match(page.catalog.status.textContent, locale === 'en' ? /load/i : /carg/i);
+
+    release();
+    await page.settle();
+    assert.equal(page.catalog.results.hidden, false);
+    assert.equal(page.catalog.list.children.length, 1);
+    assert.equal(page.catalog.language.disabled, false);
+    assert.equal(page.catalog.size.disabled, false);
+  });
+
+  test(`${locale} catalog v1 keeps counts but reports the record list unavailable`, async () => {
+    const legacy = snapshot({ sources: [caylent, builderCenter] });
+    legacy.groups.articles.counts = { all: 40, en: 30, es: 10 };
+    const page = createPage({ locale, data: legacy, includeCatalog: true });
+    await page.settle();
+    assert.equal(page.cards.articles.count.textContent, '40', 'the legacy group remains valid for counts');
+    assertCatalogUnavailable(page);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} valid empty Articles v2 is an available empty catalog with zero counts`, async () => {
+    const page = createPage({ locale, data: articleCatalogSnapshot({ records: [] }), includeCatalog: true });
+    await page.settle();
+    assert.equal(page.cards.articles.count.textContent, '0');
+    assert.equal(page.catalog.results.hidden, false);
+    assert.equal(page.catalog.empty.hidden, false, 'zero rows are a valid empty result');
+    assert.equal(page.catalog.list.children.length, 0);
+    assert.equal(page.catalog.previous.disabled, true);
+    assert.equal(page.catalog.next.disabled, true);
+    assert.equal(page.catalog.collectedDate.textContent, expectedDate(locale, articleCatalogCollectedAt));
+    assert.equal(page.fetchCount, 1);
+  });
+
+  for (const filteredLanguage of ['en', 'es']) {
+    test(`${locale} filtering a valid nonempty catalog to zero ${filteredLanguage} records keeps an honest empty state`, async () => {
+      const onlyLanguage = filteredLanguage === 'en' ? 'es' : 'en';
+      const records = [catalogRecord(710, {
+        title: `${onlyLanguage} only article`, language: onlyLanguage, publishedAt: '2024-06-01'
+      })];
+      const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+      await page.settle();
+      const collectedDate = page.catalog.collectedDate.textContent;
+      const coverage = page.catalog.coverage.textContent;
+      const overviewAll = page.overviewValues.articles.textContent;
+      assert.equal(page.catalog.list.children.length, 1);
+      assert.equal(page.cards.articles.count.textContent, '1');
+
+      page.catalog.language.value = filteredLanguage;
+      page.catalog.language.dispatch('change');
+      assert.equal(page.catalog.list.children.length, 0);
+      assert.equal(page.catalog.results.hidden, false);
+      assert.equal(page.catalog.empty.hidden, false);
+      assert.notEqual(page.catalog.empty.textContent, '');
+      assert.match(page.catalog.range.textContent, /0/);
+      assert.equal(page.catalog.previous.disabled, true);
+      assert.equal(page.catalog.next.disabled, true);
+      assert.equal(page.cards.articles.count.textContent, '1');
+      assert.equal(page.overviewValues.articles.textContent, overviewAll);
+      assert.equal(page.catalog.collectedDate.textContent, collectedDate);
+      assert.equal(page.catalog.coverage.textContent, coverage);
+      assert.equal(page.fetchCount, 1);
+
+      page.catalog.language.value = 'all';
+      page.catalog.language.dispatch('change');
+      assert.equal(page.catalog.list.children.length, 1, 'returning to All restores the valid record');
+      assert.equal(page.catalog.empty.hidden, true);
+      assert.equal(page.catalog.collectedDate.textContent, collectedDate);
+      assert.equal(page.catalog.coverage.textContent, coverage);
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+
+  for (const [description, options] of [
+    ['network failure', { fetchError: new Error('synthetic article catalog failure') }],
+    ['HTTP failure', { responseOk: false }],
+    ['invalid JSON', { jsonError: new Error('invalid JSON') }]
+  ]) {
+    test(`${locale} catalog clears its rows and exposes unavailable state after ${description}`, async () => {
+      const page = createPage({
+        locale,
+        data: articleCatalogSnapshot({ records: [catalogRecord(1)] }),
+        includeCatalog: true,
+        includeStats: false,
+        ...options
+      });
+      page.catalog.list.appendChild(new SemanticElement({ tagName: 'li', dataset: { catalogRecord: 'stale-record' }, textContent: 'Stale article title' }));
+      page.catalog.results.hidden = false;
+      page.catalog.collectedDate.textContent = 'Stale collection date';
+      page.catalog.coverage.textContent = 'Stale coverage';
+      page.catalog.previous.disabled = false;
+      page.catalog.next.disabled = false;
+      page.catalog.language.disabled = false;
+      page.catalog.size.disabled = false;
+      await page.settle();
+      assertCatalogUnavailable(page);
+      assert.equal(page.catalog.collectedDate.textContent, '');
+      assert.equal(page.catalog.coverage.textContent, '');
+      assert.equal(page.catalog.status.hidden, false);
+      assert.equal(page.catalog.language.disabled, true);
+      assert.equal(page.catalog.size.disabled, true);
+      assert.equal(page.catalog.previous.disabled, true);
+      assert.equal(page.catalog.next.disabled, true);
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+}
+
+const twoCatalogRecords = () => [
+  catalogRecord(201, { title: 'Identity title', language: 'en', publishedAt: '2024-03-01' }),
+  catalogRecord(202, { title: 'Another title', language: 'es', publishedAt: '2024-02-01' })
+];
+
+const invalidArticleCatalogCases = [
+  ['unsupported definition version', (group) => { group.definitionVersion = 3; }],
+  ['definition v1 cannot carry v2 records', (group) => { group.definitionVersion = 1; }],
+  ['extra group field', (group) => { group.providerResponse = { private: true }; }],
+  ['unknown coverage source', (group) => { group.sources[6] = { id: 'medium', label: 'Medium' }; }],
+  ['incorrect coverage label', (group) => { group.sources[6].label = 'Developer site'; }],
+  ['duplicate coverage source', (group) => { group.sources[6] = { ...group.sources[5] }; }],
+  ['noncanonical coverage order', (group) => { [group.sources[6], group.sources[7]] = [group.sources[7], group.sources[6]]; }],
+  ['Medium coverage', (group) => { group.sources.push({ id: 'medium', label: 'Medium' }); }],
+  ['malformed record identifier', (group) => { group.records[0].id = 'A'.repeat(64); }],
+  ['duplicate record identifier', (group) => { group.records[1].id = group.records[0].id; }],
+  ['duplicate normalized title and language identity', (group) => {
+    group.records[1].title = '  identity   title ';
+    group.records[1].publications[0].title = ' identity title ';
+    group.records[1].language = 'en';
+    group.counts = { all: 2, en: 2, es: 0 };
+  }],
+  ['duplicate identity after Unicode whitespace normalization', (group) => {
+    group.records[0].title = 'Identity title';
+    group.records[0].publications[0].title = group.records[0].title;
+    group.records[1].title = '\u00a0identity\u2003title\u00a0';
+    group.records[1].publications[0].title = group.records[1].title;
+    group.records[1].language = 'en';
+    group.counts = { all: 2, en: 2, es: 0 };
+  }],
+  ['duplicate identity after NFC normalization', (group) => {
+    group.records[0].title = 'Café Guide';
+    group.records[0].publications[0].title = group.records[0].title;
+    group.records[1].title = 'Cafe\u0301 Guide';
+    group.records[1].publications[0].title = group.records[1].title;
+    group.records[1].language = 'en';
+    group.counts = { all: 2, en: 2, es: 0 };
+  }],
+  ['publication title with a different normalized identity', (group) => { group.records[0].publications[0].title = 'Different title'; }],
+  ['unsupported language', (group) => { group.records[0].language = 'fr'; }],
+  ['record with no destinations', (group) => { group.records[0].publications = []; }],
+  ['publication from an unknown source', (group) => { group.records[0].publications[0].sourceId = 'medium'; }],
+  ['publication source omitted from coverage', (group) => { group.sources = group.sources.filter(({ id }) => id !== 'dev-community'); }],
+  ['extra private record field', (group) => { group.records[0].providerId = 'private-fixture-id'; }],
+  ['extra preview URL field', (group) => { group.records[0].publications[0].preview_url = 'https://admin.example/preview'; }],
+  ['malformed publication fields', (group) => { delete group.records[0].publications[0].emailOnly; }],
+  ['counts disagree with records while totals remain self-consistent', (group) => { group.counts.all += 1; group.counts.en += 1; }],
+  ['language counts disagree with records while All remains self-consistent', (group) => { group.counts.en += 1; group.counts.es -= 1; }],
+  ['invalid supported date', (group) => {
+    group.records[0].publishedAt = '2024-02-30';
+    group.records[0].publications[0].publishedAt = '2024-02-30';
+  }],
+  ['timestamp without explicit timezone', (group) => {
+    group.records[0].publishedAt = '2024-03-01T12:00:00';
+    group.records[0].publications[0].publishedAt = '2024-03-01T12:00:00';
+  }],
+  ['future publication date', (group) => {
+    group.records[0].publishedAt = '2026-10-28';
+    group.records[0].publications[0].publishedAt = '2026-10-28';
+  }],
+  ['record date is not the minimum copy date', (group) => {
+    const record = group.records[0];
+    record.publications.push(catalogPublication({ sourceId: 'caylent', title: record.title, publishedAt: '2023-01-01' }));
+    record.publishedAt = '2024-03-01';
+  }],
+  ['null record date when a copy has a date', (group) => { group.records[0].publishedAt = null; }],
+  ['non-null record date when every copy is unknown', (group) => {
+    group.records[0].publications[0].publishedAt = null;
+    group.records[0].publishedAt = '2024-03-01';
+  }],
+  ['unsafe URL host', (group) => { group.records[0].publications[0].url = 'https://attacker.example/article'; }],
+  ['URL credentials', (group) => { group.records[0].publications[0].url = 'https://user:pass@dev.to/guille/identity-title'; }],
+  ['URL query string', (group) => { group.records[0].publications[0].url += '?preview=1'; }],
+  ['URL fragment', (group) => { group.records[0].publications[0].url += '#admin'; }],
+  ['alternate URL port', (group) => { group.records[0].publications[0].url = 'https://dev.to:8443/guille/identity-title'; }],
+  ['administrative Builder preview destination', (group) => {
+    group.records[0].publications[0] = catalogPublication({ sourceId: 'builder-center', title: group.records[0].title, publishedAt: '2024-03-01', url: 'https://builder.aws.com/admin/preview' });
+  }],
+  ['null URL for a non-Simple AWS publication', (group) => { group.records[0].publications[0].url = null; }],
+  ['email-only flag with a web URL', (group) => {
+    group.records[0].publications[0] = catalogPublication({ sourceId: 'simple-aws', title: group.records[0].title, publishedAt: '2024-03-01', url: articleDestination['simple-aws']('identity-title'), emailOnly: true });
+  }],
+  ['email-only flag on a non-Simple AWS source', (group) => { group.records[0].publications[0].emailOnly = true; }],
+  ['non-boolean email-only flag', (group) => { group.records[0].publications[0].emailOnly = 'false'; }],
+  ['duplicate exact publication', (group) => { group.records[0].publications.push({ ...group.records[0].publications[0] }); }]
+];
+
+for (const [description, mutate] of invalidArticleCatalogCases) {
+  test(`invalid Articles v2 rejects ${description} as one family and preserves healthy siblings`, async () => {
+    const records = twoCatalogRecords();
+    const data = mutateArticleCatalog(articleCatalogSnapshot({ records }), mutate);
+    const page = createPage({ data, includeCatalog: true });
+    await page.settle();
+    assert.equal(page.cards.articles.results.hidden, true, 'invalid catalog data also invalidates Article counts');
+    assert.equal(page.cards.articles.count.textContent, '');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    assertCatalogUnavailable(page);
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+test('valid Articles v2 IDs are shape-checked, not recalculated, and email-only metadata may coexist with an unavailable web link', async () => {
+  const records = [catalogRecord(301, {
+    id: 'f'.repeat(64),
+    title: 'Simple AWS article', language: 'en', publishedAt: '2024-01-01',
+    publications: [
+      catalogPublication({ sourceId: 'simple-aws', title: 'Simple AWS article', publishedAt: '2024-01-01', url: null, emailOnly: true }),
+      catalogPublication({ sourceId: 'simple-aws', title: 'Simple AWS article', publishedAt: '2024-01-01', url: null, emailOnly: false })
+    ]
+  })];
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+  assert.equal(page.cards.articles.count.textContent, '1');
+  assert.equal(page.catalog.results.hidden, false);
+  assert.equal(page.catalog.list.children.length, 1);
+  const row = page.catalog.list.children[0];
+  assert.match(semanticText(row), /Only by email/i);
+  assert.match(semanticText(row), /Link unavailable/i);
+  assert.equal(row.querySelectorAll('a').length, 0);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 keeps different title-and-language identities when their public URL is the same', async () => {
+  const sharedUrl = articleDestination['dev-community']('shared-destination');
+  const records = [
+    catalogRecord(801, {
+      title: 'First distinct article', language: 'en', publishedAt: '2024-01-01',
+      publications: [catalogPublication({ sourceId: 'dev-community', title: 'First distinct article', publishedAt: '2024-01-01', url: sharedUrl })]
+    }),
+    catalogRecord(802, {
+      title: 'Second distinct article', language: 'en', publishedAt: '2024-02-01',
+      publications: [catalogPublication({ sourceId: 'dev-community', title: 'Second distinct article', publishedAt: '2024-02-01', url: sharedUrl })]
+    })
+  ];
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+  assert.equal(page.cards.articles.count.textContent, '2');
+  assert.deepEqual(catalogRecordIds(page), [records[1].id, records[0].id], 'rows remain keyed by title and language, not URL');
+  assert.deepEqual(page.catalog.list.children.map((row) => row.querySelector('a')?.getAttribute('href')), [sharedUrl, sharedUrl]);
+  assert.match(semanticText(page.catalog.list.children[0]), /Second distinct article/);
+  assert.match(semanticText(page.catalog.list.children[1]), /First distinct article/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 accepts every canonical article destination and keeps tied dates deterministic', async () => {
+  const sourceRecords = articleSourceCoverage.map((source, index) => {
+    const title = `Destination ${source.id}`;
+    return catalogRecord(400 + index, {
+      title,
+      language: index % 2 === 0 ? 'en' : 'es',
+      publishedAt: `2025-01-${String(index + 1).padStart(2, '0')}`,
+      publications: [catalogPublication({
+        sourceId: source.id,
+        title,
+        publishedAt: `2025-01-${String(index + 1).padStart(2, '0')}`
+      })]
+    });
+  });
+  const equalInstantRecord = catalogRecord(499, {
+    title: 'Equal instant', language: 'en',
+    publishedAt: '2024-03-01T00:00:00Z',
+    publications: [
+      catalogPublication({ sourceId: 'caylent', title: 'Equal instant', publishedAt: '2024-03-01T01:00:00+01:00' }),
+      catalogPublication({ sourceId: 'dev-community', title: 'Equal instant', publishedAt: '2024-03-01T00:00:00Z' })
+    ]
+  });
+  const alphaEn = catalogRecord(2, { title: 'Alpha', language: 'en', publishedAt: '2024-03-01' });
+  const alphaEs = catalogRecord(1, {
+    title: 'Alpha', language: 'es', publishedAt: '2024-03-01',
+    publications: [catalogPublication({ sourceId: 'caylent', title: 'Alpha', publishedAt: '2024-03-01' })]
+  });
+  const beta = catalogRecord(3, { title: 'Beta', language: 'en', publishedAt: '2024-03-01' });
+  const records = [...sourceRecords, beta, alphaEn, equalInstantRecord, alphaEs];
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+
+  assert.equal(page.cards.articles.count.textContent, String(records.length));
+  assert.equal(page.catalog.results.hidden, false);
+  page.catalog.size.value = '20';
+  page.catalog.size.dispatch('change');
+  assert.equal(page.catalog.list.children.length, 14, 'the twenty-row page size exposes every fixture row');
+  const orderedIds = catalogRecordIds(page);
+  assert.deepEqual(orderedIds.slice(-4), [alphaEs.id, alphaEn.id, beta.id, equalInstantRecord.id], 'same-date rows use title then ID for a stable order');
+  const tiedRow = page.catalog.list.querySelector(`[data-catalog-record="${equalInstantRecord.id}"]`);
+  assert.match(semanticText(tiedRow), /March 1, 2024|1 de marzo de 2024/i);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 accepts a canonical coverage subset without inventing mixed-platform coverage', async () => {
+  const sources = [devCommunity, spainClouds];
+  const records = [
+    catalogRecord(601, { title: 'DEV article', language: 'en' }),
+    catalogRecord(602, {
+      title: 'SpainClouds article', language: 'es',
+      publications: [catalogPublication({ sourceId: 'spainclouds', title: 'SpainClouds article' })]
+    })
+  ];
+  const page = createPage({ data: articleCatalogSnapshot({ records, sources }), includeCatalog: true });
+  await page.settle();
+  assert.equal(page.cards.articles.count.textContent, '2');
+  assert.equal(page.catalog.results.hidden, false);
+  assert.match(page.catalog.coverage.textContent, /DEV Community/);
+  assert.match(page.catalog.coverage.textContent, /SpainClouds/);
+  assert.doesNotMatch(page.catalog.coverage.textContent, /Medium/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('invalid root snapshot disables catalog and statistics together without fabricating zeros', async () => {
+  const page = createPage({ data: { schemaVersion: 2, groups: {} }, includeCatalog: true });
+  await page.settle();
+  assertCatalogUnavailable(page);
+  assert.equal(page.cards.articles.count.textContent, '');
+  assert.equal(page.cards.talks.results.hidden, true);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 matches all Unicode White_Space characters in publication identities', async () => {
+  const record = catalogRecord(901, {
+    title: 'A title with a space', language: 'en', publishedAt: '2024-05-01',
+    publications: [catalogPublication({
+      sourceId: 'dev-community',
+      title: 'A title\u0085with a space',
+      publishedAt: '2024-05-01'
+    })]
+  });
+  const page = createPage({ data: articleCatalogSnapshot({ records: [record] }), includeCatalog: true });
+  await page.settle();
+  assert.equal(page.cards.articles.count.textContent, '1');
+  assert.equal(page.catalog.results.hidden, false);
+  assert.equal(page.catalog.list.children.length, 1);
+  assert.match(semanticText(page.catalog.list.children[0]), /A title with a space/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('Articles v2 compares full timestamp fractions for minimum dates and catalog ordering', async () => {
+  const earlier = '2024-05-01T12:00:00.1234Z';
+  const later = '2024-05-01T12:00:00.12345Z';
+  const minimumRecord = catalogRecord(902, {
+    title: 'Minimum fractional date', language: 'en', publishedAt: earlier,
+    publications: [
+      catalogPublication({ sourceId: 'caylent', title: 'Minimum fractional date', publishedAt: later }),
+      catalogPublication({ sourceId: 'dev-community', title: 'Minimum fractional date', publishedAt: earlier })
+    ]
+  });
+  const laterRecord = catalogRecord(903, {
+    title: 'Later fractional date', language: 'en', publishedAt: later
+  });
+  const records = [minimumRecord, laterRecord];
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+
+  assert.equal(page.cards.articles.count.textContent, '2');
+  assert.equal(page.catalog.results.hidden, false);
+  assert.deepEqual(catalogRecordIds(page), [laterRecord.id, minimumRecord.id]);
+  assert.equal(page.fetchCount, 1);
+
+  const wrongMinimum = { ...minimumRecord, publishedAt: later };
+  const invalidPage = createPage({
+    data: articleCatalogSnapshot({ records: [wrongMinimum, laterRecord] }),
+    includeCatalog: true
+  });
+  await invalidPage.settle();
+  assertCatalogUnavailable(invalidPage);
+  assert.equal(invalidPage.cards.articles.count.textContent, '');
+  assert.equal(invalidPage.cards.talks.count.textContent, '6');
+  assert.equal(invalidPage.fetchCount, 1);
+});
+
+test('Articles v2 rejects a publication fraction later than the collection timestamp', async () => {
+  const collectedAt = '2026-10-27T18:55:58.123Z';
+  const publicationAt = '2026-10-27T18:55:58.1231Z';
+  const record = catalogRecord(904, {
+    title: 'Fraction after collection', language: 'en', publishedAt: publicationAt,
+    publications: [catalogPublication({
+      sourceId: 'dev-community', title: 'Fraction after collection', publishedAt: publicationAt
+    })]
+  });
+  const page = createPage({
+    data: articleCatalogSnapshot({ records: [record], collectedAt }),
+    includeCatalog: true
+  });
+  await page.settle();
+  assertCatalogUnavailable(page);
+  assert.equal(page.cards.articles.count.textContent, '');
+  assert.equal(page.cards.talks.count.textContent, '6');
+  assert.equal(page.fetchCount, 1);
+});

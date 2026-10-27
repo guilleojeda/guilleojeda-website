@@ -1,0 +1,16 @@
+---
+import ArticleCatalog from '../../components/ArticleCatalog.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+---
+
+<BaseLayout
+  locale="es"
+  canonicalPath="/es/articles/"
+  alternateLocalePath="/articles/"
+  pageTitle="Catálogo de artículos | Guille Ojeda"
+  pageDescription="Consulta artículos publicados desde fuentes registradas y publicaciones seleccionadas individualmente. Actualizado a diario."
+  skipLinkHref="#article-catalog"
+  skipLinkLabel="Ir al catálogo de artículos"
+>
+  <ArticleCatalog locale="es" />
+</BaseLayout>
