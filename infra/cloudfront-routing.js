@@ -47,6 +47,8 @@ function handler(event) {
   var pageRoots = [
     "/",
     "/es/",
+    "/articles/",
+    "/es/articles/",
     "/content-statistics/privacy/",
     "/es/content-statistics/privacy/"
   ];

@@ -18,6 +18,7 @@ const copy = locale === 'en'
         newsletter: 'Current Simple AWS subscribers'
       },
       reportSummary: 'Explore statistics',
+      catalogLink: 'Browse the article catalog',
       filterLabel: 'Content language',
       periodLabel: 'Activity period',
       all: 'All',
@@ -154,6 +155,7 @@ const copy = locale === 'en'
         newsletter: 'Suscriptores actuales de Simple AWS'
       },
       reportSummary: 'Explorar estadísticas',
+      catalogLink: 'Explorar el catálogo de artículos',
       filterLabel: 'Idioma del contenido',
       periodLabel: 'Período de actividad',
       all: 'Todos',
@@ -338,6 +340,11 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
               <div>
                 {kind !== 'newsletter' && <div class="work-kicker">{copy.cumulative}</div>}
                 <h3 id={`content-stats-${kind}-title`}>{card.title}</h3>
+                {kind === 'articles' && (
+                  <a class="content-stats-catalog-link" href={locale === 'en' ? '/articles/' : '/es/articles/'}>
+                    {copy.catalogLink} <span aria-hidden="true">↗</span>
+                  </a>
+                )}
               </div>
             </div>
 

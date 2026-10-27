@@ -1,4 +1,5 @@
 const endpointPath = '/content-stats/v1/current.json';
+const snapshotRequests = new Map();
 const knownKinds = ['articles', 'talks', 'books', 'newsletter'];
 const knownViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const knownSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
@@ -8,6 +9,9 @@ const knownNewsletterEmailPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const allowedKeys = {
   document: ['groups', 'schemaVersion'],
   group: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'scopeId', 'sources'],
+  articleGroupV2: ['basis', 'collectedAt', 'counts', 'definitionVersion', 'records', 'scopeId', 'sources'],
+  articleRecord: ['id', 'title', 'language', 'publishedAt', 'publications'],
+  articlePublication: ['sourceId', 'title', 'publishedAt', 'url', 'emailOnly'],
   counts: ['all', 'en', 'es'],
   source: ['id', 'label'],
   newsletterGroup: ['basis', 'collectedAt', 'definitionVersion', 'publication', 'scopeId', 'subscribers'],
@@ -41,6 +45,18 @@ const supportedArticleSources = new Map([
   ['hackernoon', 'HackerNoon']
 ]);
 const supportedArticleSourceOrder = [...supportedArticleSources.keys()];
+const supportedArticleSourceHosts = new Map([
+  ['caylent', ['caylent.com']],
+  ['builder-center', ['builder.aws.com']],
+  ['simple-aws', ['newsletter.simpleaws.dev']],
+  ['cloudy-things', ['blog.guilleojeda.com']],
+  ['donde-aprendo-aws', ['dondeaprendoaws.com']],
+  ['aws-for-engineers', ['awsforengineers.com']],
+  ['dev-community', ['dev.to']],
+  ['linkedin-articles', ['www.linkedin.com', 'es.linkedin.com']],
+  ['spainclouds', ['spainclouds.com', 'www.spainclouds.com']],
+  ['hackernoon', ['hackernoon.com']]
+]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
@@ -98,7 +114,7 @@ function isSupportedTimeZone(value) {
   }
 }
 
-function hasSources(group, kind) {
+function hasSources(group, kind, allowArticleCoverageSubset = false) {
   const { sources } = group;
   if (!Array.isArray(sources) || sources.length === 0) return false;
 
@@ -118,7 +134,8 @@ function hasSources(group, kind) {
 
   if (kind === 'articles') {
     const sourceIds = sources.map((source) => source.id);
-    if (sourceIds[0] !== 'caylent' || (sourceIds.length > 1 && sourceIds[1] !== 'builder-center')) return false;
+    if (!allowArticleCoverageSubset
+      && (sourceIds[0] !== 'caylent' || (sourceIds.length > 1 && sourceIds[1] !== 'builder-center'))) return false;
     let previousIndex = -1;
     for (const id of sourceIds) {
       const index = supportedArticleSourceOrder.indexOf(id);
@@ -130,7 +147,177 @@ function hasSources(group, kind) {
   return sources.length === 1 && ids.has(supportedCuratedSource.id);
 }
 
+function normalizeArticleTitle(title) {
+  if (typeof title !== 'string') return '';
+  return title.normalize('NFC').replace(/[\s\p{White_Space}]+/gu, ' ').trim().toLowerCase();
+}
+
+function articleDateInstant(value) {
+  if (isRealDateOnly(value)) {
+    const milliseconds = Date.parse(`${value}T00:00:00.000Z`);
+    return Number.isFinite(milliseconds)
+      ? { seconds: milliseconds / 1000, fraction: '' }
+      : null;
+  }
+  if (typeof value !== 'string') return null;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/);
+  if (!match || !isRealDateOnly(match[1])) return null;
+  const [, date, hours, minutes, seconds, fraction = '', zone] = match;
+  if (Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) return null;
+  if (zone !== 'Z') {
+    const offset = zone.match(/^[+-](\d{2}):(\d{2})$/);
+    const offsetHours = Number(offset[1]);
+    const offsetMinutes = Number(offset[2]);
+    if (offsetHours > 14 || offsetMinutes > 59 || (offsetHours === 14 && offsetMinutes !== 0)) return null;
+  }
+
+  const milliseconds = Date.parse(`${date}T${hours}:${minutes}:${seconds}${zone}`);
+  return Number.isFinite(milliseconds)
+    ? { seconds: milliseconds / 1000, fraction: fraction.replace(/0+$/, '') }
+    : null;
+}
+
+function compareArticleDateInstants(left, right) {
+  if (left.seconds !== right.seconds) return left.seconds < right.seconds ? -1 : 1;
+  const precision = Math.max(left.fraction.length, right.fraction.length);
+  for (let index = 0; index < precision; index += 1) {
+    const leftDigit = left.fraction.charCodeAt(index) || 48;
+    const rightDigit = right.fraction.charCodeAt(index) || 48;
+    if (leftDigit !== rightDigit) return leftDigit < rightDigit ? -1 : 1;
+  }
+  return 0;
+}
+
+function compareArticlePublicationDates(left, right) {
+  const leftInstant = articleDateInstant(left);
+  const rightInstant = articleDateInstant(right);
+  const instantOrder = compareArticleDateInstants(leftInstant, rightInstant);
+  if (instantOrder !== 0) return instantOrder;
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isPublicArticlePath(sourceId, pathname) {
+  if (sourceId === 'caylent') return /^\/blog\/.+/.test(pathname);
+  if (sourceId === 'builder-center') return /^\/content\/[^/]+\/.+/.test(pathname);
+  if (sourceId === 'simple-aws') return /^\/p\/[^/]+$/.test(pathname);
+  if (sourceId === 'cloudy-things') {
+    return /^\/[^/]+$/.test(pathname) && !['/archive', '/rss.xml', '/sitemap.xml', '/recommendations'].includes(pathname);
+  }
+  if (sourceId === 'donde-aprendo-aws' || sourceId === 'aws-for-engineers') return /^\/blog\/[^/]+$/.test(pathname);
+  if (sourceId === 'dev-community') return /^\/[^/]+\/.+/.test(pathname);
+  if (sourceId === 'linkedin-articles') return /^\/pulse\/.+/.test(pathname);
+  if (sourceId === 'spainclouds') return /^\/blog\/.+/.test(pathname);
+  if (sourceId === 'hackernoon') return /^\/.+/.test(pathname);
+  return false;
+}
+
+function isPublicArticleUrl(sourceId, value) {
+  if (typeof value !== 'string' || value === '' || value.trim() !== value) return false;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  const hosts = supportedArticleSourceHosts.get(sourceId);
+  const pathname = parsed.pathname.replace(/\/+$/, '');
+  return Array.isArray(hosts)
+    && parsed.protocol === 'https:'
+    && hosts.includes(parsed.hostname.toLowerCase())
+    && parsed.username === ''
+    && parsed.password === ''
+    && parsed.port === ''
+    && parsed.search === ''
+    && parsed.hash === ''
+    && pathname !== ''
+    && !pathname.includes('//')
+    && !/%(?:2f|5c)/i.test(pathname)
+    && isPublicArticlePath(sourceId, pathname);
+}
+
+function validateArticlePublication(value, coverageSourceIds, collectedAt, identity) {
+  if (!hasOnlyKeys(value, allowedKeys.articlePublication)
+    || !supportedArticleSources.has(value.sourceId)
+    || !coverageSourceIds.has(value.sourceId)
+    || typeof value.title !== 'string'
+    || normalizeArticleTitle(value.title) === ''
+    || normalizeArticleTitle(value.title) !== identity
+    || !(value.publishedAt === null || articleDateInstant(value.publishedAt) !== null)
+    || (value.publishedAt !== null
+      && compareArticleDateInstants(articleDateInstant(value.publishedAt), articleDateInstant(collectedAt)) > 0)
+    || typeof value.emailOnly !== 'boolean') return false;
+
+  if (value.sourceId === 'simple-aws') {
+    if (value.emailOnly) return value.url === null;
+    return value.url === null || isPublicArticleUrl(value.sourceId, value.url);
+  }
+  return value.emailOnly === false && isPublicArticleUrl(value.sourceId, value.url);
+}
+
+function validateArticleGroupV2(value) {
+  if (!hasOnlyKeys(value, allowedKeys.articleGroupV2)
+    || value.definitionVersion !== 2
+    || value.basis !== 'cumulative'
+    || !isSupportedTimestamp(value.collectedAt)
+    || !isSupportedScope(value.scopeId)
+    || !hasSources(value, 'articles', true)
+    || !hasOnlyKeys(value.counts, allowedKeys.counts)
+    || !isNonnegativeCount(value.counts.all)
+    || !isNonnegativeCount(value.counts.en)
+    || !isNonnegativeCount(value.counts.es)
+    || value.counts.all !== value.counts.en + value.counts.es
+    || !Array.isArray(value.records)) return null;
+
+  const coverageSourceIds = new Set(value.sources.map(({ id }) => id));
+  const recordIds = new Set();
+  const articleIdentities = new Set();
+  const counts = { all: value.records.length, en: 0, es: 0 };
+
+  for (const record of value.records) {
+    if (!hasOnlyKeys(record, allowedKeys.articleRecord)
+      || !isSha256(record.id)
+      || recordIds.has(record.id)
+      || typeof record.title !== 'string'
+      || normalizeArticleTitle(record.title) === ''
+      || !['en', 'es'].includes(record.language)
+      || !(record.publishedAt === null || articleDateInstant(record.publishedAt) !== null)
+      || !Array.isArray(record.publications)
+      || record.publications.length === 0) return null;
+
+    const identity = normalizeArticleTitle(record.title);
+    const articleIdentity = JSON.stringify([identity, record.language]);
+    if (articleIdentities.has(articleIdentity)) return null;
+
+    const uniquePublications = new Set();
+    const publicationDates = [];
+    for (const publication of record.publications) {
+      if (!validateArticlePublication(publication, coverageSourceIds, value.collectedAt, identity)) return null;
+      const publicationIdentity = JSON.stringify([
+        publication.sourceId,
+        publication.title,
+        publication.publishedAt,
+        publication.url,
+        publication.emailOnly
+      ]);
+      if (uniquePublications.has(publicationIdentity)) return null;
+      uniquePublications.add(publicationIdentity);
+      if (publication.publishedAt !== null) publicationDates.push(publication.publishedAt);
+    }
+
+    const oldestPublicationDate = publicationDates.sort(compareArticlePublicationDates)[0] ?? null;
+    if (record.publishedAt !== oldestPublicationDate) return null;
+    recordIds.add(record.id);
+    articleIdentities.add(articleIdentity);
+    counts[record.language] += 1;
+  }
+
+  if (value.counts.all !== counts.all || value.counts.en !== counts.en || value.counts.es !== counts.es) return null;
+  return value;
+}
+
 function validateGroup(value, kind) {
+  if (kind === 'articles' && value?.definitionVersion === 2) return validateArticleGroupV2(value);
+
   if (kind === 'newsletter') {
     if (!hasOnlyKeys(value, allowedKeys.newsletterGroup)
       || value.definitionVersion !== 1
@@ -552,6 +739,32 @@ function getLocale(section) {
 
 function formatCollectedDate(timestamp, locale) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+}
+
+async function loadSharedSnapshot(source) {
+  let requestUrl;
+  try {
+    requestUrl = new URL(source, window.location.href);
+    if (requestUrl.origin !== window.location.origin
+      || requestUrl.pathname !== endpointPath
+      || requestUrl.search
+      || requestUrl.hash) return null;
+  } catch {
+    return null;
+  }
+
+  if (!snapshotRequests.has(requestUrl.href)) {
+    snapshotRequests.set(requestUrl.href, (async () => {
+      try {
+        const response = await fetch(requestUrl.href, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return null;
+        return validateSnapshot(await response.json());
+      } catch {
+        return null;
+      }
+    })());
+  }
+  return snapshotRequests.get(requestUrl.href);
 }
 
 function formatDateOnly(date, locale) {
@@ -1172,22 +1385,7 @@ async function loadContentStats(section) {
   if (directoryViewsElementsReady(elements)) renderDirectoryViewsLoading(elements.directoryViews);
   if (directoryOutboundClicksElementsReady(elements)) renderDirectoryOutboundClicksLoading(elements.directoryOutboundClicks);
 
-  let snapshot = null;
-  try {
-    const source = section.dataset.statsSource;
-    const requestUrl = new URL(source, window.location.href);
-    if (requestUrl.origin !== window.location.origin
-      || requestUrl.pathname !== endpointPath
-      || requestUrl.search
-      || requestUrl.hash) throw new Error('Unsupported statistics endpoint');
-
-    const response = await fetch(requestUrl.href, { headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error('Statistics request failed');
-    snapshot = validateSnapshot(await response.json());
-    if (!snapshot) throw new Error('Unsupported statistics response');
-  } catch {
-    // A document, network, or HTTP failure invalidates the whole snapshot.
-  }
+  const snapshot = await loadSharedSnapshot(section.dataset.statsSource);
 
   renderOverview(snapshot, locale, elements);
   renderAll(snapshot, locale, elements.selector.value, elements);
@@ -1213,5 +1411,282 @@ async function loadContentStats(section) {
   }
 }
 
+const articleCatalogCopy = {
+  en: {
+    unavailable: 'The full article list is unavailable. Browse the registered sources below.',
+    legacyUnavailable: 'The full article list is unavailable. Browse the registered sources below.',
+    empty: 'No articles are currently listed.',
+    noResults: 'No articles match this content language.',
+    unknownDate: 'Date unknown',
+    onlyByEmail: 'Only by email',
+    linkUnavailable: 'Link unavailable',
+    published: 'Published',
+    languages: { en: 'English', es: 'Spanish' },
+    range: (start, end, total) => `Showing ${start}–${end} of ${total} articles`,
+    emptyRange: () => 'Showing 0 of 0 articles'
+  },
+  es: {
+    unavailable: 'No se puede mostrar la lista completa de artículos. Consulta las fuentes registradas abajo.',
+    legacyUnavailable: 'No se puede mostrar la lista completa de artículos. Consulta las fuentes registradas abajo.',
+    empty: 'No hay artículos para mostrar por ahora.',
+    noResults: 'No hay artículos que coincidan con este idioma de contenido.',
+    unknownDate: 'Fecha desconocida',
+    onlyByEmail: 'Sólo por email',
+    linkUnavailable: 'Enlace no disponible',
+    published: 'Publicado',
+    languages: { en: 'Inglés', es: 'Español' },
+    range: (start, end, total) => `Mostrando ${start}–${end} de ${total} artículos`,
+    emptyRange: () => 'Mostrando 0 de 0 artículos'
+  }
+};
+
+function getArticleCatalogElements(root) {
+  const status = root.querySelector('[data-catalog-status]');
+  const results = root.querySelector('[data-catalog-results]');
+  const range = root.querySelector('[data-catalog-range]');
+  const list = root.querySelector('[data-catalog-list]');
+  const empty = root.querySelector('[data-catalog-empty]');
+  const language = root.querySelector('[data-catalog-language]');
+  const size = root.querySelector('[data-catalog-size]');
+  const previous = root.querySelector('[data-catalog-previous]');
+  const next = root.querySelector('[data-catalog-next]');
+  const collectedDate = root.querySelector('[data-catalog-collected-date]');
+  const coverage = root.querySelector('[data-catalog-coverage]');
+  if (![status, results, range, list, empty, language, size, previous, next, collectedDate, coverage].every(Boolean)) return null;
+
+  return {
+    root,
+    status,
+    results,
+    range,
+    list,
+    empty,
+    language,
+    size,
+    previous,
+    next,
+    collectedDate,
+    coverage,
+    fallback: root.querySelector('[data-catalog-fallback]')
+  };
+}
+
+function getArticleCatalogCopy(elements, locale) {
+  const base = articleCatalogCopy[locale];
+  const data = elements.root.dataset;
+  return {
+    unavailable: data.catalogUnavailable?.trim() || base.unavailable,
+    legacyUnavailable: data.catalogLegacyUnavailable?.trim() || base.legacyUnavailable,
+    empty: data.catalogEmpty?.trim() || base.empty,
+    noResults: data.catalogNoResults?.trim() || base.noResults,
+    unknownDate: data.catalogDateUnknown?.trim() || base.unknownDate,
+    onlyByEmail: data.catalogOnlyByEmail?.trim() || base.onlyByEmail,
+    linkUnavailable: data.catalogLinkUnavailable?.trim() || base.linkUnavailable,
+    published: data.catalogPublished?.trim() || base.published,
+    languages: {
+      en: data.catalogLanguageEnglish?.trim() || base.languages.en,
+      es: data.catalogLanguageSpanish?.trim() || base.languages.es
+    },
+    range: base.range,
+    emptyRange: base.emptyRange
+  };
+}
+
+function setArticleCatalogControlsDisabled(elements, disabled) {
+  elements.language.disabled = disabled;
+  elements.size.disabled = disabled;
+  elements.previous.disabled = true;
+  elements.next.disabled = true;
+}
+
+function clearArticleCatalog(elements) {
+  elements.list.replaceChildren();
+  elements.results.hidden = true;
+  elements.range.textContent = '';
+  elements.empty.hidden = true;
+  elements.collectedDate.textContent = '';
+  elements.coverage.textContent = '';
+}
+
+function renderArticleCatalogUnavailable(elements, copy, legacy = false) {
+  clearArticleCatalog(elements);
+  setArticleCatalogControlsDisabled(elements, true);
+  elements.status.textContent = legacy ? copy.legacyUnavailable : copy.unavailable;
+  elements.status.hidden = false;
+  elements.root.setAttribute('aria-busy', 'false');
+  if (elements.fallback) elements.fallback.hidden = false;
+}
+
+function renderArticleCatalogLoading(elements, copy) {
+  clearArticleCatalog(elements);
+  setArticleCatalogControlsDisabled(elements, true);
+  elements.status.textContent = elements.root.dataset.catalogLoading?.trim()
+    || (elements.root.dataset.catalogLocale === 'es' ? 'Cargando artículos…' : 'Loading articles…');
+  elements.status.hidden = false;
+  elements.root.setAttribute('aria-busy', 'true');
+  if (elements.fallback) elements.fallback.hidden = false;
+}
+
+function formatArticlePublicationDate(value, locale, copy) {
+  if (value === null) return copy.unknownDate;
+  return formatDateOnly(value.slice(0, 10), locale);
+}
+
+function createArticleDate(value, locale, copy, className = '') {
+  const element = document.createElement(value === null ? 'span' : 'time');
+  if (className) element.setAttribute('class', className);
+  if (value !== null) element.setAttribute('datetime', value);
+  element.textContent = formatArticlePublicationDate(value, locale, copy);
+  return element;
+}
+
+function createArticleCatalogRow(record, locale, copy) {
+  const row = document.createElement('li');
+  row.setAttribute('class', 'article-catalog-record');
+  row.dataset.catalogRecord = record.id;
+
+  const heading = document.createElement('div');
+  heading.setAttribute('class', 'article-catalog-record-heading');
+  const title = document.createElement('h2');
+  title.setAttribute('class', 'article-catalog-record-title');
+  title.textContent = record.title;
+  const language = document.createElement('span');
+  language.setAttribute('class', 'article-catalog-record-language');
+  language.textContent = copy.languages[record.language];
+  const date = createArticleDate(record.publishedAt, locale, copy, 'article-catalog-record-date');
+  heading.appendChild(title);
+  heading.appendChild(language);
+  heading.appendChild(date);
+  row.appendChild(heading);
+
+  const publications = document.createElement('ul');
+  publications.setAttribute('class', 'article-catalog-publications');
+  for (const publication of record.publications) {
+    const sourceLabel = supportedArticleSources.get(publication.sourceId);
+    const item = document.createElement('li');
+    item.setAttribute('class', 'article-catalog-publication');
+    if (publication.url) {
+      const link = document.createElement('a');
+      link.setAttribute('href', publication.url);
+      link.setAttribute('aria-label', `${sourceLabel}: ${publication.title} · ${copy.published} ${formatArticlePublicationDate(publication.publishedAt, locale, copy)}`);
+      link.textContent = sourceLabel;
+      item.appendChild(link);
+    } else {
+      const source = document.createElement('span');
+      source.setAttribute('class', 'article-catalog-publication-source');
+      source.textContent = sourceLabel;
+      item.appendChild(source);
+    }
+
+    if (publication.emailOnly) {
+      const emailOnly = document.createElement('span');
+      emailOnly.setAttribute('class', 'article-catalog-publication-note');
+      emailOnly.textContent = copy.onlyByEmail;
+      item.appendChild(emailOnly);
+    } else if (publication.url === null) {
+      const unavailable = document.createElement('span');
+      unavailable.setAttribute('class', 'article-catalog-publication-note');
+      unavailable.textContent = copy.linkUnavailable;
+      item.appendChild(unavailable);
+    }
+
+    item.appendChild(createArticleDate(publication.publishedAt, locale, copy, 'article-catalog-publication-date'));
+    publications.appendChild(item);
+  }
+  row.appendChild(publications);
+  return row;
+}
+
+function compareArticleCatalogRecords(left, right) {
+  const leftDate = articleDateInstant(left.publishedAt);
+  const rightDate = articleDateInstant(right.publishedAt);
+  if (leftDate === null && rightDate !== null) return 1;
+  if (rightDate === null && leftDate !== null) return -1;
+  if (leftDate !== null && rightDate !== null) {
+    const dateOrder = compareArticleDateInstants(leftDate, rightDate);
+    if (dateOrder !== 0) return -dateOrder;
+  }
+  if (left.title < right.title) return -1;
+  if (left.title > right.title) return 1;
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
+}
+
+function renderArticleCatalogPage(elements, snapshot, locale, copy, pageState) {
+  const group = snapshot.groups.articles;
+  const language = ['all', 'en', 'es'].includes(elements.language.value) ? elements.language.value : 'all';
+  const allowedSizes = [10, 20, 50];
+  const requestedSize = Number(elements.size.value);
+  const pageSize = allowedSizes.includes(requestedSize) ? requestedSize : 10;
+  elements.language.value = language;
+  elements.size.value = String(pageSize);
+
+  const orderedRecords = group.records.slice().sort(compareArticleCatalogRecords);
+  const filteredRecords = language === 'all'
+    ? orderedRecords
+    : orderedRecords.filter((record) => record.language === language);
+  const pageCount = Math.ceil(filteredRecords.length / pageSize);
+  pageState.page = pageCount === 0 ? 0 : Math.min(pageState.page, pageCount - 1);
+  const start = pageState.page * pageSize;
+  const visibleRecords = filteredRecords.slice(start, start + pageSize);
+
+  elements.list.replaceChildren(...visibleRecords.map((record) => createArticleCatalogRow(record, locale, copy)));
+  elements.empty.textContent = group.records.length === 0 ? copy.empty : copy.noResults;
+  elements.empty.hidden = filteredRecords.length !== 0;
+  elements.range.textContent = filteredRecords.length === 0
+    ? copy.emptyRange()
+    : copy.range(start + 1, start + visibleRecords.length, filteredRecords.length);
+  elements.previous.disabled = pageCount === 0 || pageState.page === 0;
+  elements.next.disabled = pageCount === 0 || pageState.page >= pageCount - 1;
+  elements.results.hidden = false;
+}
+
+async function loadArticleCatalog(root) {
+  const elements = getArticleCatalogElements(root);
+  if (!elements) return;
+  const locale = root.dataset.catalogLocale === 'es' ? 'es' : 'en';
+  const copy = getArticleCatalogCopy(elements, locale);
+  renderArticleCatalogLoading(elements, copy);
+
+  const snapshot = await loadSharedSnapshot(root.dataset.catalogSource);
+  const group = snapshot?.groups?.articles;
+  if (!group || group.definitionVersion !== 2) {
+    renderArticleCatalogUnavailable(elements, copy, group?.definitionVersion === 1);
+    return;
+  }
+
+  const pageState = { page: 0 };
+  elements.status.textContent = '';
+  elements.status.hidden = true;
+  elements.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
+  elements.coverage.textContent = group.sources.map(({ label }) => label).join(' · ');
+  elements.language.disabled = false;
+  elements.size.disabled = false;
+  if (elements.fallback) elements.fallback.hidden = true;
+  root.setAttribute('aria-busy', 'false');
+  renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+
+  elements.language.addEventListener('change', () => {
+    pageState.page = 0;
+    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+  });
+  elements.size.addEventListener('change', () => {
+    pageState.page = 0;
+    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+  });
+  elements.previous.addEventListener('click', () => {
+    if (pageState.page === 0) return;
+    pageState.page -= 1;
+    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+  });
+  elements.next.addEventListener('click', () => {
+    pageState.page += 1;
+    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+  });
+}
+
 const section = document.getElementById('content-stats');
 if (section) void loadContentStats(section);
+const articleCatalog = document.getElementById('article-catalog');
+if (articleCatalog) void loadArticleCatalog(articleCatalog);

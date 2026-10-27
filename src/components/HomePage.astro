@@ -61,6 +61,12 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
       ))}
     </div>
 
+    <div class="work-catalog-action">
+      <a class="work-article-catalog-link" href={locale === 'en' ? '/articles/' : '/es/articles/'}>
+        {locale === 'en' ? 'Browse all articles' : 'Explorar todos los artículos'} <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+
     <article class="lead-work">
       <div>
         <div class="work-kicker">{text(content.work.newsletterKicker, locale)}</div>
