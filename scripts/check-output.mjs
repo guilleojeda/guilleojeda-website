@@ -497,6 +497,30 @@ function checkSpeakerResources(page, html) {
   assert.doesNotMatch(availability.html, /\son[a-z]+\s*=/i, `${lang} invitation and resources need no inline event handlers`);
 }
 
+function checkActivityUnavailableFallbacks(locale, statsHtml) {
+  for (const attribute of [
+    'data-stats-views-unavailable',
+    'data-stats-search-unavailable',
+    'data-stats-newsletter-email-opens-unavailable',
+    'data-stats-newsletter-email-verified-clicks-unavailable',
+    'data-stats-directory-views-unavailable',
+    'data-stats-directory-outbound-clicks-unavailable'
+  ]) {
+    const value = statsHtml.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, 'i'))?.[1] ?? '';
+    const text = normalizedText(value);
+    assert.match(text, locale === 'en' ? /\bdata\b/ : /\bdatos\b/,
+      `${locale} ${attribute} explains missing data`);
+    assert.match(text, locale === 'en' ? /unavailable|not available/ : /no.*disponible|no se pueden/,
+      `${locale} ${attribute} has localized unavailable copy`);
+    assert.doesNotMatch(text, /unsupported|not supported|does not (?:offer|support)|no (?:ofrece|admite|soporta)/,
+      `${locale} ${attribute} does not infer an unsupported period from missing data`);
+    assert.doesNotMatch(text, /only.{0,40}(?:english|spanish)|solo.{0,40}(?:ingles|espanol)/,
+      `${locale} ${attribute} does not infer source language from missing data`);
+    assert.doesNotMatch(text, /\b(?:failed|failure|error|fallo|falla|fallaron)\b/,
+      `${locale} ${attribute} does not invent a collection failure`);
+  }
+}
+
 function checkContentStatsShell(page, html) {
   const locale = page.lang;
   const sectionIdPosition = html.indexOf('id="content-stats"');
@@ -506,6 +530,7 @@ function checkContentStatsShell(page, html) {
   const sectionPosition = html.lastIndexOf('<', sectionIdPosition);
   const statsHtml = html.slice(sectionPosition, talksPosition);
   mustContain(statsHtml, 'data-stats-source="/content-stats/v1/current.json"', `${locale} statistics source URL`);
+  checkActivityUnavailableFallbacks(locale, statsHtml);
   const overview = extractElement(statsHtml, null, 'data-stats-overview');
   assert.ok(overview, `${locale} statistics show a separate compact overview`);
   assert.equal([...statsHtml.matchAll(/\bdata-stats-overview(?:\s|=|>)/gi)].length, 1,
