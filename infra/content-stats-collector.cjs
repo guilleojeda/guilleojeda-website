@@ -260,6 +260,16 @@ function articleInventoryInstant(value) {
   return Number.isFinite(instant) ? instant : null;
 }
 
+function publicArticleDate(value, parsedTimestamp) {
+  if (typeof value === "number" || typeof value === "string" && /^-?\d+$/.test(value)) {
+    return new Date(parsedTimestamp).toISOString();
+  }
+  if (typeof value === "string" && (isRealIsoDate(value) || articleInventoryInstant(value) !== null)) {
+    return value;
+  }
+  return new Date(parsedTimestamp).toISOString();
+}
+
 function normalizedArticleDestination(sourceId, value) {
   if (typeof value !== "string" || value === "" || value.trim() !== value) {
     throw fail("ARTICLE_INVENTORY_INVALID");
@@ -309,22 +319,31 @@ function validateArticleInventory(value, now) {
         !(record.publishedAt === null || typeof record.publishedAt === "string")) {
       throw fail("ARTICLE_INVENTORY_INVALID");
     }
-    let title;
+    let identityTitle;
     let url;
     try {
-      title = normalizedTitle(record.title);
+      identityTitle = normalizedTitle(record.title);
       url = normalizedArticleDestination(record.sourceId, record.url);
     } catch {
       throw fail("ARTICLE_INVENTORY_INVALID");
     }
     if (record.publishedAt !== null) {
-      const publishedAt = articleInventoryInstant(record.publishedAt);
-      if (publishedAt === null || publishedAt > now) throw fail("ARTICLE_INVENTORY_INVALID");
+      if (articleInventoryInstant(record.publishedAt) === null || articleDateIsAfter(record.publishedAt, now)) {
+        throw fail("ARTICLE_INVENTORY_INVALID");
+      }
     }
     const key = `${record.sourceId}\u0000${url}`;
     if (publicationsByKey.has(key)) throw fail("ARTICLE_INVENTORY_INVALID");
     publicationsByKey.set(key, true);
-    return { sourceId: record.sourceId, title, language: record.language, publishedAt: record.publishedAt, url };
+    return {
+      sourceId: record.sourceId,
+      title: record.title,
+      identityTitle,
+      language: record.language,
+      publishedAt: record.publishedAt,
+      url,
+      emailOnly: false
+    };
   });
 
   const exclusionKeys = new Set();
@@ -1106,8 +1125,8 @@ function scopeFingerprint(sources) {
 }
 
 function articleInventoryScopeFingerprint(sources, articleInventory) {
-  const publications = articleInventory.publications.map(({ sourceId, title, language, publishedAt, url }) => ({
-    title,
+  const publications = articleInventory.publications.map(({ sourceId, identityTitle, language, publishedAt, url }) => ({
+    title: identityTitle,
     language,
     publishedAt,
     sourceId,
@@ -1860,11 +1879,11 @@ function validateBeehiivPostsPage(envelope, requestedPage) {
   };
 }
 
-function eligibleBeehiivPublication(record, source, now) {
+function eligibleBeehiivPublication(record, source, now, { catalogMetadata = false } = {}) {
   if (!isObject(record)) throw fail("BEEHIIV_POST_INVALID");
 
   const providerId = requireString(record.id, "BEEHIIV_POST_INVALID");
-  const title = normalizedTitle(record.title);
+  const identityTitle = normalizedTitle(record.title);
   const status = record.status;
   if (typeof status !== "string" || !["confirmed", "draft", "archived"].includes(status)) {
     throw fail("BEEHIIV_POST_INVALID");
@@ -1876,16 +1895,35 @@ function eligibleBeehiivPublication(record, source, now) {
   if (!Number.isFinite(new Date(publishedAt).getTime())) throw fail("BEEHIIV_POST_INVALID");
   if (status !== "confirmed" || publishedAt > now) return null;
 
+  const emailOnly = record.platform === "email";
+  let url = null;
+  if (!emailOnly && record.web_url !== undefined && record.web_url !== null) {
+    if (typeof record.web_url !== "string") {
+      if (catalogMetadata) throw fail("BEEHIIV_POST_INVALID");
+    } else if (catalogMetadata) {
+      try {
+        url = normalizedArticleDestination(source.id, record.web_url);
+      } catch {
+        throw fail("BEEHIIV_POST_INVALID");
+      }
+    } else {
+      url = record.web_url;
+    }
+  }
+
   return {
     sourceId: source.id,
     providerId,
-    title,
+    title: record.title,
+    identityTitle,
     language: source.language,
-    ...(typeof record.web_url === "string" ? { url: record.web_url } : {})
+    publishedAt: new Date(publishedAt).toISOString(),
+    url,
+    emailOnly
   };
 }
 
-async function collectSimpleAws(source, now, env) {
+async function collectSimpleAws(source, now, env, { catalogMetadata = false } = {}) {
   const apiKey = await readBeehiivApiKey(env);
   const publications = [];
   const providerIds = new Set();
@@ -1912,7 +1950,7 @@ async function collectSimpleAws(source, now, env) {
       if (providerIds.has(providerId)) throw fail("BEEHIIV_POST_ID_REPEATED");
       providerIds.add(providerId);
       collectedRows += 1;
-      const publication = eligibleBeehiivPublication(record, source, now);
+      const publication = eligibleBeehiivPublication(record, source, now, { catalogMetadata });
       if (publication) publications.push(publication);
     }
 
@@ -2010,16 +2048,22 @@ function parseCloudyHashnodeResponse(envelope) {
         !isObject(edge.node) || !exactKeys(edge.node, ["title", "url", "publishedAt"])) {
       throw fail("CLOUDY_RECORD_INVALID");
     }
-    let title;
+    let identityTitle;
     try {
-      title = normalizedTitle(edge.node.title);
+      identityTitle = normalizedTitle(edge.node.title);
     } catch {
       throw fail("CLOUDY_RECORD_INVALID");
     }
     const destination = normalizedCloudyArticleUrl(edge.node.url);
-    const publishedAt = parseCloudyPublishedDate(edge.node.publishedAt);
-    if (publishedAt === null) throw fail("CLOUDY_DATE_INVALID");
-    return { title, ...destination, publishedAt };
+    const publishedAtInstant = parseCloudyPublishedDate(edge.node.publishedAt);
+    if (publishedAtInstant === null) throw fail("CLOUDY_DATE_INVALID");
+    return {
+      title: edge.node.title,
+      identityTitle,
+      ...destination,
+      publishedAt: edge.node.publishedAt,
+      publishedAtInstant
+    };
   });
 
   return {
@@ -2220,13 +2264,16 @@ async function collectCloudyThings(source, now) {
     for (const record of parsed.records) {
       if (seenUrls.has(record.url)) throw fail("CLOUDY_URL_REPEATED");
       seenUrls.add(record.url);
-      if (!record.isCloudyArticle || !authorMatches || record.publishedAt > now) continue;
+      if (!record.isCloudyArticle || !authorMatches || record.publishedAtInstant > now) continue;
       publications.push({
         sourceId: source.id,
         providerId: record.url,
         title: record.title,
+        identityTitle: record.identityTitle,
         language: source.language,
-        url: record.url
+        publishedAt: record.publishedAt,
+        url: record.url,
+        emailOnly: false
       });
     }
 
@@ -2293,7 +2340,7 @@ function validateDondeAprendoIndex(envelope, now) {
       throw fail("DONDE_RECORD_INVALID");
     }
 
-    const title = normalizedTitle(article.title);
+    const identityTitle = normalizedTitle(article.title);
     const url = normalizedDondeAprendoArticleUrl(article.url);
     const authorName = requireString(article.author.name, "DONDE_AUTHOR_INVALID");
     const authorUrl = normalizedDondeAprendoAuthorUrl(article.author.url);
@@ -2312,10 +2359,12 @@ function validateDondeAprendoIndex(envelope, now) {
     publications.push({
       sourceId: "donde-aprendo-aws",
       providerId: url,
-      title,
+      title: article.title,
+      identityTitle,
       language: "es",
       url,
-      publishedAt: article.publishedAt
+      publishedAt: article.publishedAt,
+      emailOnly: false
     });
   }
   return publications;
@@ -2398,6 +2447,7 @@ function parseAwsForEngineersTimestamp(value) {
   const nanosecondFraction = BigInt(fraction.slice(0, 9).padEnd(9, "0") || "0");
   return {
     nanoseconds: BigInt(utcMilliseconds) * 1_000_000n + nanosecondFraction,
+    subNanosecondDigits: fraction.slice(9),
     subNanosecondRemainderNonzero: /[1-9]/.test(fraction.slice(9))
   };
 }
@@ -2431,7 +2481,7 @@ function validateAwsForEngineersIndex(envelope, now) {
       throw fail("AWS_FOR_ENGINEERS_RECORD_INVALID");
     }
 
-    const title = normalizedTitle(article.title);
+    const identityTitle = normalizedTitle(article.title);
     const url = normalizedAwsForEngineersArticleUrl(article.url);
     const authorName = requireString(article.author.name, "AWS_FOR_ENGINEERS_AUTHOR_INVALID");
     if (article.author.name !== authorName) throw fail("AWS_FOR_ENGINEERS_AUTHOR_INVALID");
@@ -2452,10 +2502,12 @@ function validateAwsForEngineersIndex(envelope, now) {
     publications.push({
       sourceId: "aws-for-engineers",
       providerId: url,
-      title,
+      title: article.title,
+      identityTitle,
       language: "en",
       url,
-      publishedAt: article.publishedAt
+      publishedAt: article.publishedAt,
+      emailOnly: false
     });
   }
   return publications;
@@ -2574,8 +2626,17 @@ function eligibleCaylentPublication(record, source, now) {
 
   const id = requireString(record.id, "ELIGIBLE_RECORD_INVALID");
   const url = normalizedCaylentUrl(record.data.url);
-  const title = normalizedTitle(record.data.title);
-  return { sourceId: source.id, providerId: id, title, language: source.language, url };
+  const identityTitle = normalizedTitle(record.data.title);
+  return {
+    sourceId: source.id,
+    providerId: id,
+    title: record.data.title,
+    identityTitle,
+    language: source.language,
+    publishedAt: publicArticleDate(record.data.publishedDate, publishedDate),
+    url,
+    emailOnly: false
+  };
 }
 
 function eligibleBuilderPublication(record, source, now) {
@@ -2592,9 +2653,17 @@ function eligibleBuilderPublication(record, source, now) {
   if (publishedAt === null) throw fail("BUILDER_RECORD_INVALID");
   if (publishedAt > now) return null;
 
-  const title = normalizedTitle(record.title);
+  const identityTitle = normalizedTitle(record.title);
   const url = normalizedBuilderUrl(record.articleId, record.uri);
-  return { sourceId: source.id, title, language, url };
+  return {
+    sourceId: source.id,
+    title: record.title,
+    identityTitle,
+    language,
+    publishedAt: null,
+    url,
+    emailOnly: false
+  };
 }
 
 async function collectCaylent(source, now) {
@@ -2640,6 +2709,114 @@ async function collectBuilderCenter(source, now) {
   throw fail("BUILDER_PAGE_CAP_REACHED");
 }
 
+function compareArticleStrings(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function preciseArticleTimestamp(value) {
+  if (isRealIsoDate(value)) {
+    return {
+      nanoseconds: BigInt(Date.parse(`${value}T00:00:00.000Z`)) * 1_000_000n,
+      subNanosecondDigits: ""
+    };
+  }
+  const precise = parseAwsForEngineersTimestamp(value);
+  if (precise !== null) return precise;
+  const milliseconds = articleInventoryInstant(value);
+  return milliseconds === null ? null : {
+    nanoseconds: BigInt(milliseconds) * 1_000_000n,
+    subNanosecondDigits: ""
+  };
+}
+
+function compareArticleTimestampPrecision(left, right) {
+  if (left.nanoseconds < right.nanoseconds) return -1;
+  if (left.nanoseconds > right.nanoseconds) return 1;
+  const leftRemainder = left.subNanosecondDigits.replace(/0+$/, "");
+  const rightRemainder = right.subNanosecondDigits.replace(/0+$/, "");
+  const width = Math.max(leftRemainder.length, rightRemainder.length);
+  return compareArticleStrings(leftRemainder.padEnd(width, "0"), rightRemainder.padEnd(width, "0"));
+}
+
+function articleDateIsAfter(value, cutoffMilliseconds) {
+  const timestamp = preciseArticleTimestamp(value);
+  if (timestamp === null) return false;
+  const cutoffNanoseconds = BigInt(cutoffMilliseconds) * 1_000_000n;
+  return timestamp.nanoseconds > cutoffNanoseconds ||
+    timestamp.nanoseconds === cutoffNanoseconds && /[1-9]/.test(timestamp.subNanosecondDigits);
+}
+
+function compareArticleDates(left, right) {
+  if (left === null) return right === null ? 0 : -1;
+  if (right === null) return 1;
+  const leftInstant = preciseArticleTimestamp(left);
+  const rightInstant = preciseArticleTimestamp(right);
+  if (leftInstant === null || rightInstant === null) return compareArticleStrings(left, right);
+  return compareArticleTimestampPrecision(leftInstant, rightInstant) || compareArticleStrings(left, right);
+}
+
+function compareArticlePublications(left, right) {
+  const sourceOrder = ARTICLE_SOURCE_ORDER.indexOf(left.sourceId) - ARTICLE_SOURCE_ORDER.indexOf(right.sourceId);
+  if (sourceOrder !== 0) return sourceOrder;
+  if (left.url === null && right.url !== null) return -1;
+  if (left.url !== null && right.url === null) return 1;
+  if (left.url !== right.url) return compareArticleStrings(left.url, right.url);
+  return compareArticleDates(left.publishedAt, right.publishedAt) ||
+    compareArticleStrings(left.title, right.title) ||
+    Number(left.emailOnly) - Number(right.emailOnly);
+}
+
+function articleCatalogRecords(publications) {
+  const groups = new Map();
+  for (const publication of publications) {
+    const identityTitle = publication.identityTitle ?? normalizedTitle(publication.title);
+    const identityKey = JSON.stringify([identityTitle, publication.language]);
+    if (!groups.has(identityKey)) groups.set(identityKey, []);
+    groups.get(identityKey).push({ publication, identityTitle, language: publication.language });
+  }
+
+  const records = [];
+  for (const [identityKey, copies] of groups) {
+    const exactCopies = new Map();
+    for (const { publication } of copies) {
+      const publicCopy = {
+        sourceId: publication.sourceId,
+        title: publication.title,
+        publishedAt: publication.publishedAt ?? null,
+        url: publication.url ?? null,
+        emailOnly: publication.emailOnly === true
+      };
+      const metadataKey = JSON.stringify([
+        publicCopy.sourceId,
+        publicCopy.title,
+        publicCopy.publishedAt,
+        publicCopy.url,
+        publicCopy.emailOnly
+      ]);
+      if (!exactCopies.has(metadataKey)) exactCopies.set(metadataKey, publicCopy);
+    }
+
+    const orderedPublications = [...exactCopies.values()].sort(compareArticlePublications);
+    const first = orderedPublications[0];
+    const datedPublications = orderedPublications.filter(({ publishedAt }) => publishedAt !== null);
+    let publishedAt = null;
+    for (const publication of datedPublications) {
+      if (publishedAt === null || compareArticleDates(publication.publishedAt, publishedAt) < 0) {
+        publishedAt = publication.publishedAt;
+      }
+    }
+    const [, language] = JSON.parse(identityKey);
+    records.push({
+      id: createHash("sha256").update(identityKey).digest("hex"),
+      title: first.title,
+      language,
+      publishedAt,
+      publications: orderedPublications
+    });
+  }
+  return records.sort((left, right) => compareArticleStrings(left.id, right.id));
+}
+
 async function collectPublications(sources, now, env, articleInventory) {
   const automaticPublications = [];
   const pagesBySource = {};
@@ -2648,7 +2825,9 @@ async function collectPublications(sources, now, env, articleInventory) {
     try {
       if (source.id === "caylent") result = await collectCaylent(source, now);
       else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
-      else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
+      else if (source.id === "simple-aws") {
+        result = await collectSimpleAws(source, now, env, { catalogMetadata: articleInventory !== undefined });
+      }
       else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
       else if (source.id === "donde-aprendo-aws") result = await collectDondeAprendoAws(source, now);
       else if (source.id === "aws-for-engineers") result = await collectAwsForEngineers(source, now);
@@ -2686,17 +2865,15 @@ async function collectPublications(sources, now, env, articleInventory) {
     publications.push(publication);
   }
 
-  const editions = new Set();
-  const counts = { all: 0, en: 0, es: 0 };
-  for (const publication of publications) {
-    const key = JSON.stringify([publication.title, publication.language]);
-    if (editions.has(key)) continue;
-    editions.add(key);
-    counts.all += 1;
-    counts[publication.language] += 1;
-  }
+  const records = articleCatalogRecords(publications);
+  const counts = {
+    all: records.length,
+    en: records.filter(({ language }) => language === "en").length,
+    es: records.filter(({ language }) => language === "es").length
+  };
   return {
     counts,
+    records,
     pagesBySource,
     publications,
     manualSourceIds: ARTICLE_MANUAL_SOURCE_IDS.filter((sourceId) => manualSourceIds.has(sourceId))
@@ -2721,15 +2898,24 @@ function makeGroup({ sources, counts, collectedAt, scopeId }) {
   };
 }
 
-function makeArticleGroup(sources, counts, collectedAt, { scopeId, manualSourceIds = [] } = {}) {
+function makeArticleGroup(sources, counts, collectedAt, {
+  scopeId,
+  manualSourceIds = [],
+  definitionVersion = 1,
+  records
+} = {}) {
   const sourceIds = new Set([...sources.map(({ id }) => id), ...manualSourceIds]);
   const orderedSources = ARTICLE_SOURCE_ORDER.filter((id) => sourceIds.has(id));
-  return makeGroup({
+  const group = makeGroup({
     sources: orderedSources.map((id) => ({ id, label: SOURCE_LABELS[id] })),
     counts,
     collectedAt,
     scopeId: scopeId ?? scopeFingerprint(sources)
   });
+  if (definitionVersion === 2) {
+    return { ...group, definitionVersion: 2, records };
+  }
+  return group;
 }
 
 function makeOutput(groups) {
@@ -2760,7 +2946,121 @@ function validSourceList(sources, family) {
     sources[0].id === CURATED_SOURCE.id && sources[0].label === CURATED_SOURCE.label;
 }
 
+function isValidArticleCatalogGroup(group) {
+  if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "sources", "counts", "records"]) ||
+      group.definitionVersion !== 2 || group.basis !== "cumulative" || !Array.isArray(group.records)) {
+    return false;
+  }
+  if (typeof group.collectedAt !== "string") return false;
+  const collected = Date.parse(group.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt) return false;
+  if (typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId)) return false;
+  if (!validSourceList(group.sources, "articles")) return false;
+  if (!exactKeys(group.counts, ["all", "en", "es"])) return false;
+  for (const count of Object.values(group.counts)) {
+    if (!Number.isSafeInteger(count) || count < 0) return false;
+  }
+  if (!Number.isSafeInteger(group.counts.en + group.counts.es) ||
+      group.counts.all !== group.counts.en + group.counts.es ||
+      group.counts.all !== group.records.length) {
+    return false;
+  }
+
+  const coveredSources = new Set(group.sources.map(({ id }) => id));
+  const recordIds = new Set();
+  const identities = new Set();
+  const derivedCounts = { en: 0, es: 0 };
+  let previousId = "";
+  for (const record of group.records) {
+    if (!exactKeys(record, ["id", "title", "language", "publishedAt", "publications"]) ||
+        typeof record.id !== "string" || !/^[a-f0-9]{64}$/.test(record.id) ||
+        !SUPPORTED_LANGUAGES.has(record.language) || !Array.isArray(record.publications) ||
+        record.publications.length === 0 ||
+        !(record.publishedAt === null || typeof record.publishedAt === "string")) {
+      return false;
+    }
+
+    let identityTitle;
+    try {
+      identityTitle = normalizedTitle(record.title);
+    } catch {
+      return false;
+    }
+    const identityKey = JSON.stringify([identityTitle, record.language]);
+    const expectedId = createHash("sha256").update(identityKey).digest("hex");
+    if (record.id !== expectedId || record.id <= previousId || recordIds.has(record.id) || identities.has(identityKey)) {
+      return false;
+    }
+    previousId = record.id;
+    recordIds.add(record.id);
+    identities.add(identityKey);
+    derivedCounts[record.language] += 1;
+
+    const publications = [];
+    const publicationKeys = new Set();
+    for (const publication of record.publications) {
+      if (!exactKeys(publication, ["sourceId", "title", "publishedAt", "url", "emailOnly"]) ||
+          typeof publication.sourceId !== "string" || !coveredSources.has(publication.sourceId) ||
+          typeof publication.title !== "string" || typeof publication.emailOnly !== "boolean" ||
+          !(publication.publishedAt === null || typeof publication.publishedAt === "string") ||
+          !(publication.url === null || typeof publication.url === "string")) {
+        return false;
+      }
+      let publicationIdentity;
+      try {
+        publicationIdentity = normalizedTitle(publication.title);
+      } catch {
+        return false;
+      }
+      if (publicationIdentity !== identityTitle) return false;
+      if (publication.publishedAt !== null) {
+        if (articleInventoryInstant(publication.publishedAt) === null ||
+            articleDateIsAfter(publication.publishedAt, collected)) return false;
+      }
+      if (publication.url === null) {
+        if (publication.sourceId !== "simple-aws") return false;
+      } else {
+        try {
+          normalizedArticleDestination(publication.sourceId, publication.url);
+        } catch {
+          return false;
+        }
+      }
+      if (publication.emailOnly && (publication.sourceId !== "simple-aws" || publication.url !== null)) {
+        return false;
+      }
+      if (publication.sourceId !== "simple-aws" && publication.emailOnly) return false;
+
+      const publicMetadataKey = JSON.stringify([
+        publication.sourceId,
+        publication.title,
+        publication.publishedAt,
+        publication.url,
+        publication.emailOnly
+      ]);
+      if (publicationKeys.has(publicMetadataKey)) return false;
+      publicationKeys.add(publicMetadataKey);
+      publications.push(publication);
+    }
+
+    const orderedPublications = publications.slice().sort(compareArticlePublications);
+    if (publications.some((publication, index) => publication !== orderedPublications[index])) return false;
+    if (record.title !== orderedPublications[0].title) return false;
+
+    let minimumPublishedAt = null;
+    for (const publication of publications) {
+      if (publication.publishedAt !== null &&
+          (minimumPublishedAt === null || compareArticleDates(publication.publishedAt, minimumPublishedAt) < 0)) {
+        minimumPublishedAt = publication.publishedAt;
+      }
+    }
+    if (record.publishedAt !== minimumPublishedAt) return false;
+  }
+  return derivedCounts.en === group.counts.en && derivedCounts.es === group.counts.es;
+}
+
 function isValidGroup(group, family) {
+  if (family === "articles" && isValidArticleCatalogGroup(group)) return true;
   if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "sources", "counts"])) {
     return false;
   }
@@ -3270,10 +3570,14 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
       articleInventory = validateArticleInventory(configuration.articleInventory, now);
       currentArticleScopeId = articleInventoryScopeFingerprint(configuration.sources, articleInventory);
       articleCollection = await collectPublications(configuration.sources, now, env, articleInventory);
-      groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt, {
+      const articleGroup = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt, {
         scopeId: currentArticleScopeId,
-        manualSourceIds: articleCollection.manualSourceIds
+        manualSourceIds: articleCollection.manualSourceIds,
+        definitionVersion: 2,
+        records: articleCollection.records
       });
+      if (!isValidArticleCatalogGroup(articleGroup)) throw fail("ARTICLE_CATALOG_INVALID");
+      groups.articles = articleGroup;
     } else {
       articleCollection = await collectPublications(configuration.sources, now, env);
       groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
@@ -3465,8 +3769,9 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
               retainedFamilies.add(family);
             }
           } else if (family === "articles" && configuration.schemaVersion < 12 &&
-              previousGroups.articles.sources.some(({ id }) => ARTICLE_MANUAL_SOURCE_IDS.includes(id))) {
-            // Older input contracts cannot prove that an inventory-aware count has the same source scope.
+              (previousGroups.articles.definitionVersion !== 1 ||
+                previousGroups.articles.sources.some(({ id }) => ARTICLE_MANUAL_SOURCE_IDS.includes(id)))) {
+            // Older inputs cannot prove that an inventory-aware catalog has the same source scope.
           } else {
             groups[family] = previousGroups[family];
             retainedFamilies.add(family);
