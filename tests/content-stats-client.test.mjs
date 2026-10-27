@@ -1024,7 +1024,7 @@ function assertBuilderViewsUnavailable(page, locale, { hidden = false } = {}) {
   } else if (locale === 'en') {
     assert.match(builder.status.textContent, /unavailable|not available/i, 'English unavailable copy is clear');
   } else {
-    assert.match(builder.status.textContent, /no disponible|no disponibles|no se pueden/i, 'Spanish unavailable copy is clear');
+    assert.match(builder.status.textContent, /no disponible|no disponibles|no est[aá]n disponibles|no se pueden/i, 'Spanish unavailable copy is clear');
   }
 }
 
