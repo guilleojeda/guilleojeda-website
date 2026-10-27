@@ -5801,3 +5801,98 @@ for (const locale of ['en', 'es']) {
     assert.equal(homepage.fetchCount, 1);
   });
 }
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} catalog language link follows the live URL during loading and popstate`, async () => {
+    let release;
+    const fetchGate = new Promise((resolve) => { release = resolve; });
+    const catalogPath = locale === 'es' ? '/es/articles/' : '/articles/';
+    const alternatePath = locale === 'es' ? '/articles/' : '/es/articles/';
+    const initialUrl = `https://guilleojeda.com${catalogPath}?q=retained&lang=es&sort=title-desc&size=20&page=2&keep=a&keep=b#retain`;
+    const page = createPage({
+      locale,
+      data: articleCatalogSnapshot({ records: [] }),
+      includeCatalog: true,
+      includeStats: false,
+      fetchGate,
+      url: initialUrl
+    });
+    const assertLanguageLinkMatchesLocation = () => {
+      const current = new URL(page.location.href);
+      const alternate = new URL(page.langToggle.href, page.location.href);
+      assert.equal(alternate.pathname, alternatePath);
+      assert.deepEqual([...alternate.searchParams], [...current.searchParams]);
+      assert.equal(alternate.hash, current.hash);
+    };
+
+    assertLanguageLinkMatchesLocation();
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.disabled, true);
+    assert.equal(page.location.href, initialUrl);
+    assert.deepEqual(page.historyCalls, []);
+
+    page.history.pushState(null, '', '?q=changed&lang=en&sort=date-asc&size=50&page=3&keep=x&keep=y#changed');
+    const historyCallCount = page.historyCalls.length;
+    page.history.back();
+    assert.equal(page.location.href, initialUrl);
+    assertLanguageLinkMatchesLocation();
+    page.history.forward();
+    assert.equal(page.location.search, '?q=changed&lang=en&sort=date-asc&size=50&page=3&keep=x&keep=y');
+    assert.equal(page.location.hash, '#changed');
+    assertLanguageLinkMatchesLocation();
+    assert.equal(page.historyCalls.length, historyCallCount, 'updating the language link does not write history');
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.disabled, true);
+
+    release();
+    await page.settle();
+  });
+
+  test(`${locale} catalog language link keeps the failed request URL`, async () => {
+    const catalogPath = locale === 'es' ? '/es/articles/' : '/articles/';
+    const alternatePath = locale === 'es' ? '/articles/' : '/es/articles/';
+    const initialUrl = `https://guilleojeda.com${catalogPath}?q=retained&lang=es&sort=title-desc&size=20&page=2&keep=a&keep=b#retain`;
+    const page = createPage({
+      locale,
+      includeCatalog: true,
+      includeStats: false,
+      fetchError: new Error('snapshot request failed'),
+      url: initialUrl
+    });
+    await page.settle();
+
+    const alternate = new URL(page.langToggle.href, page.location.href);
+    assert.equal(alternate.pathname, alternatePath);
+    assert.deepEqual([...alternate.searchParams], [...new URL(initialUrl).searchParams]);
+    assert.equal(alternate.hash, '#retain');
+    assert.equal(page.location.href, initialUrl);
+    assert.deepEqual(page.historyCalls, []);
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.disabled, true);
+  });
+}
+
+test('catalog sorting preserves URL queries that a native search input displays with line breaks as spaces', async () => {
+  const records = Array.from({ length: 61 }, (_, index) => catalogRecord(2200 + index, {
+    title: `AWS Lambda guide ${String(index).padStart(2, '0')}`,
+    language: 'en',
+    publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+  }));
+  const page = createPage({
+    data: articleCatalogSnapshot({ records }),
+    includeCatalog: true,
+    url: 'https://guilleojeda.com/articles/?q=AWS%0ALambda&utm=one&utm=two#newline'
+  });
+  await page.settle();
+
+  assert.equal(page.catalog.query.value, 'AWS Lambda', 'restoring a URL query gives the native search control a visible word separator');
+  assert.equal(page.catalog.range.textContent, 'Showing 1–10 of 61 articles');
+  page.catalog.sort.value = 'title-asc';
+  page.catalog.sort.dispatch('change');
+
+  assert.equal(page.catalog.range.textContent, 'Showing 1–10 of 61 articles');
+  assert.equal(new URL(page.location.href).searchParams.get('q'), 'AWS\nLambda');
+  assert.deepEqual(new URL(page.location.href).searchParams.getAll('utm'), ['one', 'two']);
+  assert.equal(new URL(page.location.href).hash, '#newline');
+  assert.equal(page.fetchCount, 1);
+});

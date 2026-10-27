@@ -1417,6 +1417,7 @@ const articleCatalogCopy = {
     legacyUnavailable: 'The full article list is unavailable. Browse the registered sources below.',
     empty: 'No articles are currently listed.',
     noResults: 'No articles match this content language.',
+    noSearchResults: 'No articles match your search and content language.',
     unknownDate: 'Date unknown',
     onlyByEmail: 'Only by email',
     linkUnavailable: 'Link unavailable',
@@ -1430,6 +1431,7 @@ const articleCatalogCopy = {
     legacyUnavailable: 'No se puede mostrar la lista completa de artículos. Consulta las fuentes registradas abajo.',
     empty: 'No hay artículos para mostrar por ahora.',
     noResults: 'No hay artículos que coincidan con este idioma de contenido.',
+    noSearchResults: 'No hay artículos que coincidan con la búsqueda y el idioma de contenido.',
     unknownDate: 'Fecha desconocida',
     onlyByEmail: 'Sólo por email',
     linkUnavailable: 'Enlace no disponible',
@@ -1440,7 +1442,15 @@ const articleCatalogCopy = {
   }
 };
 
+const articleCatalogSorts = ['date-desc', 'date-asc', 'title-asc', 'title-desc', 'source-asc', 'source-desc'];
+const articleCatalogLanguages = ['all', 'en', 'es'];
+const articleCatalogPageSizes = [10, 20, 50];
+const articleCatalogOwnParameters = ['q', 'lang', 'sort', 'size', 'page'];
+const articleCatalogCollator = new Intl.Collator('es', { sensitivity: 'base' });
+
 function getArticleCatalogElements(root) {
+  const query = root.querySelector('[data-catalog-query]');
+  const sort = root.querySelector('[data-catalog-sort]');
   const status = root.querySelector('[data-catalog-status]');
   const results = root.querySelector('[data-catalog-results]');
   const range = root.querySelector('[data-catalog-range]');
@@ -1452,10 +1462,12 @@ function getArticleCatalogElements(root) {
   const next = root.querySelector('[data-catalog-next]');
   const collectedDate = root.querySelector('[data-catalog-collected-date]');
   const coverage = root.querySelector('[data-catalog-coverage]');
-  if (![status, results, range, list, empty, language, size, previous, next, collectedDate, coverage].every(Boolean)) return null;
+  if (![query, sort, status, results, range, list, empty, language, size, previous, next, collectedDate, coverage].every(Boolean)) return null;
 
   return {
     root,
+    query,
+    sort,
     status,
     results,
     range,
@@ -1479,6 +1491,7 @@ function getArticleCatalogCopy(elements, locale) {
     legacyUnavailable: data.catalogLegacyUnavailable?.trim() || base.legacyUnavailable,
     empty: data.catalogEmpty?.trim() || base.empty,
     noResults: data.catalogNoResults?.trim() || base.noResults,
+    noSearchResults: data.catalogNoSearchResults?.trim() || base.noSearchResults,
     unknownDate: data.catalogDateUnknown?.trim() || base.unknownDate,
     onlyByEmail: data.catalogOnlyByEmail?.trim() || base.onlyByEmail,
     linkUnavailable: data.catalogLinkUnavailable?.trim() || base.linkUnavailable,
@@ -1493,10 +1506,16 @@ function getArticleCatalogCopy(elements, locale) {
 }
 
 function setArticleCatalogControlsDisabled(elements, disabled) {
+  elements.query.disabled = disabled;
+  elements.sort.disabled = disabled;
   elements.language.disabled = disabled;
   elements.size.disabled = disabled;
   elements.previous.disabled = true;
   elements.next.disabled = true;
+  if (disabled) {
+    elements.query.value = '';
+    elements.sort.value = 'date-desc';
+  }
 }
 
 function clearArticleCatalog(elements) {
@@ -1597,15 +1616,7 @@ function createArticleCatalogRow(record, locale, copy) {
   return row;
 }
 
-function compareArticleCatalogRecords(left, right) {
-  const leftDate = articleDateInstant(left.publishedAt);
-  const rightDate = articleDateInstant(right.publishedAt);
-  if (leftDate === null && rightDate !== null) return 1;
-  if (rightDate === null && leftDate !== null) return -1;
-  if (leftDate !== null && rightDate !== null) {
-    const dateOrder = compareArticleDateInstants(leftDate, rightDate);
-    if (dateOrder !== 0) return -dateOrder;
-  }
+function compareArticleCatalogTitles(left, right) {
   if (left.title < right.title) return -1;
   if (left.title > right.title) return 1;
   if (left.id < right.id) return -1;
@@ -1613,33 +1624,142 @@ function compareArticleCatalogRecords(left, right) {
   return 0;
 }
 
-function renderArticleCatalogPage(elements, snapshot, locale, copy, pageState) {
-  const group = snapshot.groups.articles;
-  const language = ['all', 'en', 'es'].includes(elements.language.value) ? elements.language.value : 'all';
-  const allowedSizes = [10, 20, 50];
-  const requestedSize = Number(elements.size.value);
-  const pageSize = allowedSizes.includes(requestedSize) ? requestedSize : 10;
-  elements.language.value = language;
-  elements.size.value = String(pageSize);
+function normalizeArticleCatalogQuery(value) {
+  return String(value ?? '').replace(/^[\s\p{White_Space}]+|[\s\p{White_Space}]+$/gu, '');
+}
 
-  const orderedRecords = group.records.slice().sort(compareArticleCatalogRecords);
-  const filteredRecords = language === 'all'
-    ? orderedRecords
-    : orderedRecords.filter((record) => record.language === language);
-  const pageCount = Math.ceil(filteredRecords.length / pageSize);
-  pageState.page = pageCount === 0 ? 0 : Math.min(pageState.page, pageCount - 1);
-  const start = pageState.page * pageSize;
-  const visibleRecords = filteredRecords.slice(start, start + pageSize);
+function tokenizeArticleCatalogQuery(value) {
+  return normalizeArticleCatalogQuery(value)
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .split(/[\s\p{White_Space}]+/gu)
+    .filter(Boolean);
+}
+
+function articleCatalogRecordMatches(record, terms) {
+  if (terms.length === 0) return true;
+  const searchableText = [
+    record.title,
+    ...record.publications.map(({ sourceId }) => supportedArticleSources.get(sourceId) ?? '')
+  ].map((value) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()).join(' ');
+  return terms.every((term) => searchableText.includes(term));
+}
+
+function getArticleCatalogMinimumSource(record) {
+  return record.publications
+    .map(({ sourceId }) => supportedArticleSources.get(sourceId))
+    .filter(Boolean)
+    .sort((left, right) => articleCatalogCollator.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0))[0] ?? '';
+}
+
+function compareArticleCatalogRecords(left, right, sort) {
+  let primaryOrder = 0;
+  if (sort === 'date-desc' || sort === 'date-asc') {
+    const leftDate = articleDateInstant(left.publishedAt);
+    const rightDate = articleDateInstant(right.publishedAt);
+    if (leftDate === null && rightDate !== null) return 1;
+    if (rightDate === null && leftDate !== null) return -1;
+    if (leftDate !== null && rightDate !== null) {
+      primaryOrder = compareArticleDateInstants(leftDate, rightDate);
+      if (sort === 'date-desc') primaryOrder = -primaryOrder;
+    }
+  } else if (sort === 'title-asc' || sort === 'title-desc') {
+    primaryOrder = articleCatalogCollator.compare(left.title, right.title);
+    if (sort === 'title-desc') primaryOrder = -primaryOrder;
+  } else {
+    primaryOrder = articleCatalogCollator.compare(
+      getArticleCatalogMinimumSource(left),
+      getArticleCatalogMinimumSource(right)
+    );
+    if (sort === 'source-desc') primaryOrder = -primaryOrder;
+  }
+  return primaryOrder || compareArticleCatalogTitles(left, right);
+}
+
+function readArticleCatalogUrlState() {
+  const url = new URL(window.location.href);
+  const params = url.searchParams;
+  const query = normalizeArticleCatalogQuery(params.get('q') ?? '');
+  const languageValue = params.get('lang');
+  const sortValue = params.get('sort');
+  const sizeValue = params.get('size');
+  const pageValue = params.get('page');
+  const parsedPage = pageValue !== null && /^\d+$/u.test(pageValue) ? Number(pageValue) : NaN;
+  return {
+    view: {
+      query,
+      language: articleCatalogLanguages.includes(languageValue) ? languageValue : 'all',
+      sort: articleCatalogSorts.includes(sortValue) ? sortValue : 'date-desc',
+      size: articleCatalogPageSizes.find((size) => String(size) === sizeValue) ?? 10,
+      page: Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1
+    }
+  };
+}
+
+function readArticleCatalogControls(elements, query = elements.query.value) {
+  return {
+    query: normalizeArticleCatalogQuery(query),
+    language: articleCatalogLanguages.includes(elements.language.value) ? elements.language.value : 'all',
+    sort: articleCatalogSorts.includes(elements.sort.value) ? elements.sort.value : 'date-desc',
+    size: articleCatalogPageSizes.find((size) => String(size) === elements.size.value) ?? 10,
+    page: 1
+  };
+}
+
+function setArticleCatalogControls(elements, view) {
+  elements.query.value = view.query.replace(/[\r\n]/gu, ' ');
+  elements.language.value = view.language;
+  elements.sort.value = view.sort;
+  elements.size.value = String(view.size);
+}
+
+function writeArticleCatalogUrl(view, method) {
+  const url = new URL(window.location.href);
+  for (const parameter of articleCatalogOwnParameters) url.searchParams.delete(parameter);
+  const query = normalizeArticleCatalogQuery(view.query);
+  if (query) url.searchParams.append('q', query);
+  if (view.language !== 'all') url.searchParams.append('lang', view.language);
+  if (view.sort !== 'date-desc') url.searchParams.append('sort', view.sort);
+  if (view.size !== 10) url.searchParams.append('size', String(view.size));
+  if (view.page > 1) url.searchParams.append('page', String(view.page));
+
+  if (url.href === window.location.href) return;
+  window.history[method](null, '', url.href);
+}
+
+function updateArticleCatalogLanguageLink(locale) {
+  const languageLink = document.querySelector('.lang-toggle');
+  if (!languageLink) return;
+  const url = new URL(window.location.href);
+  url.pathname = locale === 'es' ? '/articles/' : '/es/articles/';
+  languageLink.setAttribute('href', `${url.pathname}${url.search}${url.hash}`);
+}
+
+function renderArticleCatalogPage(elements, snapshot, locale, copy, view) {
+  const group = snapshot.groups.articles;
+  const terms = tokenizeArticleCatalogQuery(view.query);
+  const filteredRecords = group.records
+    .filter((record) => (view.language === 'all' || record.language === view.language)
+      && articleCatalogRecordMatches(record, terms))
+    .sort((left, right) => compareArticleCatalogRecords(left, right, view.sort));
+  const pageCount = Math.ceil(filteredRecords.length / view.size);
+  view.page = pageCount === 0 ? 1 : Math.max(1, Math.min(view.page, pageCount));
+  const start = (view.page - 1) * view.size;
+  const visibleRecords = filteredRecords.slice(start, start + view.size);
 
   elements.list.replaceChildren(...visibleRecords.map((record) => createArticleCatalogRow(record, locale, copy)));
-  elements.empty.textContent = group.records.length === 0 ? copy.empty : copy.noResults;
+  elements.empty.textContent = group.records.length === 0
+    ? copy.empty
+    : terms.length > 0 ? copy.noSearchResults : copy.noResults;
   elements.empty.hidden = filteredRecords.length !== 0;
   elements.range.textContent = filteredRecords.length === 0
     ? copy.emptyRange()
     : copy.range(start + 1, start + visibleRecords.length, filteredRecords.length);
-  elements.previous.disabled = pageCount === 0 || pageState.page === 0;
-  elements.next.disabled = pageCount === 0 || pageState.page >= pageCount - 1;
+  elements.previous.disabled = pageCount === 0 || view.page === 1;
+  elements.next.disabled = pageCount === 0 || view.page >= pageCount;
   elements.results.hidden = false;
+  return view;
 }
 
 async function loadArticleCatalog(root) {
@@ -1648,6 +1768,12 @@ async function loadArticleCatalog(root) {
   const locale = root.dataset.catalogLocale === 'es' ? 'es' : 'en';
   const copy = getArticleCatalogCopy(elements, locale);
   renderArticleCatalogLoading(elements, copy);
+  let restoreCatalogView = null;
+  window.addEventListener('popstate', () => {
+    if (restoreCatalogView) restoreCatalogView();
+    else updateArticleCatalogLanguageLink(locale);
+  });
+  updateArticleCatalogLanguageLink(locale);
 
   const snapshot = await loadSharedSnapshot(root.dataset.catalogSource);
   const group = snapshot?.groups?.articles;
@@ -1656,34 +1782,64 @@ async function loadArticleCatalog(root) {
     return;
   }
 
-  const pageState = { page: 0 };
   elements.status.textContent = '';
   elements.status.hidden = true;
   elements.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
   elements.coverage.textContent = group.sources.map(({ label }) => label).join(' · ');
-  elements.language.disabled = false;
-  elements.size.disabled = false;
+  setArticleCatalogControlsDisabled(elements, false);
   if (elements.fallback) elements.fallback.hidden = true;
   root.setAttribute('aria-busy', 'false');
-  renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+  const restoreFromUrl = () => {
+    const { view } = readArticleCatalogUrlState();
+    setArticleCatalogControls(elements, view);
+    renderArticleCatalogPage(elements, snapshot, locale, copy, view);
+    writeArticleCatalogUrl(view, 'replaceState');
+    updateArticleCatalogLanguageLink(locale);
+    return view;
+  };
+  let currentView = restoreFromUrl();
+
+  const commitControls = (method, query = currentView.query) => {
+    const nextView = readArticleCatalogControls(elements, query);
+    const sameControls = nextView.query === currentView.query
+      && nextView.language === currentView.language
+      && nextView.sort === currentView.sort
+      && nextView.size === currentView.size;
+    if (sameControls && nextView.page === currentView.page) return;
+    renderArticleCatalogPage(elements, snapshot, locale, copy, nextView);
+    writeArticleCatalogUrl(nextView, method);
+    updateArticleCatalogLanguageLink(locale);
+    currentView = nextView;
+  };
+
+  elements.query.addEventListener('input', () => commitControls('replaceState', elements.query.value));
 
   elements.language.addEventListener('change', () => {
-    pageState.page = 0;
-    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+    commitControls('pushState');
+  });
+  elements.sort.addEventListener('change', () => {
+    commitControls('pushState');
   });
   elements.size.addEventListener('change', () => {
-    pageState.page = 0;
-    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+    commitControls('pushState');
   });
   elements.previous.addEventListener('click', () => {
-    if (pageState.page === 0) return;
-    pageState.page -= 1;
-    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+    if (currentView.page <= 1) return;
+    const nextView = { ...currentView, page: currentView.page - 1 };
+    renderArticleCatalogPage(elements, snapshot, locale, copy, nextView);
+    writeArticleCatalogUrl(nextView, 'pushState');
+    updateArticleCatalogLanguageLink(locale);
+    currentView = nextView;
   });
   elements.next.addEventListener('click', () => {
-    pageState.page += 1;
-    renderArticleCatalogPage(elements, snapshot, locale, copy, pageState);
+    if (elements.next.disabled) return;
+    const nextView = { ...currentView, page: currentView.page + 1 };
+    renderArticleCatalogPage(elements, snapshot, locale, copy, nextView);
+    writeArticleCatalogUrl(nextView, 'pushState');
+    updateArticleCatalogLanguageLink(locale);
+    currentView = nextView;
   });
+  restoreCatalogView = () => { currentView = restoreFromUrl(); };
 }
 
 const section = document.getElementById('content-stats');

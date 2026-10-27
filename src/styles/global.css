@@ -1016,7 +1016,7 @@ a:hover {
 .article-catalog-controls {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.8rem 1.4rem;
   margin: 1.5rem 0 1rem;
 }
@@ -1034,6 +1034,14 @@ a:hover {
   font-weight: 700;
 }
 
+.article-catalog-control--search {
+  flex: 1 1 19rem;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.article-catalog-control input[type="search"],
 .article-catalog-control select {
   min-height: 2.6rem;
   max-width: 100%;
@@ -1047,6 +1055,20 @@ a:hover {
   font-weight: 700;
 }
 
+.article-catalog-control input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+.article-catalog-control input[type="search"]::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.article-catalog-control input[type="search"]:disabled,
 .article-catalog-control select:disabled,
 .article-catalog-pagination button:disabled {
   cursor: not-allowed;
@@ -1962,6 +1984,10 @@ a:hover {
 
   .article-catalog-control select {
     width: 100%;
+  }
+
+  .article-catalog-control--search {
+    flex-basis: auto;
   }
 
   .article-catalog-record {
