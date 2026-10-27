@@ -490,7 +490,8 @@ function buildFromMaintainedContent() {
   return buildContentStatsInputs({
     articleConfig: readJson('../public/_content-stats/inputs.json'),
     talks: readJson('../src/content/talks.json'),
-    books: readJson('../src/content/books.json')
+    books: readJson('../src/content/books.json'),
+    articles: readJson('../src/content/articles.json')
   });
 }
 
