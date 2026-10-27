@@ -1185,3 +1185,176 @@ test('input10 can omit optional Google families and keeps directory date and cli
   assert.equal(build(directoryOnlyOld).schemaVersion, 9,
     'legacy directory-only selections remain legal without a Newsletter or engagement opt-in');
 });
+
+function builderArticleViewsSelection(overrides = {}) {
+  return {
+    observedAt: '2026-10-16T12:00:00.000Z',
+    views: { en: 310, es: 740 },
+    ...overrides
+  };
+}
+
+test('an optional manual Builder observation adds only input11 and leaves absent inputs3 through 10 unchanged', async () => {
+  const build = await inputBuilder();
+  const withoutObservation = [
+    [3, (source) => {}],
+    [4, (source) => { source.articleConfig.newsletter = newsletterSelection(); }],
+    [5, (source) => addInputFiveSelections(source)],
+    [6, (source) => {
+      addInputFiveSelections(source);
+      source.articleConfig.searchConsole = searchConsoleSelection();
+    }],
+    [7, (source) => { source.articleConfig.directoryAnalytics = directoryAnalyticsSelection(); }],
+    [8, (source) => { source.articleConfig.directoryAnalytics = directoryAnalyticsClickSelection(); }],
+    [9, (source) => {
+      source.articleConfig.directoryAnalytics = { ...directoryAnalyticsSelection(), recordedSince: '2024-01-21' };
+    }],
+    [10, (source) => {
+      source.articleConfig.newsletter = newsletterSelection();
+      source.articleConfig.newsletterEngagements = true;
+    }]
+  ];
+
+  for (const [version, configure] of withoutObservation) {
+    const source = fixture();
+    configure(source);
+    const legacy = build(source);
+    assert.equal(legacy.schemaVersion, version);
+    assert.equal(Object.hasOwn(legacy, 'builderArticleViews'), false,
+      `input${version} remains unchanged when no manual observation is present`);
+  }
+
+  const minimum = fixture();
+  minimum.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  freeze(minimum);
+  const minimumResult = build(minimum);
+  assert.equal(minimumResult.schemaVersion, 11);
+  assert.deepEqual(minimumResult.builderArticleViews, builderArticleViewsSelection());
+  assert.deepEqual(Object.keys(minimumResult).sort(), [
+    'builderArticleViews', 'curated', 'definitionVersion', 'schemaVersion', 'sources'
+  ]);
+  assert.notEqual(minimumResult.builderArticleViews, minimum.articleConfig.builderArticleViews);
+  assert.notEqual(minimumResult.builderArticleViews.views, minimum.articleConfig.builderArticleViews.views);
+  minimumResult.builderArticleViews.views.en = 1;
+  assert.equal(minimum.articleConfig.builderArticleViews.views.en, 310,
+    'mutating generated counts cannot change the maintained observation');
+
+  const directoryOnly = fixture();
+  directoryOnly.articleConfig.directoryAnalytics = directoryAnalyticsSelection();
+  directoryOnly.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  const directoryOnlyResult = build(directoryOnly);
+  assert.equal(directoryOnlyResult.schemaVersion, 11);
+  assert.deepEqual(directoryOnlyResult.directoryAnalytics, directoryAnalyticsSelection());
+  assert.equal(Object.hasOwn(directoryOnlyResult, 'newsletter'), false,
+    'the manual observation can coexist with directory Analytics without Simple AWS or Newsletter selectors');
+  assert.equal(Object.hasOwn(directoryOnlyResult, 'analytics'), false);
+  assert.equal(Object.hasOwn(directoryOnlyResult, 'newsletterEngagements'), false);
+
+  const complete = fixture();
+  complete.articleConfig.sources.push({ id: 'simple-aws' }, cloudyThingsSelection(), { id: 'donde-aprendo-aws' }, { id: 'aws-for-engineers' });
+  complete.articleConfig.newsletter = newsletterSelection();
+  complete.articleConfig.analytics = analyticsSelection();
+  complete.articleConfig.searchConsole = searchConsoleSelection();
+  complete.articleConfig.directoryAnalytics = { ...directoryAnalyticsClickSelection(), recordedSince: '2024-01-21' };
+  complete.articleConfig.newsletterEngagements = true;
+  const previous = build(complete);
+  complete.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  freeze(complete);
+  const result = build(complete);
+  const sameExistingFacts = { ...result, schemaVersion: previous.schemaVersion };
+  delete sameExistingFacts.builderArticleViews;
+  assert.equal(previous.schemaVersion, 10);
+  assert.equal(result.schemaVersion, 11);
+  assert.deepEqual(sameExistingFacts, previous,
+    'the observation advances only the input version and its own protected field, including with every existing selector enabled');
+  assert.deepEqual(result.builderArticleViews, builderArticleViewsSelection());
+  assert.deepEqual(Object.keys(result.builderArticleViews).sort(), ['observedAt', 'views']);
+  assert.deepEqual(Object.keys(result.builderArticleViews.views).sort(), ['en', 'es']);
+});
+
+test('manual Builder input accepts explicit zero and a safe derived total at the integer boundary', async () => {
+  const build = await inputBuilder();
+  const zero = fixture();
+  zero.articleConfig.builderArticleViews = builderArticleViewsSelection({ views: { en: 0, es: 0 } });
+  const zeroResult = build(zero);
+  assert.equal(zeroResult.schemaVersion, 11);
+  assert.deepEqual(zeroResult.builderArticleViews.views, { en: 0, es: 0 },
+    'zero is a valid recorded total, not an absent observation');
+
+  const boundary = fixture();
+  boundary.articleConfig.builderArticleViews = builderArticleViewsSelection({
+    views: { en: Number.MAX_SAFE_INTEGER, es: 0 }
+  });
+  const boundaryResult = build(boundary);
+  assert.deepEqual(boundaryResult.builderArticleViews.views, {
+    en: Number.MAX_SAFE_INTEGER,
+    es: 0
+  });
+});
+
+test('manual Builder observations reject noncanonical dates, unknown fields, and invalid or overflowing totals', async () => {
+  const build = await inputBuilder();
+  const invalid = [
+    ['null value', null],
+    ['array value', []],
+    ['missing date', { views: { en: 1, es: 2 } }],
+    ['missing language total', { observedAt: '2026-10-16T12:00:00.000Z', views: { en: 1 } }],
+    ['unknown top-level field', { ...builderArticleViewsSelection(), source: { id: 'builder-center' } }],
+    ['unknown total field', { ...builderArticleViewsSelection(), views: { en: 1, es: 2, all: 3 } }],
+    ['endpoint selector', { ...builderArticleViewsSelection(), endpoint: 'https://untrusted.example/feed.json' }],
+    ['noncanonical timestamp', { ...builderArticleViewsSelection(), observedAt: '2026-10-16T12:00:00Z' }],
+    ['impossible calendar date', { ...builderArticleViewsSelection(), observedAt: '2026-02-30T12:00:00.000Z' }],
+    ['before tracking start', { ...builderArticleViewsSelection(), observedAt: '2026-01-05T23:59:59.999Z' }],
+    ['future observation', { ...builderArticleViewsSelection(), observedAt: '2099-01-01T00:00:00.000Z' }],
+    ['negative English total', { ...builderArticleViewsSelection(), views: { en: -1, es: 2 } }],
+    ['fractional Spanish total', { ...builderArticleViewsSelection(), views: { en: 1, es: 2.5 } }],
+    ['string total', { ...builderArticleViewsSelection(), views: { en: '1', es: 2 } }],
+    ['null total', { ...builderArticleViewsSelection(), views: { en: 1, es: null } }],
+    ['unsafe language total', { ...builderArticleViewsSelection(), views: { en: Number.MAX_SAFE_INTEGER + 1, es: 0 } }],
+    ['unsafe derived sum', { ...builderArticleViewsSelection(), views: { en: Number.MAX_SAFE_INTEGER, es: 1 } }]
+  ];
+
+  for (const [name, value] of invalid) {
+    const source = fixture();
+    source.articleConfig.builderArticleViews = value;
+    assert.throws(() => build(source), /builder|view|observation|date|total|input|invalid/i, name);
+  }
+});
+
+test('input11 keeps existing optional selector dependencies when a manual observation is present', async () => {
+  const build = await inputBuilder();
+  const inputWithoutNewsletter = fixture();
+  inputWithoutNewsletter.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  inputWithoutNewsletter.articleConfig.analytics = analyticsSelection();
+  assert.throws(() => build(inputWithoutNewsletter), /analytics|newsletter|input/i,
+    'Analytics still requires its existing Newsletter selection');
+
+  const searchWithoutAnalytics = fixture();
+  searchWithoutAnalytics.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  searchWithoutAnalytics.articleConfig.newsletter = newsletterSelection();
+  searchWithoutAnalytics.articleConfig.searchConsole = searchConsoleSelection();
+  assert.throws(() => build(searchWithoutAnalytics), /search|analytics|input/i,
+    'Search Console still requires its existing Analytics selection');
+
+  const engagementWithoutNewsletter = fixture();
+  engagementWithoutNewsletter.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  engagementWithoutNewsletter.articleConfig.newsletterEngagements = true;
+  assert.throws(() => build(engagementWithoutNewsletter), /engagement|newsletter|input/i,
+    'the engagement opt-in still requires a Newsletter selector');
+
+  for (const newsletterEngagements of [false, true]) {
+    const nonEnglishEngagement = fixture();
+    nonEnglishEngagement.articleConfig.builderArticleViews = builderArticleViewsSelection();
+    nonEnglishEngagement.articleConfig.newsletter = { ...newsletterSelection(), language: 'es' };
+    nonEnglishEngagement.articleConfig.newsletterEngagements = newsletterEngagements;
+    assert.throws(() => build(nonEnglishEngagement), /engagement|newsletter|English|language|input/i,
+      `non-English engagement selector ${newsletterEngagements} remains invalid with manual totals`);
+  }
+
+  const invalidEngagementFlag = fixture();
+  invalidEngagementFlag.articleConfig.builderArticleViews = builderArticleViewsSelection();
+  invalidEngagementFlag.articleConfig.newsletter = newsletterSelection();
+  invalidEngagementFlag.articleConfig.newsletterEngagements = false;
+  assert.throws(() => build(invalidEngagementFlag), /engagement|newsletter|flag|input/i,
+    'a manual observation cannot make the literal-true opt-in permissive');
+});

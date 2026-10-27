@@ -909,6 +909,10 @@ function checkContentStatsShell(page, html) {
   for (const [pattern, fact] of builderViewsDisclosureFacts) {
     assert.match(disclosureText, pattern, `${locale} source disclosure explains ${fact}`);
   }
+  const builderObservationDisclosure = sourceBullets.filter((bullet) => /Builder Center/i.test(bullet)).join(' ');
+  assert.match(builderObservationDisclosure, /manual/i, `${locale} Builder Center disclosure identifies manual maintenance`);
+  assert.match(builderObservationDisclosure, locale === 'en' ? /observ(?:ation|ed)/i : /observa/i,
+    `${locale} Builder Center disclosure distinguishes the observation date from daily collection`);
   const articleCountDisclosure = sourceBullets.find((bullet) =>
     /Simple AWS/i.test(bullet)
       && (locale === 'en' ? /article\s+counts?/i : /conteo\s+de\s+art[ií]culos/i).test(bullet));
@@ -1015,7 +1019,7 @@ function checkContentStatsShell(page, html) {
     : 'Vistas en Builder Center · total registrado', `${locale} Builder Center row title`);
   assert.match(disclosureText, /recorded|counter|total/i, `${locale} Builder Center disclosure identifies source-recorded activity`);
   mustContain(builderViewsRegion.html, 'aria-labelledby="content-stats-builder-views-title"', `${locale} Builder Center row is named by its title`);
-  for (const field of ['status', 'result', 'value', 'coverage', 'since', 'collected-date']) {
+  for (const field of ['status', 'result', 'value', 'coverage', 'since', 'collected-date', 'provenance']) {
     const attribute = `data-stats-builder-views-${field}`;
     assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(builderViewsRegion.html), `${locale} Builder Center row needs ${field}`);
   }
@@ -1028,13 +1032,15 @@ function checkContentStatsShell(page, html) {
     assert.match(builderViewsRegion.html, /data-stats-builder-views-unavailable=["'][^"']*(?:unavailable|not available)/i, 'English Builder Center row has localized unavailable copy');
     assert.match(normalizedText(builderViewsRegion.html), /coverage|source/i, 'English Builder Center metadata labels source coverage');
     assert.match(normalizedText(builderViewsRegion.html), /since|tracking starts?|tracking begins/i, 'English Builder Center metadata labels the tracking start date');
-    assert.match(normalizedText(builderViewsRegion.html), /collected|last (?:successful )?(?:collection|update)/i, 'English Builder Center metadata labels the last collection date');
+    assert.match(normalizedText(builderViewsRegion.html), /observ(?:ation|ed)/i, 'English Builder Center metadata labels the observation date');
+    assert.match(normalizedText(builderViewsRegion.html), /method|provenance|maintenance/i, 'English Builder Center metadata labels the observation provenance');
   } else {
     assert.match(normalizedText(builderStatus.html), /cargando.*Builder Center/i, 'Spanish Builder Center status has localized loading copy');
     assert.match(builderViewsRegion.html, /data-stats-builder-views-unavailable=["'][^"']*(?:no disponible|no disponibles|no est[aá]n disponibles|no se pueden)/i, 'Spanish Builder Center row has localized unavailable copy');
     assert.match(normalizedText(builderViewsRegion.html), /cobertura|fuente/i, 'Spanish Builder Center metadata labels source coverage');
     assert.match(normalizedText(builderViewsRegion.html), /desde|inicio|inicia|comienza/i, 'Spanish Builder Center metadata labels the tracking start date');
-    assert.match(normalizedText(builderViewsRegion.html), /recopil|ultima (?:recopilacion|actualizacion)|fecha de (?:recopilacion|actualizacion)/i, 'Spanish Builder Center metadata labels the last collection date');
+    assert.match(normalizedText(builderViewsRegion.html), /observa/i, 'Spanish Builder Center metadata labels the observation date');
+    assert.match(normalizedText(builderViewsRegion.html), /metodo|procedencia|mantenimiento/i, 'Spanish Builder Center metadata labels the observation provenance');
   }
   assert.match(builderStatus.html, /\shidden(?:\s|=|>)/i, `${locale} Builder Center loading status starts hidden without JavaScript`);
   const builderResult = extractElement(builderViewsRegion.html, null, 'data-stats-builder-views-result');
@@ -1047,7 +1053,7 @@ function checkContentStatsShell(page, html) {
   const builderValue = extractElement(builderCount.html, null, 'data-stats-builder-views-value');
   assert.ok(builderValue, `${locale} Builder Center accessible result needs its value`);
   assert.equal(normalizedText(builderValue.html), '', `${locale} Builder Center result has no static placeholder number`);
-  for (const field of ['coverage', 'since', 'collected-date']) {
+  for (const field of ['coverage', 'since', 'collected-date', 'provenance']) {
     const value = extractElement(builderResult.html, null, `data-stats-builder-views-${field}`);
     assert.ok(value, `${locale} Builder Center result needs its own ${field} metadata`);
     assert.equal(normalizedText(value.html), '', `${locale} Builder Center ${field} is empty before JavaScript loads`);
@@ -1245,6 +1251,7 @@ const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
 const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
 const hasNewsletterEngagements = Object.hasOwn(sourceConfig, 'newsletterEngagements');
+const hasManualBuilderObservation = Object.hasOwn(sourceConfig, 'builderArticleViews');
 if (hasNewsletterEngagements) assert.equal(sourceConfig.newsletterEngagements, true, 'newsletter engagement selection must be the literal true opt-in');
 const hasDirectoryOutboundClicks = hasDirectoryAnalyticsSelection
   && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'outboundClicks');
@@ -1258,22 +1265,30 @@ assert.deepEqual(Object.keys(inputs).sort(), [
   ...(hasAnalyticsSelection ? ['analytics'] : []),
   ...(hasSearchConsoleSelection ? ['searchConsole'] : []),
   ...(hasDirectoryAnalyticsSelection ? ['directoryAnalytics'] : []),
+  ...(hasManualBuilderObservation ? ['builderArticleViews'] : []),
   'schemaVersion',
   'sources'
 ].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
 assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
 if (hasDirectoryOutboundClicks) assert.equal(sourceConfig.directoryAnalytics.outboundClicks, true, 'outbound clicks require the literal true selector');
-assert.equal(inputs.schemaVersion, hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasManualBuilderObservation ? 11 : hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
+if (hasManualBuilderObservation) {
+  assert.deepEqual(Object.keys(sourceConfig.builderArticleViews).sort(), ['observedAt', 'views'], 'maintained Builder observation contains only its real date and language totals');
+  assert.deepEqual(Object.keys(sourceConfig.builderArticleViews.views).sort(), ['en', 'es'], 'All is derived, not maintained separately');
+  assert.deepEqual(inputs.builderArticleViews, sourceConfig.builderArticleViews, 'protected input projects the manual Builder observation without refreshing its date');
+} else {
+  assert.equal(Object.hasOwn(inputs, 'builderArticleViews'), false, 'no synthetic manual observation is generated when the owner has not supplied one');
+}
 if (hasNewsletterEngagements) {
-  assert.ok(hasNewsletterSelection, 'input10 newsletter engagement opt-in requires the existing Newsletter publication');
-  assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), true, 'input10 must include its explicit engagement selector');
-  assert.equal(inputs.newsletterEngagements, true, 'input10 engagement selector projects the literal true opt-in');
+  assert.ok(hasNewsletterSelection, 'newsletter engagement opt-in requires the existing Newsletter publication');
+  assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), true, 'protected input must include its explicit engagement selector');
+  assert.equal(inputs.newsletterEngagements, true, 'engagement selector projects the literal true opt-in');
   assert.equal(sourceConfig.schemaVersion, 2, 'the maintained source selector remains schema 2');
 } else {
-  assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), false, 'compatible inputs 1–9 keep their existing root shape while email is disabled');
+  assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), false, 'protected input contains no engagement selector while email activity is disabled');
 }
 if (hasNewsletterSelection) {
   assert.ok(sourceConfig.newsletter, 'newsletter build input must come from a maintained newsletter selection');
