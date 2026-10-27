@@ -66,13 +66,40 @@ const AWS_FOR_ENGINEERS_AUTHOR = Object.freeze({
   url: `${AWS_FOR_ENGINEERS_ORIGIN}/authors/guille-ojeda/`
 });
 const BUILDER_VIEWS_START_DATE = "2026-01-06";
+const ARTICLE_MANUAL_SOURCE_IDS = Object.freeze([
+  "dev-community", "linkedin-articles", "spainclouds", "hackernoon"
+]);
+const ARTICLE_SOURCE_ORDER = Object.freeze([
+  "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws",
+  "aws-for-engineers", ...ARTICLE_MANUAL_SOURCE_IDS
+]);
+const ARTICLE_INVENTORY_SOURCE_IDS = new Set([
+  ...ARTICLE_SOURCE_ORDER, "medium"
+]);
+const ARTICLE_SOURCE_HOSTS = Object.freeze({
+  caylent: ["caylent.com"],
+  "builder-center": ["builder.aws.com"],
+  "simple-aws": ["newsletter.simpleaws.dev"],
+  "cloudy-things": ["blog.guilleojeda.com"],
+  "donde-aprendo-aws": ["dondeaprendoaws.com"],
+  "aws-for-engineers": ["awsforengineers.com"],
+  "dev-community": ["dev.to"],
+  "linkedin-articles": ["www.linkedin.com", "es.linkedin.com"],
+  spainclouds: ["spainclouds.com", "www.spainclouds.com"],
+  hackernoon: ["hackernoon.com"],
+  medium: ["medium.com"]
+});
 const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center",
   "simple-aws": "Simple AWS",
   "cloudy-things": "Cloudy Things",
   "donde-aprendo-aws": "Dónde Aprendo AWS",
-  "aws-for-engineers": "AWS for Engineers"
+  "aws-for-engineers": "AWS for Engineers",
+  "dev-community": "DEV Community",
+  "linkedin-articles": "LinkedIn",
+  spainclouds: "SpainClouds",
+  hackernoon: "HackerNoon"
 });
 
 class CollectorError extends Error {
@@ -210,6 +237,102 @@ function isRealIsoDate(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function articleInventoryInstant(value) {
+  if (isRealIsoDate(value)) return Date.parse(`${value}T00:00:00.000Z`);
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+  if (!match || !isRealIsoDate(match[1])) return null;
+  const instant = Date.parse(value);
+  return Number.isFinite(instant) ? instant : null;
+}
+
+function normalizedArticleDestination(sourceId, value) {
+  if (typeof value !== "string" || value === "" || value.trim() !== value) {
+    throw fail("ARTICLE_INVENTORY_INVALID");
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw fail("ARTICLE_INVENTORY_INVALID");
+  }
+  const allowedHosts = ARTICLE_SOURCE_HOSTS[sourceId];
+  if (!allowedHosts || parsed.protocol !== "https:" || !allowedHosts.includes(parsed.hostname.toLowerCase()) ||
+      parsed.username !== "" || parsed.password !== "" || parsed.port !== "" ||
+      parsed.search !== "" || parsed.hash !== "") {
+    throw fail("ARTICLE_INVENTORY_INVALID");
+  }
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname === "" || pathname.includes("//") || /%(?:2f|5c)/i.test(pathname)) {
+    throw fail("ARTICLE_INVENTORY_INVALID");
+  }
+  const validPath = sourceId === "caylent" ? /^\/blog\/.+/.test(pathname)
+    : sourceId === "builder-center" ? /^\/content\/[^/]+\/.+/.test(pathname)
+      : sourceId === "simple-aws" ? /^\/p\/[^/]+$/.test(pathname)
+        : sourceId === "cloudy-things" ? /^\/[^/]+$/.test(pathname) && !["/archive", "/rss.xml", "/sitemap.xml", "/recommendations"].includes(pathname)
+          : sourceId === "donde-aprendo-aws" || sourceId === "aws-for-engineers"
+            ? /^\/blog\/[^/]+$/.test(pathname)
+            : sourceId === "dev-community" ? /^\/[^/]+\/.+/.test(pathname)
+              : sourceId === "linkedin-articles" ? /^\/pulse\/.+/.test(pathname)
+                : sourceId === "spainclouds" ? /^\/blog\/.+/.test(pathname)
+                  : sourceId === "hackernoon" || sourceId === "medium" ? /^\/.+/.test(pathname)
+                    : false;
+  if (!validPath) throw fail("ARTICLE_INVENTORY_INVALID");
+  return `${parsed.origin}${pathname}`;
+}
+
+function validateArticleInventory(value, now) {
+  if (!exactKeys(value, ["publications", "exclusions"]) ||
+      !Array.isArray(value.publications) || !Array.isArray(value.exclusions)) {
+    throw fail("ARTICLE_INVENTORY_INVALID");
+  }
+  const publicationsByKey = new Map();
+  const publications = value.publications.map((record) => {
+    if (!exactKeys(record, ["sourceId", "title", "language", "publishedAt", "url"]) ||
+        !ARTICLE_MANUAL_SOURCE_IDS.includes(record.sourceId) ||
+        typeof record.title !== "string" || typeof record.language !== "string" ||
+        !SUPPORTED_LANGUAGES.has(record.language) ||
+        !(record.publishedAt === null || typeof record.publishedAt === "string")) {
+      throw fail("ARTICLE_INVENTORY_INVALID");
+    }
+    let title;
+    let url;
+    try {
+      title = normalizedTitle(record.title);
+      url = normalizedArticleDestination(record.sourceId, record.url);
+    } catch {
+      throw fail("ARTICLE_INVENTORY_INVALID");
+    }
+    if (record.publishedAt !== null) {
+      const publishedAt = articleInventoryInstant(record.publishedAt);
+      if (publishedAt === null || publishedAt > now) throw fail("ARTICLE_INVENTORY_INVALID");
+    }
+    const key = `${record.sourceId}\u0000${url}`;
+    if (publicationsByKey.has(key)) throw fail("ARTICLE_INVENTORY_INVALID");
+    publicationsByKey.set(key, true);
+    return { sourceId: record.sourceId, title, language: record.language, publishedAt: record.publishedAt, url };
+  });
+
+  const exclusionKeys = new Set();
+  const exclusions = value.exclusions.map((record) => {
+    if (!exactKeys(record, ["sourceId", "url"]) || !ARTICLE_INVENTORY_SOURCE_IDS.has(record.sourceId)) {
+      throw fail("ARTICLE_INVENTORY_INVALID");
+    }
+    let url;
+    try {
+      url = normalizedArticleDestination(record.sourceId, record.url);
+    } catch {
+      throw fail("ARTICLE_INVENTORY_INVALID");
+    }
+    const key = `${record.sourceId}\u0000${url}`;
+    if (exclusionKeys.has(key) || publicationsByKey.has(key)) throw fail("ARTICLE_INVENTORY_INVALID");
+    exclusionKeys.add(key);
+    return { sourceId: record.sourceId, url };
+  });
+
+  return { publications, exclusions, exclusionKeys };
+}
+
 function validateAnalyticsSelection(value) {
   const requiredKeys = ["id", "propertyId", "language", "hostname", "articlePathPattern", "timeZone"];
   const allowedKeys = value && Object.hasOwn(value, "recordedSince")
@@ -279,11 +402,11 @@ function validateDirectoryAnalyticsSelection(value, outboundClicksEnabled = fals
 
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(input.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(input.schemaVersion)) {
     throw fail("INPUT_VERSION_UNSUPPORTED");
   }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
-  if (input.schemaVersion !== 10 && input.schemaVersion !== 11 && Object.hasOwn(input, "newsletterEngagements")) {
+  if (input.schemaVersion !== 10 && input.schemaVersion !== 11 && input.schemaVersion !== 12 && Object.hasOwn(input, "newsletterEngagements")) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
 
@@ -293,7 +416,7 @@ function validateInput(input) {
 
   const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6 ||
     input.schemaVersion === 7 || input.schemaVersion === 8 || input.schemaVersion === 9 ||
-    input.schemaVersion === 10 || input.schemaVersion === 11;
+    input.schemaVersion === 10 || input.schemaVersion === 11 || input.schemaVersion === 12;
   if (!Array.isArray(input.sources)) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
@@ -458,7 +581,7 @@ function validateInput(input) {
     };
   }
 
-  if (input.schemaVersion === 11) {
+  if (input.schemaVersion === 11 || input.schemaVersion === 12) {
     const hasNewsletter = Object.hasOwn(input, "newsletter");
     const hasAnalytics = Object.hasOwn(input, "analytics");
     const hasSearchConsole = Object.hasOwn(input, "searchConsole");
@@ -468,7 +591,11 @@ function validateInput(input) {
       Object.hasOwn(input.directoryAnalytics, "outboundClicks");
     const recordedSinceEnabled = hasDirectoryAnalytics && isObject(input.directoryAnalytics) &&
       Object.hasOwn(input.directoryAnalytics, "recordedSince");
-    const expectedKeys = ["schemaVersion", "definitionVersion", "sources", "curated", "builderArticleViews"];
+    const expectedKeys = ["schemaVersion", "definitionVersion", "sources", "curated"];
+    if (input.schemaVersion === 11) expectedKeys.push("builderArticleViews");
+    if (input.schemaVersion === 12) expectedKeys.push("articleInventory");
+    const hasBuilderArticleViews = Object.hasOwn(input, "builderArticleViews");
+    if (input.schemaVersion === 12 && hasBuilderArticleViews) expectedKeys.push("builderArticleViews");
     if (hasNewsletter) expectedKeys.push("newsletter");
     if (hasAnalytics) expectedKeys.push("analytics");
     if (hasSearchConsole) expectedKeys.push("searchConsole");
@@ -489,10 +616,11 @@ function validateInput(input) {
     }
     const { sources } = configuredSources(newsletter);
     return {
-      schemaVersion: 11,
+      schemaVersion: input.schemaVersion,
       sources,
       curated: input.curated,
-      builderArticleViews: input.builderArticleViews,
+      ...(hasBuilderArticleViews ? { builderArticleViews: input.builderArticleViews } : {}),
+      ...(input.schemaVersion === 12 ? { articleInventory: input.articleInventory } : {}),
       ...(hasNewsletter ? { newsletter } : {}),
       ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
       ...(hasAnalytics ? { analytics: validateAnalyticsSelection(input.analytics) } : {}),
@@ -959,6 +1087,28 @@ function scopeFingerprint(sources) {
     identityPolicy: ARTICLE_IDENTITY_POLICY,
     supportedLanguages: ["en", "es"],
     sources: sourceSelectors
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function articleInventoryScopeFingerprint(sources, articleInventory) {
+  const publications = articleInventory.publications.map(({ sourceId, title, language, publishedAt, url }) => ({
+    title,
+    language,
+    publishedAt,
+    sourceId,
+    url
+  })).sort((left, right) => JSON.stringify([
+    left.title, left.language, left.publishedAt, left.sourceId, left.url
+  ]).localeCompare(JSON.stringify([
+    right.title, right.language, right.publishedAt, right.sourceId, right.url
+  ])));
+  const exclusions = articleInventory.exclusions.map(({ sourceId, url }) => ({ sourceId, url }))
+    .sort((left, right) => `${left.sourceId}\u0000${left.url}`.localeCompare(`${right.sourceId}\u0000${right.url}`));
+  const scope = {
+    definitionVersion: 1,
+    sourceScopeId: scopeFingerprint(sources),
+    articleInventory: { publications, exclusions }
   };
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
@@ -1565,7 +1715,8 @@ async function collectArticleSearchClicks(searchConsole, accessToken, collectedA
 
 async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const supportsDirectoryAnalytics = configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
-    configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11;
+    configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
+    configuration.schemaVersion === 12;
   const directoryEnabled = supportsDirectoryAnalytics && configuration.directoryAnalytics !== undefined;
   const directoryOutboundClicksEnabled = configuration.directoryOutboundClicks === true && directoryEnabled;
   const articleViewsEnabled = configuration.analytics !== undefined;
@@ -1576,7 +1727,8 @@ async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const outboundClickRanges = directoryOutboundClicksEnabled ? directoryRanges : [];
   const outboundClickEligiblePeriods = outboundClickRanges.map(({ period }) => period);
   const searchRanges = (configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
-    configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11) &&
+    configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
+    configuration.schemaVersion === 12) &&
     configuration.searchConsole !== undefined
     ? supportedGoogleSearchRanges(configuration.searchConsole, now)
     : [];
@@ -1714,7 +1866,8 @@ function eligibleBeehiivPublication(record, source, now) {
     sourceId: source.id,
     providerId,
     title,
-    language: source.language
+    language: source.language,
+    ...(typeof record.web_url === "string" ? { url: record.web_url } : {})
   };
 }
 
@@ -2611,8 +2764,8 @@ async function collectBuilderCenter(source, now) {
   throw fail("BUILDER_PAGE_CAP_REACHED");
 }
 
-async function collectPublications(sources, now, env) {
-  const publications = [];
+async function collectPublications(sources, now, env, articleInventory) {
+  const automaticPublications = [];
   const pagesBySource = {};
   for (const source of sources) {
     let result;
@@ -2624,7 +2777,31 @@ async function collectPublications(sources, now, env) {
     else if (source.id === "aws-for-engineers") result = await collectAwsForEngineers(source, now);
     else throw fail("SOURCE_UNSUPPORTED");
     pagesBySource[source.id] = result.pages;
-    publications.push(...result.publications);
+    automaticPublications.push(...result.publications);
+  }
+
+  const exclusionKeys = articleInventory?.exclusionKeys ?? new Set();
+  const excludedSources = new Set([...exclusionKeys].map((key) => key.slice(0, key.indexOf("\u0000"))));
+  const publications = [];
+  for (const publication of automaticPublications) {
+    if (excludedSources.has(publication.sourceId)) {
+      if (typeof publication.url !== "string") throw fail("ARTICLE_INVENTORY_SOURCE_URL_UNAVAILABLE");
+      let normalizedUrl;
+      try {
+        normalizedUrl = normalizedArticleDestination(publication.sourceId, publication.url);
+      } catch {
+        throw fail("ARTICLE_INVENTORY_SOURCE_URL_UNAVAILABLE");
+      }
+      if (exclusionKeys.has(`${publication.sourceId}\u0000${normalizedUrl}`)) continue;
+    }
+    publications.push(publication);
+  }
+
+  const manualSourceIds = new Set();
+  for (const publication of articleInventory?.publications ?? []) {
+    if (exclusionKeys.has(`${publication.sourceId}\u0000${publication.url}`)) continue;
+    manualSourceIds.add(publication.sourceId);
+    publications.push(publication);
   }
 
   const editions = new Set();
@@ -2636,7 +2813,12 @@ async function collectPublications(sources, now, env) {
     counts.all += 1;
     counts[publication.language] += 1;
   }
-  return { counts, pagesBySource, publications };
+  return {
+    counts,
+    pagesBySource,
+    publications,
+    manualSourceIds: ARTICLE_MANUAL_SOURCE_IDS.filter((sourceId) => manualSourceIds.has(sourceId))
+  };
 }
 
 function exactKeys(value, expected) {
@@ -2657,12 +2839,14 @@ function makeGroup({ sources, counts, collectedAt, scopeId }) {
   };
 }
 
-function makeArticleGroup(sources, counts, collectedAt) {
+function makeArticleGroup(sources, counts, collectedAt, { scopeId, manualSourceIds = [] } = {}) {
+  const sourceIds = new Set([...sources.map(({ id }) => id), ...manualSourceIds]);
+  const orderedSources = ARTICLE_SOURCE_ORDER.filter((id) => sourceIds.has(id));
   return makeGroup({
-    sources: sources.map(({ id }) => ({ id, label: SOURCE_LABELS[id] })),
+    sources: orderedSources.map((id) => ({ id, label: SOURCE_LABELS[id] })),
     counts,
     collectedAt,
-    scopeId: scopeFingerprint(sources)
+    scopeId: scopeId ?? scopeFingerprint(sources)
   });
 }
 
@@ -2674,7 +2858,7 @@ function validSourceList(sources, family) {
   if (!Array.isArray(sources)) return false;
   if (family === "articles") {
     if (sources.length === 0) return false;
-    const orderedIds = ["caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers"];
+    const orderedIds = ARTICLE_SOURCE_ORDER;
     const seen = new Set();
     let previousIndex = -1;
     for (const source of sources) {
@@ -3191,6 +3375,8 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   const retainedFamilies = new Set();
   const builderSource = configuration.sources.find(({ id }) => id === "builder-center");
   let articleCollection;
+  let articleInventory;
+  let currentArticleScopeId;
   let articleViewsResult;
   let directoryViewsResult;
   let directoryOutboundClicksResult;
@@ -3198,8 +3384,18 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let newsletterEmailOpensResult;
   let newsletterEmailVerifiedClicksResult;
   try {
-    articleCollection = await collectPublications(configuration.sources, now, env);
-    groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
+    if (configuration.schemaVersion === 12) {
+      articleInventory = validateArticleInventory(configuration.articleInventory, now);
+      currentArticleScopeId = articleInventoryScopeFingerprint(configuration.sources, articleInventory);
+      articleCollection = await collectPublications(configuration.sources, now, env, articleInventory);
+      groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt, {
+        scopeId: currentArticleScopeId,
+        manualSourceIds: articleCollection.manualSourceIds
+      });
+    } else {
+      articleCollection = await collectPublications(configuration.sources, now, env);
+      groups.articles = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt);
+    }
   } catch (error) {
     if (!(error instanceof CollectorError)) throw error;
     failures.articles = error.code;
@@ -3214,7 +3410,8 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     }
   }
 
-  if (configuration.schemaVersion === 11) {
+  if (configuration.schemaVersion === 11 ||
+      configuration.schemaVersion === 12 && configuration.builderArticleViews !== undefined) {
     try {
       const observation = validateManualBuilderArticleViews(configuration.builderArticleViews, now);
       groups.builderArticleViews = makeBuilderArticleViewsGroup(builderSource, observation);
@@ -3227,7 +3424,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
       ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8 || configuration.schemaVersion === 9 || configuration.schemaVersion === 10) &&
         configuration.newsletter !== undefined) ||
-      configuration.schemaVersion === 11 && configuration.newsletter !== undefined) {
+      (configuration.schemaVersion === 11 || configuration.schemaVersion === 12) && configuration.newsletter !== undefined) {
     let newsletterSelection;
     try {
       newsletterSelection = validateNewsletterSelection(configuration.newsletter);
@@ -3338,7 +3535,8 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   if (freshFamilies.length === 0) throw fail("NO_SUCCESSFUL_GROUPS");
 
   let previousGroups = null;
-  const retainUnselectedBuilderViews = configuration.schemaVersion >= 3 && configuration.schemaVersion <= 10;
+  const retainUnselectedBuilderViews = configuration.schemaVersion >= 3 && configuration.schemaVersion <= 10 ||
+    configuration.schemaVersion === 12 && configuration.builderArticleViews === undefined;
   if (Object.keys(failures).length > 0 || retainUnselectedBuilderViews) {
     const invalidPreviousFamilies = [];
     previousGroups = await readPreviousAggregate(env.bucket, env.outputKey, invalidPreviousFamilies);
@@ -3379,8 +3577,18 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
           }
           if (Object.keys(records).length > 0) groups[family] = { definitionVersion: 1, records };
         } else if (previousGroups[family]) {
-          groups[family] = previousGroups[family];
-          retainedFamilies.add(family);
+          if (family === "articles" && configuration.schemaVersion === 12) {
+            if (currentArticleScopeId !== undefined && previousGroups.articles.scopeId === currentArticleScopeId) {
+              groups.articles = previousGroups.articles;
+              retainedFamilies.add(family);
+            }
+          } else if (family === "articles" && configuration.schemaVersion < 12 &&
+              previousGroups.articles.sources.some(({ id }) => ARTICLE_MANUAL_SOURCE_IDS.includes(id))) {
+            // Older input contracts cannot prove that an inventory-aware count has the same source scope.
+          } else {
+            groups[family] = previousGroups[family];
+            retainedFamilies.add(family);
+          }
         }
       }
     }
@@ -3423,7 +3631,8 @@ async function handler() {
     const now = Date.parse(collectedAt);
     return configuration.schemaVersion === 3 || configuration.schemaVersion === 4 || configuration.schemaVersion === 5 ||
       configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
-      configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11
+      configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
+      configuration.schemaVersion === 12
       ? await collectIndependentGroups(configuration, env, collectedAt, now)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {

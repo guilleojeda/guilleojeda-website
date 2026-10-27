@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -1357,4 +1358,289 @@ test('input11 keeps existing optional selector dependencies when a manual observ
   invalidEngagementFlag.articleConfig.newsletterEngagements = false;
   assert.throws(() => build(invalidEngagementFlag), /engagement|newsletter|flag|input/i,
     'a manual observation cannot make the literal-true opt-in permissive');
+});
+
+function individualArticleFacts() {
+  return {
+    publications: [
+      {
+        sourceId: 'dev-community',
+        title: '  Café\u00a0con AWS  ',
+        language: 'es',
+        publishedAt: '2024-02-29T10:15:00-03:00',
+        url: 'https://dev.to/guilleojeda/cafe-con-aws'
+      },
+      {
+        sourceId: 'linkedin-articles',
+        title: 'AWS Community Builders: How to Join the Program',
+        language: 'en',
+        publishedAt: '2025-01-17T13:43:49.000+00:00',
+        url: 'https://es.linkedin.com/pulse/aws-community-builders-guille-ojeda'
+      }
+    ],
+    exclusions: [
+      {
+        sourceId: 'medium',
+        title: 'Personal fiction',
+        url: 'https://medium.com/@guilleojeda/personal-fiction-123456789abc',
+        reason: 'Personal fiction is outside the approved technical and AWS professional selection.'
+      }
+    ]
+  };
+}
+
+test('individual article facts project once to input12, preserving public metadata and stripping editorial notes', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  const previous = build(source);
+  source.articles = individualArticleFacts();
+  freeze(source);
+  const result = build(source);
+  assert.equal(result.schemaVersion, 12, 'an explicit inventory advances the protected contract');
+  assert.deepEqual(Object.keys(result).sort(), [
+    'articleInventory', 'curated', 'definitionVersion', 'schemaVersion', 'sources'
+  ]);
+  assert.deepEqual(result.articleInventory, {
+    publications: source.articles.publications,
+    exclusions: [{ sourceId: 'medium', url: source.articles.exclusions[0].url }]
+  });
+  const { articleInventory, ...unchanged } = result;
+  assert.deepEqual({ ...unchanged, schemaVersion: previous.schemaVersion }, previous,
+    'article facts do not rewrite automatic selectors or maintained talks and books');
+  assert.notEqual(articleInventory.publications, source.articles.publications);
+  assert.notEqual(articleInventory.publications[0], source.articles.publications[0]);
+  assert.notEqual(articleInventory.exclusions[0], source.articles.exclusions[0]);
+  assert.equal(articleInventory.publications[0].title, '  Café\u00a0con AWS  ',
+    'the build preserves readable source titles; only the shared collector normalizes identity');
+  assert.equal(JSON.stringify(result).includes('Personal fiction'), false);
+  assert.equal(JSON.stringify(result).includes('outside the approved'), false);
+  assert.equal(Object.hasOwn(result, 'counts'), false, 'the daily collector derives the deduplicated figures');
+});
+
+test('individual article input12 coexists with every previous selector combination and optional manual Builder views', async () => {
+  const build = await inputBuilder();
+  const selections = [
+    [3, () => {}],
+    [4, (value) => { value.articleConfig.newsletter = newsletterSelection(); }],
+    [5, (value) => addInputFiveSelections(value)],
+    [6, (value) => {
+      addInputFiveSelections(value);
+      value.articleConfig.searchConsole = searchConsoleSelection();
+    }],
+    [7, (value) => { value.articleConfig.directoryAnalytics = directoryAnalyticsSelection(); }],
+    [8, (value) => { value.articleConfig.directoryAnalytics = directoryAnalyticsClickSelection(); }],
+    [9, (value) => {
+      value.articleConfig.directoryAnalytics = { ...directoryAnalyticsClickSelection(), recordedSince: '2024-01-21' };
+    }],
+    [10, (value) => {
+      value.articleConfig.sources.push({ id: 'simple-aws' }, cloudyThingsSelection(),
+        { id: 'donde-aprendo-aws' }, { id: 'aws-for-engineers' });
+      value.articleConfig.newsletter = newsletterSelection();
+      value.articleConfig.newsletterEngagements = true;
+      value.articleConfig.analytics = analyticsSelection();
+      value.articleConfig.searchConsole = searchConsoleSelection();
+      value.articleConfig.directoryAnalytics = { ...directoryAnalyticsClickSelection(), recordedSince: '2024-01-21' };
+    }],
+    [11, (value) => { value.articleConfig.builderArticleViews = builderArticleViewsSelection(); }]
+  ];
+  for (const [version, configure] of selections) {
+    const source = fixture();
+    configure(source);
+    const previous = build(source);
+    assert.equal(previous.schemaVersion, version, `input${version} baseline is valid without individual articles`);
+    source.articles = individualArticleFacts();
+    const current = build(source);
+    assert.equal(current.schemaVersion, 12, `input${version} plus individual facts uses input12`);
+    const { articleInventory, ...base } = current;
+    assert.deepEqual({ ...base, schemaVersion: version }, previous,
+      `input${version} selectors and facts survive unchanged`);
+    assert.equal(articleInventory.publications.length, 2);
+
+    source.articleConfig.builderArticleViews = builderArticleViewsSelection();
+    const withManualViews = build(source);
+    assert.equal(withManualViews.schemaVersion, 12);
+    assert.deepEqual(withManualViews.builderArticleViews, builderArticleViewsSelection());
+    assert.deepEqual(withManualViews.articleInventory, articleInventory,
+      'a Builder observation does not edit the article selection');
+  }
+});
+
+test('individual facts retain alternate destinations, explicit unknown dates and date-only precision without a build-time count', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  source.articles = individualArticleFacts();
+  source.articles.publications.push(
+    {
+      ...source.articles.publications[0],
+      sourceId: 'spainclouds',
+      url: 'https://www.spainclouds.com/blog/cafe-con-aws',
+      publishedAt: null
+    },
+    {
+      sourceId: 'hackernoon',
+      url: 'https://hackernoon.com/a-practical-guide-to-aws',
+      title: 'A practical guide to AWS',
+      language: 'en',
+      publishedAt: '2024-02-29'
+    }
+  );
+  const result = build(source);
+  assert.equal(result.schemaVersion, 12);
+  assert.deepEqual(result.articleInventory.publications, source.articles.publications,
+    'copies are preserved for the eventual full catalog and deduplicated by the collector');
+  assert.equal(result.articleInventory.publications[2].publishedAt, null,
+    'unknown publication dates are never replaced with build or collection time');
+  assert.equal(result.articleInventory.publications[3].publishedAt, '2024-02-29');
+  assert.equal(Object.hasOwn(result.articleInventory, 'counts'), false);
+  const empty = build({ ...fixture(), articles: { publications: [], exclusions: [] } });
+  assert.equal(empty.schemaVersion, 12);
+  assert.deepEqual(empty.articleInventory, { publications: [], exclusions: [] },
+    'an explicitly empty valid selection is different from a missing or malformed inventory');
+});
+
+const invalidIndividualFacts = [
+  ['null inventory', (value) => { value.articles = null; }],
+  ['array inventory', (value) => { value.articles = []; }],
+  ['missing publication collection', (value) => { delete value.articles.publications; }],
+  ['missing exclusion collection', (value) => { delete value.articles.exclusions; }],
+  ['unknown inventory field', (value) => { value.articles.counts = { all: 99 }; }],
+  ['unknown publication field', (value) => { value.articles.publications[0].apiKey = 'synthetic-private-canary'; }],
+  ['unknown source', (value) => { value.articles.publications[0].sourceId = 'unreviewed-source'; }],
+  ['whole mixed-source selector', (value) => { value.articleConfig.sources.push({ id: 'dev-community' }); }],
+  ['automatic source entered twice as maintained content', (value) => { value.articles.publications[0].sourceId = 'donde-aprendo-aws'; }],
+  ['excluded Medium imported as articles', (value) => { value.articles.publications[0].sourceId = 'medium'; }],
+  ['missing title', (value) => { delete value.articles.publications[0].title; }],
+  ['blank title', (value) => { value.articles.publications[0].title = '\u2003\u00a0'; }],
+  ['unsupported language', (value) => { value.articles.publications[0].language = 'fr'; }],
+  ['missing publication date field', (value) => { delete value.articles.publications[0].publishedAt; }],
+  ['invalid publication date', (value) => { value.articles.publications[0].publishedAt = '2026-02-30'; }],
+  ['invalid timestamp date', (value) => { value.articles.publications[0].publishedAt = '2026-02-30T10:15:00Z'; }],
+  ['future publication date', (value) => { value.articles.publications[0].publishedAt = '2099-01-01'; }],
+  ['ambiguous local timestamp', (value) => { value.articles.publications[0].publishedAt = '2024-02-29T10:15:00'; }],
+  ['missing public URL', (value) => { delete value.articles.publications[0].url; }],
+  ['HTTP destination', (value) => { value.articles.publications[0].url = 'http://dev.to/guilleojeda/article'; }],
+  ['credential destination', (value) => { value.articles.publications[0].url = 'https://user:password@dev.to/guilleojeda/article'; }],
+  ['private destination', (value) => { value.articles.publications[0].url = 'https://127.0.0.1/article'; }],
+  ['wrong platform host', (value) => { value.articles.publications[0].url = 'https://example.test/article'; }],
+  ['preview query', (value) => { value.articles.publications[0].url += '?preview=synthetic-private-canary'; }],
+  ['fragment destination', (value) => { value.articles.publications[0].url += '#private'; }],
+  ['alternate port', (value) => { value.articles.publications[0].url = 'https://dev.to:8443/guilleojeda/article'; }],
+  ['duplicate stable destination', (value) => { value.articles.publications.push(structuredClone(value.articles.publications[0])); }],
+  ['duplicate stable destination with another title', (value) => {
+    value.articles.publications.push({ ...value.articles.publications[0], title: 'Changed title', language: 'en' });
+  }],
+  ['duplicate exclusion', (value) => { value.articles.exclusions.push(structuredClone(value.articles.exclusions[0])); }],
+  ['unknown exclusion source', (value) => { value.articles.exclusions[0].sourceId = 'unreviewed-source'; }],
+  ['missing exclusion reason', (value) => { delete value.articles.exclusions[0].reason; }],
+  ['blank exclusion reason', (value) => { value.articles.exclusions[0].reason = ' '; }],
+  ['unknown exclusion field', (value) => { value.articles.exclusions[0].accessToken = 'synthetic-private-canary'; }],
+  ['conflicting inclusion and exclusion', (value) => {
+    value.articles.exclusions.push({
+      sourceId: value.articles.publications[0].sourceId,
+      url: value.articles.publications[0].url,
+      title: value.articles.publications[0].title,
+      reason: 'Contradictory editorial selection'
+    });
+  }]
+];
+
+for (const [description, mutate] of invalidIndividualFacts) {
+  test(`individual article generation rejects ${description} before publishing protected input`, async () => {
+    const build = await inputBuilder();
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    mutate(source);
+    assert.throws(() => build(source), /article|inventory|publication|exclusion|source|input|date|url|title|language/i,
+      'invalid maintained data must stop the build, rather than dropping a row or inventing plausible counts');
+  });
+}
+
+test('the maintained article inventory is exactly the approved 88 destinations and 11 stable exclusions', async () => {
+  const maintainedUrl = new URL('../src/content/articles.json', import.meta.url);
+  assert.ok(existsSync(maintainedUrl), 'approved individual article facts must have a maintained content file');
+  const articles = JSON.parse(readFileSync(maintainedUrl, 'utf8'));
+  assert.deepEqual(Object.keys(articles).sort(), ['exclusions', 'publications']);
+  assert.equal(articles.publications.length, 88);
+  assert.equal(articles.exclusions.length, 11);
+
+  const publications = articles.publications.map(({ sourceId, title, language, publishedAt, url }) =>
+    ({ sourceId, title, language, publishedAt, url })).sort((a, b) =>
+    a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : a.url < b.url ? -1 : a.url > b.url ? 1 : 0);
+  const exclusions = articles.exclusions.map(({ sourceId, url }) => ({ sourceId, url })).sort((a, b) =>
+    a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : a.url < b.url ? -1 : a.url > b.url ? 1 : 0);
+  const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  // Independent expected sets from the user's approved editorial-review.csv, not collector output.
+  assert.equal(digest(publications), '123cfa19b2a7cd5ee1e6336bd700d1a1b7929c4a39adedba66036a0c0d07545c',
+    'preserve every approved original title, actual language, backed date and alternate destination; no invented LinkedIn items');
+  assert.equal(digest(exclusions), '94df963b647ec16aed4fdb73d6d917bc86f61ef82f0233e3553a2cdb750a11cd',
+    'all nine personal Medium texts, the DEV promotion and the general-study LinkedIn essay stay excluded');
+  for (const item of articles.exclusions) {
+    assert.equal(typeof item.title, 'string');
+    assert.notEqual(item.title.trim(), '');
+    assert.equal(typeof item.reason, 'string');
+    assert.notEqual(item.reason.trim(), '', 'each exclusion documents its editorial reason');
+  }
+  const bySource = Object.fromEntries(['dev-community', 'linkedin-articles', 'spainclouds', 'hackernoon']
+    .map((sourceId) => [sourceId, publications.filter((item) => item.sourceId === sourceId).length]));
+  assert.deepEqual(bySource, { 'dev-community': 69, 'linkedin-articles': 10, spainclouds: 5, hackernoon: 4 });
+  const normalize = (title) => title.normalize('NFC').toLowerCase().replace(/[\s\p{White_Space}]+/gu, ' ').trim();
+  const identities = new Map(publications.map((item) => [JSON.stringify([normalize(item.title), item.language]), item.language]));
+  assert.equal(identities.size, 81);
+  assert.equal([...identities.values()].filter((language) => language === 'en').length, 73);
+  assert.equal([...identities.values()].filter((language) => language === 'es').length, 8);
+  assert.ok(publications.some((item) => /Community Builders: How to Join/i.test(item.title)),
+    'the explicitly approved AWS professional guides remain included');
+  const build = await inputBuilder();
+  const result = build({ ...fixture(), articles });
+  assert.equal(result.schemaVersion, 12);
+  assert.deepEqual(result.articleInventory.publications, articles.publications);
+  assert.equal(result.articleInventory.exclusions.length, 11);
+});
+
+test('implementation regression: build accepts article paths and rejects platform profile paths', async () => {
+  const build = await inputBuilder();
+  const validDestinations = [
+    ['dev-community', 'https://dev.to/guilleojeda/an-article'],
+    ['linkedin-articles', 'https://www.linkedin.com/pulse/an-article-guille-ojeda'],
+    ['spainclouds', 'https://www.spainclouds.com/blog/an-article']
+  ];
+  for (const [index, [sourceId, url]] of validDestinations.entries()) {
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    source.articles.publications.push({
+      sourceId,
+      title: `Valid destination ${index}`,
+      language: sourceId === 'spainclouds' ? 'es' : 'en',
+      publishedAt: '2025-01-17',
+      url
+    });
+    assert.doesNotThrow(() => build(source), `${sourceId} article URL remains valid`);
+  }
+
+  const invalidDestinations = [
+    ['dev-community', 'https://dev.to/guilleojeda'],
+    ['linkedin-articles', 'https://www.linkedin.com/in/guilleojeda/'],
+    ['spainclouds', 'https://www.spainclouds.com/about']
+  ];
+  for (const [index, [sourceId, url]] of invalidDestinations.entries()) {
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    source.articles.publications.push({
+      sourceId,
+      title: `Invalid profile path ${index}`,
+      language: sourceId === 'spainclouds' ? 'es' : 'en',
+      publishedAt: '2025-01-17',
+      url
+    });
+    assert.throws(() => build(source), /article|path|url|invalid/i,
+      `${sourceId} profile or informational path cannot pass build validation`);
+  }
+
+  const whitespaceTitle = { ...fixture(), articles: individualArticleFacts() };
+  whitespaceTitle.articles.publications.push({
+    sourceId: 'dev-community',
+    title: '\u0085',
+    language: 'en',
+    publishedAt: '2025-01-17',
+    url: 'https://dev.to/guilleojeda/whitespace-title'
+  });
+  assert.throws(() => build(whitespaceTitle), /article|title|invalid/i,
+    'the build rejects Unicode whitespace that the runtime identity normalizer removes');
 });

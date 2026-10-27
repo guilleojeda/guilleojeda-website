@@ -1,0 +1,688 @@
+{
+  "publications": [
+    {
+      "sourceId": "dev-community",
+      "title": "Building Intelligent Agentic Applications with Amazon Bedrock and Nova",
+      "language": "en",
+      "publishedAt": "2025-03-07T20:47:33Z",
+      "url": "https://dev.to/aws-builders/building-intelligent-agentic-applications-with-amazon-bedrock-and-nova-3oif"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Building Reliable Messaging Patterns in AWS with SQS and SNS",
+      "language": "en",
+      "publishedAt": "2024-12-20T15:21:55Z",
+      "url": "https://dev.to/aws-builders/building-reliable-messaging-patterns-in-aws-with-sqs-and-sns-3hoo"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Failover in Amazon RDS Multi-AZ Architectures",
+      "language": "en",
+      "publishedAt": "2024-12-18T23:23:44Z",
+      "url": "https://dev.to/aws-builders/failover-in-amazon-rds-multi-az-architectures-4g6h"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Relational Databases on AWS: Comparing RDS and Aurora",
+      "language": "en",
+      "publishedAt": "2024-04-23T23:41:48Z",
+      "url": "https://dev.to/aws-builders/relational-databases-on-aws-comparing-rds-and-aurora-581f"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Containers on AWS: Comparing ECS and EKS",
+      "language": "en",
+      "publishedAt": "2024-04-22T23:27:27Z",
+      "url": "https://dev.to/aws-builders/containers-on-aws-comparing-ecs-and-eks-5h4c"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Monitoring and Troubleshooting on AWS: CloudWatch, X-Ray, and Beyond",
+      "language": "en",
+      "publishedAt": "2024-03-23T16:35:19Z",
+      "url": "https://dev.to/aws-builders/monitoring-and-troubleshooting-on-aws-cloudwatch-x-ray-and-beyond-3oa3"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Security in AWS: IAM Best Practices and Advanced Techniques",
+      "language": "en",
+      "publishedAt": "2024-03-20T00:42:19Z",
+      "url": "https://dev.to/aws-builders/security-in-aws-iam-best-practices-and-advanced-techniques-25ac"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Disaster Recovery Strategies on AWS: Ensuring Business Continuity",
+      "language": "en",
+      "publishedAt": "2024-03-15T01:08:06Z",
+      "url": "https://dev.to/aws-builders/disaster-recovery-strategies-on-aws-ensuring-business-continuity-1lgh"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding Amazon S3 Pricing",
+      "language": "en",
+      "publishedAt": "2024-02-01T15:13:17Z",
+      "url": "https://dev.to/aws-builders/understanding-amazon-s3-pricing-4j4c"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding AWS Lambda Pricing",
+      "language": "en",
+      "publishedAt": "2024-01-30T12:57:00Z",
+      "url": "https://dev.to/aws-builders/understanding-aws-lambda-pricing-4pai"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Disaster Recovery and Business Continuity on AWS",
+      "language": "en",
+      "publishedAt": "2023-12-05T19:45:45Z",
+      "url": "https://dev.to/aws-builders/disaster-recovery-and-business-continuity-on-aws-5hc1"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "DynamoDB Transactions: An E-Commerce with Amazon DynamoDB",
+      "language": "en",
+      "publishedAt": "2023-11-09T18:45:14Z",
+      "url": "https://dev.to/aws-builders/dynamodb-transactions-an-e-commerce-with-amazon-dynamodb-17me"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Data Loss, Replication and Disaster Recovery on AWS",
+      "language": "en",
+      "publishedAt": "2023-10-31T18:41:13Z",
+      "url": "https://dev.to/aws-builders/data-loss-replication-and-disaster-recovery-on-aws-2l2p"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Detecting Failed Sign In Attempts to AWS and Alerting",
+      "language": "en",
+      "publishedAt": "2023-10-26T15:29:03Z",
+      "url": "https://dev.to/aws-builders/detecting-failed-sign-in-attempts-to-aws-and-alerting-453k"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Server-Side Rendering with AWS Amplify",
+      "language": "en",
+      "publishedAt": "2023-10-24T18:35:45Z",
+      "url": "https://dev.to/aws-builders/server-side-rendering-with-aws-amplify-3o66"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding How DynamoDB Scales",
+      "language": "en",
+      "publishedAt": "2023-10-19T14:42:42Z",
+      "url": "https://dev.to/aws-builders/understanding-how-dynamodb-scales-2caf"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Securing the Connection to S3 from EC2",
+      "language": "en",
+      "publishedAt": "2023-09-07T15:04:00Z",
+      "url": "https://dev.to/aws-builders/securing-the-connection-to-s3-from-ec2-52mp"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Using SQS to Throttle Writes to DynamoDB",
+      "language": "en",
+      "publishedAt": "2023-09-07T00:16:15Z",
+      "url": "https://dev.to/aws-builders/using-sqs-to-throttle-writes-to-dynamodb-1j0b"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Amazon EBS Basics and Best Practices",
+      "language": "en",
+      "publishedAt": "2023-08-30T16:16:12Z",
+      "url": "https://dev.to/aws-builders/amazon-ebs-basics-and-best-practices-12j6"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS ECS Basics and Tips",
+      "language": "en",
+      "publishedAt": "2023-08-26T14:45:00Z",
+      "url": "https://dev.to/aws-builders/elastic-container-service-basics-and-tips-fhe"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Session Manager: SSH to EC2 Instances Securely",
+      "language": "en",
+      "publishedAt": "2023-08-25T17:17:14Z",
+      "url": "https://dev.to/aws-builders/session-manager-ssh-to-ec2-instances-securely-4o2o"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Managed Relational Databases with AWS RDS and Aurora",
+      "language": "en",
+      "publishedAt": "2023-08-24T13:55:00Z",
+      "url": "https://dev.to/aws-builders/managed-relational-databases-with-aws-rds-and-aurora-30hj"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Managing Multiple AWS Accounts with Organizations and Control Tower",
+      "language": "en",
+      "publishedAt": "2023-08-23T14:32:00Z",
+      "url": "https://dev.to/aws-builders/managing-multiple-aws-accounts-with-organizations-and-control-tower-5b64"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Serving Content from S3 Only to Authenticated Users",
+      "language": "en",
+      "publishedAt": "2023-08-22T13:30:00Z",
+      "url": "https://dev.to/aws-builders/serving-content-from-s3-only-to-authenticated-users-1fde"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Securing Microservices with AWS Cognito",
+      "language": "en",
+      "publishedAt": "2023-08-21T13:13:00Z",
+      "url": "https://dev.to/aws-builders/securing-microservices-with-aws-cognito-nd7"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Microservices in AWS: Migrating from a Monolith",
+      "language": "en",
+      "publishedAt": "2023-08-20T14:23:53Z",
+      "url": "https://dev.to/aws-builders/microservices-design-e6e"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "From EC2 to Kubernetes on EKS",
+      "language": "en",
+      "publishedAt": "2023-08-19T17:15:00Z",
+      "url": "https://dev.to/aws-builders/from-ec2-to-kubernetes-on-eks-2ban"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "From EC2 to Scalable ECS",
+      "language": "en",
+      "publishedAt": "2023-08-18T18:58:17Z",
+      "url": "https://dev.to/aws-builders/simple-aws-from-ec2-to-scalable-ecs-4a45"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS Lambda in a VPC",
+      "language": "en",
+      "publishedAt": "2023-08-18T15:57:26Z",
+      "url": "https://dev.to/aws-builders/simple-aws-lambda-in-a-vpc-2eg7"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "7 Must-Do Security Best Practices for your AWS Account",
+      "language": "en",
+      "publishedAt": "2023-08-17T19:06:10Z",
+      "url": "https://dev.to/aws-builders/simple-aws-7-must-do-security-best-practices-for-your-aws-account-4jjn"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "20 Advanced Tips for AWS Lambda",
+      "language": "en",
+      "publishedAt": "2023-08-17T15:42:37Z",
+      "url": "https://dev.to/aws-builders/simple-aws-20-advanced-tips-for-lambda-1oif"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Kubernetes Pods Explained",
+      "language": "en",
+      "publishedAt": "2023-08-15T00:19:21Z",
+      "url": "https://dev.to/aws-builders/kubernetes-pods-explained-2120"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding Architecture in AWS",
+      "language": "en",
+      "publishedAt": "2023-08-08T19:14:20Z",
+      "url": "https://dev.to/aws-builders/understanding-architecture-in-aws-3i9d"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding AWS WAF Pricing",
+      "language": "en",
+      "publishedAt": "2023-08-03T14:53:16Z",
+      "url": "https://dev.to/aws-builders/understanding-aws-pricing-aws-waf-58j"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS CloudFormation Explained",
+      "language": "en",
+      "publishedAt": "2023-07-07T23:31:19Z",
+      "url": "https://dev.to/aws-builders/aws-cloudformation-explained-fhk"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding Amazon CloudFront Pricing",
+      "language": "en",
+      "publishedAt": "2023-07-06T14:32:35Z",
+      "url": "https://dev.to/aws-builders/understanding-aws-pricing-amazon-cloudfront-388o"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "What is a VPC and how does it work?",
+      "language": "en",
+      "publishedAt": "2023-07-05T14:30:25Z",
+      "url": "https://dev.to/aws-builders/what-is-a-vpc-and-how-does-it-work-2dk3"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "How to Run Containers in AWS",
+      "language": "en",
+      "publishedAt": "2023-07-04T15:20:18Z",
+      "url": "https://dev.to/aws-builders/how-to-run-containers-in-aws-5fd1"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS Spot Instances - Reducing EC2 Costs up to 90%",
+      "language": "en",
+      "publishedAt": "2023-07-03T22:33:25Z",
+      "url": "https://dev.to/aws-builders/aws-spot-instances-reducing-ec2-costs-up-to-90-2gip"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS Elastic Beanstalk Explained",
+      "language": "en",
+      "publishedAt": "2023-07-03T19:45:53Z",
+      "url": "https://dev.to/aws-builders/aws-elastic-beanstalk-explained-2l6p"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS Certification Levels Complete Guide",
+      "language": "en",
+      "publishedAt": "2023-06-29T12:52:30Z",
+      "url": "https://dev.to/aws-builders/everything-you-need-to-know-about-aws-certifications-3b58"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Cloud Storage on AWS: Choosing the Right Solution",
+      "language": "en",
+      "publishedAt": "2023-06-29T00:14:00Z",
+      "url": "https://dev.to/aws-builders/cloud-storage-on-aws-choosing-the-right-solution-4dkb"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "The Ultimate Guide to Amazon S3 Storage",
+      "language": "en",
+      "publishedAt": "2023-06-28T19:34:46Z",
+      "url": "https://dev.to/aws-builders/the-ultimate-guide-to-amazon-s3-storage-3ak"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS RDS Instance Types: Complete Guide",
+      "language": "en",
+      "publishedAt": "2023-06-26T00:15:04Z",
+      "url": "https://dev.to/aws-builders/what-you-need-to-know-about-aws-rds-instance-types-29g"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Best Practices & Tools for Cost Optimization in AWS",
+      "language": "en",
+      "publishedAt": "2023-06-23T22:09:33Z",
+      "url": "https://dev.to/aws-builders/a-comprehensive-guide-to-aws-cost-optimization-best-practices-tools-1og8"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "A Comprehensive Guide to Amazon FSX Backups",
+      "language": "en",
+      "publishedAt": "2023-06-23T20:09:12Z",
+      "url": "https://dev.to/aws-builders/mastering-amazon-fsx-backups-a-comprehensive-guide-for-cloud-engineers-4bc0"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Using Amazon FSX: A Managed File Server for Windows",
+      "language": "en",
+      "publishedAt": "2023-05-16T19:34:34Z",
+      "url": "https://dev.to/aws-builders/amazon-fsx-for-windows-a-deep-dive-into-managed-file-storage-3lb4"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Understanding AWS Aurora Instance Types",
+      "language": "en",
+      "publishedAt": "2023-05-11T17:25:23Z",
+      "url": "https://dev.to/aws-builders/unlocking-aws-aurora-understanding-instance-types-for-optimal-performance-and-cost-effectiveness-49f0"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "15 Most Common AWS Lambda Use Cases",
+      "language": "en",
+      "publishedAt": "2023-05-08T18:48:17Z",
+      "url": "https://dev.to/aws-builders/exploring-the-versatility-of-aws-lambda-top-applications-2dj8"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Easy AWS Cost Optimization: How to Optimize Costs in AWS",
+      "language": "en",
+      "publishedAt": "2023-04-21T00:06:41Z",
+      "url": "https://dev.to/aws-builders/simple-aws-cost-optimization-how-to-optimize-costs-in-aws-3bp5"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "EC2 Data Protection: 10 Backup and Recovery Strategies for AWS EC2",
+      "language": "en",
+      "publishedAt": "2023-03-24T21:37:17Z",
+      "url": "https://dev.to/aws-builders/ec2-data-protection-10-comprehensive-backup-and-recovery-strategies-122a"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "In-Depth Guide to High Availability in AWS",
+      "language": "en",
+      "publishedAt": "2023-03-24T04:19:47Z",
+      "url": "https://dev.to/aws-builders/mastering-aws-high-availability-a-comprehensive-guide-for-optimizing-your-infrastructure-1eok"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Beginner's Guide to AWS: Core AWS Services And Use Cases",
+      "language": "en",
+      "publishedAt": "2023-03-24T03:32:04Z",
+      "url": "https://dev.to/aws-builders/the-definitive-guide-to-top-aws-services-in-depth-analysis-and-use-cases-2fm0"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "The Ultimate Guide to AWS Services for IoT Applications",
+      "language": "en",
+      "publishedAt": "2023-03-24T02:31:21Z",
+      "url": "https://dev.to/aws-builders/the-ultimate-guide-to-aws-services-for-iot-applications-4j9j"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Top 15 AWS Lambda Use Cases",
+      "language": "en",
+      "publishedAt": "2023-03-23T20:38:05Z",
+      "url": "https://dev.to/aws-builders/15-aws-lambda-use-cases-unleashing-the-full-potential-of-serverless-computing-dd"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS Networking Fundamentals for Solutions Architects",
+      "language": "en",
+      "publishedAt": "2023-03-23T20:03:22Z",
+      "url": "https://dev.to/aws-builders/deep-dive-into-aws-networking-fundamentals-for-aspiring-solutions-architects-22bp"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Mastering AWS Lambda Cost Optimization: 9 Essential Techniques to Maximize Savings",
+      "language": "en",
+      "publishedAt": "2023-03-23T19:49:51Z",
+      "url": "https://dev.to/aws-builders/mastering-aws-lambda-cost-optimization-9-essential-techniques-to-maximize-savings-38h6"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "In-Depth Guide to AWS Cost Optimization: 10 Cloud Saving Strategies",
+      "language": "en",
+      "publishedAt": "2023-03-23T16:16:22Z",
+      "url": "https://dev.to/aws-builders/top-10-expert-strategies-for-aws-cost-optimization-maximize-your-cloud-savings-today-48k7"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Automating AWS EBS Snapshots With Python and Boto3",
+      "language": "en",
+      "publishedAt": "2023-03-23T15:46:58Z",
+      "url": "https://dev.to/aws-builders/automate-aws-ebs-snapshots-and-receive-email-notifications-using-python-and-boto3-l1f"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Ultimate Guide to Understanding and Sizing AWS RDS and Aurora Instances",
+      "language": "en",
+      "publishedAt": "2023-01-27T00:33:02Z",
+      "url": "https://dev.to/aws-builders/rightsizing-aws-rds-instances-a-step-by-step-guide-7l0"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "How to Pass the AWS Solutions Architect Associate Certification",
+      "language": "en",
+      "publishedAt": "2022-12-22T21:28:16Z",
+      "url": "https://dev.to/aws-builders/beginners-how-to-get-the-aws-solutions-architect-associate-certification-lde"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Monitoring and Tracing in Event-Driven Architectures: A Guide to AWS X-Ray",
+      "language": "en",
+      "publishedAt": "2022-12-20T19:48:33Z",
+      "url": "https://dev.to/aws-builders/how-to-use-aws-x-ray-to-monitor-and-trace-an-event-driven-architecture-on-aws-18ak"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Automating EBS Snapshots for Disaster Recovery",
+      "language": "en",
+      "publishedAt": "2022-12-16T23:15:49Z",
+      "url": "https://dev.to/aws-builders/how-to-automate-aws-ebs-snapshots-54og"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Sticking with AWS: Why Vendor Lock-In Is Not A Problem",
+      "language": "en",
+      "publishedAt": "2022-12-15T19:00:52Z",
+      "url": "https://dev.to/aws-builders/vendor-lock-in-is-not-as-bad-as-you-think-2ci"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Event-Driven Architectures in AWS: Building Scalable and Responsive Applications",
+      "language": "en",
+      "publishedAt": "2022-12-11T16:23:54Z",
+      "url": "https://dev.to/aws-builders/event-driven-architectures-in-aws-5g26"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Low-cost best practices in AWS",
+      "language": "en",
+      "publishedAt": "2022-08-12T17:25:41Z",
+      "url": "https://dev.to/aws-builders/low-cost-best-practices-in-aws-234"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Balancing High Availability and Cost in AWS Architectures",
+      "language": "en",
+      "publishedAt": "2022-08-02T22:23:53Z",
+      "url": "https://dev.to/aws-builders/want-to-reduce-downtime-are-you-sure-fee"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "Notas sobre el examen AWS Solutions Architect Professional (Español)",
+      "language": "es",
+      "publishedAt": "2022-04-13T19:26:43Z",
+      "url": "https://dev.to/aws-builders/notas-sobre-el-examen-aws-solutions-architect-professional-espanol-1c09"
+    },
+    {
+      "sourceId": "dev-community",
+      "title": "AWS Solutions Architect Professional Exam Notes and Prep Guide",
+      "language": "en",
+      "publishedAt": "2022-04-10T00:52:25Z",
+      "url": "https://dev.to/aws-builders/aws-solutions-architect-professional-exam-notes-english-163b"
+    },
+    {
+      "sourceId": "hackernoon",
+      "title": "Navigating Amazon EBS: A Primer on Basics and Best Practices",
+      "language": "en",
+      "publishedAt": "2023-09-14",
+      "url": "https://hackernoon.com/navigating-amazon-ebs-a-primer-on-basics-and-best-practices"
+    },
+    {
+      "sourceId": "hackernoon",
+      "title": "Securing Your EC2 to S3 Connection",
+      "language": "en",
+      "publishedAt": "2023-09-14",
+      "url": "https://hackernoon.com/securing-your-ec2-to-s3-connection"
+    },
+    {
+      "sourceId": "hackernoon",
+      "title": "Using SQS to Throttle Writes to DynamoDB",
+      "language": "en",
+      "publishedAt": "2023-09-14",
+      "url": "https://hackernoon.com/using-sqs-to-throttle-writes-to-dynamodb"
+    },
+    {
+      "sourceId": "hackernoon",
+      "title": "Utilizing Microservices on AWS: Moving Away from Monoliths",
+      "language": "en",
+      "publishedAt": "2023-08-29",
+      "url": "https://hackernoon.com/utilizing-microservices-on-aws-moving-away-from-monoliths"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "AWS Community Builders: How to Join the Program",
+      "language": "en",
+      "publishedAt": "2025-01-17T13:43:49.000+00:00",
+      "url": "https://www.linkedin.com/pulse/aws-community-builders-how-join-program-guille-ojeda-v9jff"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Notas sobre el examen AWS Solutions Architect Professional (Español)",
+      "language": "es",
+      "publishedAt": "2022-04-13T19:23:29.000+00:00",
+      "url": "https://es.linkedin.com/pulse/notas-sobre-el-examen-aws-solutions-architect-espa%C3%B1ol-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "AWS Solutions Architect Professional exam notes (English)",
+      "language": "en",
+      "publishedAt": "2022-04-09T19:15:45.000+00:00",
+      "url": "https://www.linkedin.com/pulse/aws-solutions-architect-professional-notes-english-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Laboratorios gratuitos de AWS en re:Invent",
+      "language": "es",
+      "publishedAt": "2020-12-03T12:28:57.000+00:00",
+      "url": "https://es.linkedin.com/pulse/laboratorios-gratuitos-de-aws-en-reinvent-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "AWS Organization con múltiples cuentas y SSO",
+      "language": "es",
+      "publishedAt": "2020-07-22T22:57:18.000+00:00",
+      "url": "https://es.linkedin.com/pulse/aws-organization-con-m%C3%BAltiples-cuentas-y-sso-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Disponibilidad, 9s y SLAs",
+      "language": "es",
+      "publishedAt": "2020-02-07T17:03:02.000+00:00",
+      "url": "https://es.linkedin.com/pulse/disponibilidad-9s-y-slas-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Ver y crear Tags en recursos de AWS usando Postman",
+      "language": "es",
+      "publishedAt": "2019-12-14T03:14:29.000+00:00",
+      "url": "https://es.linkedin.com/pulse/ver-y-crear-tags-en-recursos-de-aws-usando-postman-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Minikube en AWS EC2 Spot Instances",
+      "language": "es",
+      "publishedAt": "2019-11-27T13:20:59.000+00:00",
+      "url": "https://es.linkedin.com/pulse/minikube-en-aws-ec2-spot-instances-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Un Patrón por día – Patrón Iterator",
+      "language": "es",
+      "publishedAt": "2017-07-20T00:02:48.000+00:00",
+      "url": "https://es.linkedin.com/pulse/un-patr%C3%B3n-por-d%C3%ADa-iterator-guillermo-ojeda"
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "title": "Un Patrón por día – Patrón Composite",
+      "language": "es",
+      "publishedAt": "2017-07-19T00:21:30.000+00:00",
+      "url": "https://es.linkedin.com/pulse/un-patr%C3%B3n-por-d%C3%ADa-composite-guillermo-ojeda"
+    },
+    {
+      "sourceId": "spainclouds",
+      "title": "Disponibilidad, 9s y SLAs",
+      "language": "es",
+      "publishedAt": "2023-06-02T08:54:02+00:00",
+      "url": "https://www.spainclouds.com/blog/disponibilidad-9s-y-slas"
+    },
+    {
+      "sourceId": "spainclouds",
+      "title": "Un Patrón por día – Patrón Iterator",
+      "language": "es",
+      "publishedAt": "2023-02-19T18:54:43+00:00",
+      "url": "https://www.spainclouds.com/blog/un-patron-por-dia-patron-iterator"
+    },
+    {
+      "sourceId": "spainclouds",
+      "title": "AWS Organization con múltiples cuentas y SSO",
+      "language": "es",
+      "publishedAt": "2022-04-17T05:00:33+00:00",
+      "url": "https://www.spainclouds.com/blog/aws-organization-con-multiples-cuentas-y-sso"
+    },
+    {
+      "sourceId": "spainclouds",
+      "title": "Ver y crear Tags en recursos de AWS usando Postman",
+      "language": "es",
+      "publishedAt": "2019-04-02T04:29:17+00:00",
+      "url": "https://www.spainclouds.com/blog/ver-y-crear-tags-en-recursos-de-aws-usando-postman"
+    },
+    {
+      "sourceId": "spainclouds",
+      "title": "Minikube en AWS EC2 Spot Instances",
+      "language": "es",
+      "publishedAt": "2019-03-03T10:22:17+00:00",
+      "url": "https://www.spainclouds.com/blog/minikube-en-aws-ec2-spot-instances"
+    }
+  ],
+  "exclusions": [
+    {
+      "sourceId": "dev-community",
+      "url": "https://dev.to/aws-builders/50-discount-for-associate-level-aws-certifications-171h",
+      "title": "50% Discount for Associate-level AWS certifications",
+      "reason": "Promotional discount announcement; no substantive technical instruction."
+    },
+    {
+      "sourceId": "linkedin-articles",
+      "url": "https://es.linkedin.com/pulse/c%C3%B3mo-rendir-finales-y-morir-en-el-intento-guillermo-ojeda",
+      "title": "Cómo rendir finales y no morir en el intento",
+      "reason": "General exam-anxiety and study advice; no cloud/software or technical-subject content."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/un-peque%C3%B1o-paso-f586f2131f33",
+      "title": "Un pequeño paso",
+      "reason": "Short fiction outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/y-eia-310aeaa7a439",
+      "title": "¿Y eia?",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/me-voy-a-sentir-mal-un-rato-pero-antes-una-entradita-para-el-blog-794a944f1fe1",
+      "title": "Me voy a sentir mal un rato. Pero antes, una entradita para el blog.",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/no-a3fce1e1e00b",
+      "title": "No",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/sin-una-sonrisa-5847e93ff649",
+      "title": "Sin una sonrisa",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/tres-veces-glicerina-20aa5638f460",
+      "title": "Tres veces glicerina",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/l%C3%A1grimas-en-la-lluvia-b76107736fad",
+      "title": "Lágrimas en la lluvia",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/por-qu%C3%A9-638c5cd80024",
+      "title": "Por qué",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    },
+    {
+      "sourceId": "medium",
+      "url": "https://medium.com/@guilleojeda/c%C3%B3mo-61fbdf149f53",
+      "title": "Cómo",
+      "reason": "Personal or fictional writing outside the approved technical and AWS professional scope."
+    }
+  ]
+}

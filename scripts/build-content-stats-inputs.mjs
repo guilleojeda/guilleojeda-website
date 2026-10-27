@@ -20,6 +20,20 @@ const LANGUAGES = new Set(['en', 'es', null]);
 const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws', 'aws-for-engineers']);
 const REQUIRED_ARTICLE_SOURCE_IDS = ['caylent', 'builder-center'];
 const BUILDER_VIEWS_START_AT = '2026-01-06T00:00:00.000Z';
+const MANUAL_ARTICLE_SOURCE_IDS = new Set(['dev-community', 'linkedin-articles', 'spainclouds', 'hackernoon']);
+const EXCLUSION_SOURCE_HOSTS = Object.freeze({
+  caylent: ['caylent.com'],
+  'builder-center': ['builder.aws.com'],
+  'simple-aws': ['newsletter.simpleaws.dev'],
+  'cloudy-things': ['blog.guilleojeda.com'],
+  'donde-aprendo-aws': ['dondeaprendoaws.com'],
+  'aws-for-engineers': ['awsforengineers.com'],
+  'dev-community': ['dev.to'],
+  'linkedin-articles': ['www.linkedin.com', 'es.linkedin.com'],
+  spainclouds: ['spainclouds.com', 'www.spainclouds.com'],
+  hackernoon: ['hackernoon.com'],
+  medium: ['medium.com']
+});
 
 function invalid(message) {
   throw new Error(`Invalid content statistics input: ${message}`);
@@ -35,6 +49,119 @@ function assertNonEmptyString(value, label) {
 
 function assertLanguage(value, label) {
   if (!LANGUAGES.has(value)) invalid(`${label} must be en, es, or null`);
+}
+
+function isRealCalendarDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function articlePublicationInstant(value, label) {
+  if (typeof value !== 'string') invalid(`${label} must be a real date, explicit-timezone timestamp, or null`);
+  if (isRealCalendarDate(value)) return Date.parse(`${value}T00:00:00.000Z`);
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+  if (!match || !isRealCalendarDate(match[1])) invalid(`${label} must be a real date or explicit-timezone timestamp`);
+  const instant = Date.parse(value);
+  if (!Number.isFinite(instant)) invalid(`${label} must be a real date or explicit-timezone timestamp`);
+  return instant;
+}
+
+function isArticleDestinationPath(sourceId, pathname) {
+  if (sourceId === 'caylent') return /^\/blog\/.+/.test(pathname);
+  if (sourceId === 'builder-center') return /^\/content\/[^/]+\/.+/.test(pathname);
+  if (sourceId === 'simple-aws') return /^\/p\/[^/]+$/.test(pathname);
+  if (sourceId === 'cloudy-things') {
+    return /^\/[^/]+$/.test(pathname) && !['/archive', '/rss.xml', '/sitemap.xml', '/recommendations'].includes(pathname);
+  }
+  if (sourceId === 'donde-aprendo-aws' || sourceId === 'aws-for-engineers') {
+    return /^\/blog\/[^/]+$/.test(pathname);
+  }
+  if (sourceId === 'dev-community') return /^\/[^/]+\/.+/.test(pathname);
+  if (sourceId === 'linkedin-articles') return /^\/pulse\/.+/.test(pathname);
+  if (sourceId === 'spainclouds') return /^\/blog\/.+/.test(pathname);
+  if (sourceId === 'hackernoon' || sourceId === 'medium') return /^\/.+/.test(pathname);
+  return false;
+}
+
+function normalizedArticleDestination(sourceId, value, label) {
+  assertNonEmptyString(value, label);
+  if (value.trim() !== value) invalid(`${label} must be a canonical public URL`);
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    invalid(`${label} must be a canonical public URL`);
+  }
+  const hosts = EXCLUSION_SOURCE_HOSTS[sourceId];
+  if (!hosts || parsed.protocol !== 'https:' || !hosts.includes(parsed.hostname.toLowerCase()) ||
+      parsed.username !== '' || parsed.password !== '' || parsed.port !== '' ||
+      parsed.search !== '' || parsed.hash !== '' || parsed.pathname === '/') {
+    invalid(`${label} must use the public URL host for ${sourceId} without credentials, query, fragment, or alternate port`);
+  }
+  const pathname = parsed.pathname.replace(/\/+$/, '');
+  if (pathname === '' || pathname.includes('//') || /%(?:2f|5c)/i.test(pathname)) {
+    invalid(`${label} must identify a public article destination`);
+  }
+  if (!isArticleDestinationPath(sourceId, pathname)) {
+    invalid(`${label} must identify an article path for ${sourceId}`);
+  }
+  return `${parsed.origin}${pathname}`;
+}
+
+function projectArticles(articles) {
+  assertObject(articles, 'articles');
+  if (Object.keys(articles).sort().join(',') !== 'exclusions,publications' ||
+      !Array.isArray(articles.publications) || !Array.isArray(articles.exclusions)) {
+    invalid('articles must contain only publication and exclusion arrays');
+  }
+
+  const publicationUrls = new Set();
+  const publications = articles.publications.map((record, index) => {
+    assertObject(record, `article publication ${index}`);
+    if (Object.keys(record).sort().join(',') !== 'language,publishedAt,sourceId,title,url' ||
+        !MANUAL_ARTICLE_SOURCE_IDS.has(record.sourceId)) {
+      invalid(`article publication ${index} must use a supported individually maintained source and exact fields`);
+    }
+    if (typeof record.title !== 'string' || !/[^\s\p{White_Space}]/u.test(record.title)) {
+      invalid(`article publication ${index} title must contain non-whitespace text`);
+    }
+    if (!['en', 'es'].includes(record.language)) invalid(`article publication ${index} language must be en or es`);
+    if (record.publishedAt !== null) {
+      const publishedAt = articlePublicationInstant(record.publishedAt, `article publication ${index} publishedAt`);
+      if (publishedAt > Date.now()) invalid(`article publication ${index} cannot be future-dated`);
+    }
+    const destination = normalizedArticleDestination(record.sourceId, record.url, `article publication ${index} url`);
+    const key = `${record.sourceId}\u0000${destination}`;
+    if (publicationUrls.has(key)) invalid(`duplicate article publication destination at index ${index}`);
+    publicationUrls.add(key);
+    return {
+      sourceId: record.sourceId,
+      title: record.title,
+      language: record.language,
+      publishedAt: record.publishedAt,
+      url: record.url
+    };
+  });
+
+  const exclusionUrls = new Set();
+  const exclusions = articles.exclusions.map((record, index) => {
+    assertObject(record, `article exclusion ${index}`);
+    if (Object.keys(record).sort().join(',') !== 'reason,sourceId,title,url' ||
+        !Object.hasOwn(EXCLUSION_SOURCE_HOSTS, record.sourceId)) {
+      invalid(`article exclusion ${index} must use a known source and exact editorial fields`);
+    }
+    assertNonEmptyString(record.title, `article exclusion ${index} title`);
+    assertNonEmptyString(record.reason, `article exclusion ${index} reason`);
+    const destination = normalizedArticleDestination(record.sourceId, record.url, `article exclusion ${index} url`);
+    const key = `${record.sourceId}\u0000${destination}`;
+    if (exclusionUrls.has(key)) invalid(`duplicate article exclusion destination at index ${index}`);
+    if (publicationUrls.has(key)) invalid(`article destination cannot be both included and excluded`);
+    exclusionUrls.add(key);
+    return { sourceId: record.sourceId, url: record.url };
+  });
+
+  return { publications, exclusions };
 }
 
 function validateArticleConfig(articleConfig) {
@@ -285,7 +412,7 @@ function projectBuilderArticleViews(value) {
   return { observedAt: value.observedAt, views: { en, es } };
 }
 
-export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
+export function buildContentStatsInputs({ articleConfig, talks, books, articles } = {}) {
   const sourceIds = validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
   const hasAnalytics = Object.hasOwn(articleConfig, 'analytics');
@@ -299,6 +426,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     && Object.hasOwn(articleConfig.directoryAnalytics, 'outboundClicks');
   const hasNewsletterEngagements = Object.hasOwn(articleConfig, 'newsletterEngagements');
   const hasBuilderArticleViews = Object.hasOwn(articleConfig, 'builderArticleViews');
+  const hasArticleInventory = articles !== undefined;
   if (hasNewsletterEngagements && articleConfig.newsletterEngagements !== true) {
     invalid('newsletterEngagements must be the literal true opt-in');
   }
@@ -326,9 +454,11 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const builderArticleViews = hasBuilderArticleViews
     ? projectBuilderArticleViews(articleConfig.builderArticleViews)
     : null;
+  const articleInventory = hasArticleInventory ? projectArticles(articles) : null;
 
   return {
-    schemaVersion: hasBuilderArticleViews ? 11
+    schemaVersion: hasArticleInventory ? 12
+      : hasBuilderArticleViews ? 11
       : hasNewsletterEngagements ? 10
       : hasDirectoryRecordedSince ? 9
       : hasDirectoryOutboundClicks ? 8
@@ -347,7 +477,8 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
     ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {}),
     ...(directoryAnalytics ? { directoryAnalytics } : {}),
-    ...(builderArticleViews ? { builderArticleViews } : {})
+    ...(builderArticleViews ? { builderArticleViews } : {}),
+    ...(articleInventory ? { articleInventory } : {})
   };
 }
 
