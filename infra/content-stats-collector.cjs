@@ -10,6 +10,7 @@ const CONTENT_API_ENDPOINT = "https://cdn.builder.io/api/v3/content/blog-post";
 const BUILDER_API_ENDPOINT = "https://api.builder.aws.com/cs/v2/articles/user/";
 const CLOUDY_ARCHIVE_ORIGIN = "https://blog.guilleojeda.com";
 const CLOUDY_ARCHIVE_PATH = "/archive";
+const CLOUDY_USER_AGENT = "GuilleOjedaContentStats/1.0 (+https://guilleojeda.com)";
 const DONDE_APRENDO_INDEX_URL = "https://dondeaprendoaws.com/article-index.json";
 const DONDE_APRENDO_ORIGIN = "https://dondeaprendoaws.com";
 const DONDE_APRENDO_AUTHOR = Object.freeze({ name: "Guille Ojeda", url: "https://guilleojeda.com/es/" });
@@ -2211,7 +2212,7 @@ async function fetchCloudyArchive(url, page) {
     let response;
     try {
       response = await fetch(url, {
-        headers: { accept: "text/html" },
+        headers: { accept: "text/html", "user-agent": CLOUDY_USER_AGENT },
         redirect: "error",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       });
@@ -2230,6 +2231,13 @@ async function fetchCloudyArchive(url, page) {
         log("warn", { event: "content_stats_source_retry", sourceId: "cloudy-things", page, status: response.status });
         continue;
       }
+      log("warn", {
+        event: "content_stats_cloudy_http_failure",
+        sourceId: "cloudy-things",
+        page,
+        status: response.status,
+        vercelChallenge: response.headers?.get?.("x-vercel-mitigated") === "challenge"
+      });
       throw fail(`SOURCE_HTTP_${response.status}`);
     }
     const contentType = response.headers?.get?.("content-type");
