@@ -902,6 +902,15 @@ function clearNewsletterEmailResult(elements) {
   elements.collectedDate.textContent = '';
 }
 
+function newsletterEmailUnavailableFallback(locale, valueField) {
+  if (valueField === 'opens') {
+    return locale === 'es' ? 'Datos de aperturas de emails: no disponibles.' : 'Email open data are unavailable.';
+  }
+  return locale === 'es'
+    ? 'Datos de clics verificados en emails: no disponibles.'
+    : 'Verified email click data are unavailable.';
+}
+
 function renderNewsletterEmailLoading(elements) {
   if (!newsletterEmailElementsReady(elements)) return;
   elements.region.hidden = false;
@@ -910,30 +919,36 @@ function renderNewsletterEmailLoading(elements) {
   elements.status.hidden = false;
 }
 
-function renderNewsletterEmailUnavailable(elements, locale, hidden = false) {
+function renderNewsletterEmailUnavailable(elements, locale, hidden = false, availability = null) {
   if (!newsletterEmailElementsReady(elements)) return;
   elements.region.hidden = hidden;
   elements.results.hidden = true;
   clearNewsletterEmailResult(elements);
   elements.status.textContent = hidden
     ? ''
-    : elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
-      || (locale === 'es' ? 'No se pueden mostrar estos datos para este período.' : 'These figures are unavailable for this period.');
+    : activityUnavailableCopy(
+      locale,
+      availability,
+      elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
+        || newsletterEmailUnavailableFallback(locale, elements.valueField)
+    );
   elements.status.hidden = hidden;
 }
 
 function renderNewsletterEmailMetric(snapshot, locale, language, period, elements) {
   if (!newsletterEmailElementsReady(elements)) return;
-  if (language === 'es' || !knownNewsletterEmailPeriods.includes(period)) {
-    renderNewsletterEmailUnavailable(elements, locale, language === 'es');
+  if (language === 'es') {
+    renderNewsletterEmailUnavailable(elements, locale, true);
     return;
   }
 
-  const record = snapshot?.[elements.family]?.[period];
-  if (!record) {
-    renderNewsletterEmailUnavailable(elements, locale);
+  const records = snapshot?.[elements.family];
+  const availability = classifyActivityAvailability(records, language, period, knownNewsletterEmailPeriods);
+  if (availability) {
+    renderNewsletterEmailUnavailable(elements, locale, false, availability);
     return;
   }
+  const record = records?.[period];
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
@@ -1087,6 +1102,36 @@ function viewsElementsReady(elements) {
     && views.value && views.coverage && views.interval && views.collectedDate && views.qualifications);
 }
 
+function classifyActivityAvailability(records, language, period, supportedPeriods) {
+  const selectedRecord = records?.[period] ?? null;
+  const coverageRecord = selectedRecord ?? Object.values(records ?? {}).find(Boolean) ?? null;
+  if (!coverageRecord) return { reason: 'missing' };
+  if (language !== 'all' && coverageRecord.publication.language !== language) {
+    return { reason: 'language', publication: coverageRecord.publication };
+  }
+  if (!supportedPeriods.includes(period)) return { reason: 'unsupported-total' };
+  if (!selectedRecord) return { reason: 'missing' };
+  return null;
+}
+
+function activityUnavailableCopy(locale, availability, genericCopy) {
+  if (availability?.reason === 'language') {
+    const publication = availability.publication;
+    const language = locale === 'es'
+      ? publication.language === 'en' ? 'inglés' : 'español'
+      : publication.language === 'en' ? 'English' : 'Spanish';
+    return locale === 'es'
+      ? `Esta métrica solo cubre artículos de ${publication.label} en ${language}.`
+      : `This metric only covers ${publication.label} articles in ${language}.`;
+  }
+  if (availability?.reason === 'unsupported-total') {
+    return locale === 'es'
+      ? 'Esta métrica no ofrece un total registrado.'
+      : 'This metric does not offer a recorded total.';
+  }
+  return genericCopy;
+}
+
 function clearViewsResult(views) {
   views.value.textContent = '';
   views.coverage.textContent = '';
@@ -1096,12 +1141,16 @@ function clearViewsResult(views) {
   views.qualifications.hidden = true;
 }
 
-function renderViewsUnavailable(elements, locale) {
+function renderViewsUnavailable(elements, locale, availability) {
   const { views } = elements;
   views.results.hidden = true;
   clearViewsResult(views);
-  views.status.textContent = views.region.dataset.statsViewsUnavailable?.trim()
-    || (locale === 'es' ? 'No se pueden mostrar las vistas para este período.' : 'Views are unavailable for this period.');
+  views.status.textContent = activityUnavailableCopy(
+    locale,
+    availability,
+    views.region.dataset.statsViewsUnavailable?.trim()
+      || (locale === 'es' ? 'Datos de vistas de páginas: no disponibles.' : 'Page view data are unavailable.')
+  );
   views.status.hidden = false;
 }
 
@@ -1128,18 +1177,13 @@ function renderViews(snapshot, locale, language, elements) {
 
   const { periodSelector, views } = elements;
   const records = snapshot?.articleViews;
-
-  if (language === 'es') {
-    renderViewsUnavailable(elements, locale);
-    return;
-  }
-
   const period = knownViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const record = records?.[period];
-  if (!record) {
-    renderViewsUnavailable(elements, locale);
+  const availability = classifyActivityAvailability(records, language, period, knownViewPeriods);
+  if (availability) {
+    renderViewsUnavailable(elements, locale, availability);
     return;
   }
+  const record = records?.[period];
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
@@ -1172,12 +1216,16 @@ function clearSearchResult(search) {
   search.collectedDate.textContent = '';
 }
 
-function renderSearchUnavailable(elements, locale) {
+function renderSearchUnavailable(elements, locale, availability) {
   const { search } = elements;
   search.results.hidden = true;
   clearSearchResult(search);
-  search.status.textContent = search.region.dataset.statsSearchUnavailable?.trim()
-    || (locale === 'es' ? 'No se pueden mostrar los clics de búsqueda para este período.' : 'Search clicks are unavailable for this period.');
+  search.status.textContent = activityUnavailableCopy(
+    locale,
+    availability,
+    search.region.dataset.statsSearchUnavailable?.trim()
+      || (locale === 'es' ? 'Datos de clics de búsqueda: no disponibles.' : 'Search click data are unavailable.')
+  );
   search.status.hidden = false;
 }
 
@@ -1191,17 +1239,16 @@ function renderSearch(snapshot, locale, language, elements) {
   if (!searchElementsReady(elements)) return;
 
   const { periodSelector, search } = elements;
-  if (language === 'es' || periodSelector.value === 'total') {
-    renderSearchUnavailable(elements, locale);
+  const records = snapshot?.articleSearchClicks;
+  const period = periodSelector.value === 'total'
+    ? 'total'
+    : knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
+  const availability = classifyActivityAvailability(records, language, period, knownSearchPeriods);
+  if (availability) {
+    renderSearchUnavailable(elements, locale, availability);
     return;
   }
-
-  const period = knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const record = snapshot?.articleSearchClicks?.[period];
-  if (!record) {
-    renderSearchUnavailable(elements, locale);
-    return;
-  }
+  const record = records?.[period];
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
@@ -1230,15 +1277,19 @@ function clearDirectoryViewsResult(directoryViews) {
   directoryViews.qualifications.hidden = true;
 }
 
-function renderDirectoryViewsUnavailable(elements, locale, hidden = false) {
+function renderDirectoryViewsUnavailable(elements, locale, hidden = false, availability = null) {
   const { directoryViews } = elements;
   directoryViews.region.hidden = hidden;
   directoryViews.results.hidden = true;
   clearDirectoryViewsResult(directoryViews);
-  directoryViews.status.textContent = directoryViews.region.dataset.statsDirectoryViewsUnavailable?.trim()
-    || (locale === 'es'
-      ? 'Las vistas de página de Dónde Aprendo AWS no están disponibles para este período.'
-      : 'Dónde Aprendo AWS page views are unavailable for this period.');
+  directoryViews.status.textContent = hidden ? '' : activityUnavailableCopy(
+    locale,
+    availability,
+    directoryViews.region.dataset.statsDirectoryViewsUnavailable?.trim()
+      || (locale === 'es'
+        ? 'Datos de vistas de páginas de Dónde Aprendo AWS: no disponibles.'
+        : 'Dónde Aprendo AWS page view data are unavailable.')
+  );
   directoryViews.status.hidden = hidden;
   directoryViews.region.setAttribute('aria-busy', 'false');
 }
@@ -1261,11 +1312,13 @@ function renderDirectoryViews(snapshot, locale, language, elements) {
   }
 
   const period = knownDirectoryViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const record = snapshot?.directoryViews?.[period];
-  if (!record) {
-    renderDirectoryViewsUnavailable(elements, locale);
+  const records = snapshot?.directoryViews;
+  const availability = classifyActivityAvailability(records, language, period, knownDirectoryViewPeriods);
+  if (availability) {
+    renderDirectoryViewsUnavailable(elements, locale, false, availability);
     return;
   }
+  const record = records?.[period];
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
@@ -1298,15 +1351,19 @@ function clearDirectoryOutboundClicksResult(clicks) {
   clicks.qualifications.hidden = true;
 }
 
-function renderDirectoryOutboundClicksUnavailable(elements, locale, hidden = false) {
+function renderDirectoryOutboundClicksUnavailable(elements, locale, hidden = false, availability = null) {
   const { directoryOutboundClicks: clicks } = elements;
   clicks.region.hidden = hidden;
   clicks.results.hidden = true;
   clearDirectoryOutboundClicksResult(clicks);
-  clicks.status.textContent = clicks.card.dataset.statsDirectoryOutboundClicksUnavailable?.trim()
-    || (locale === 'es'
-      ? 'Clics en enlaces externos de Dónde Aprendo AWS: no disponibles para este período.'
-      : 'Dónde Aprendo AWS external link clicks are unavailable for this period.');
+  clicks.status.textContent = hidden ? '' : activityUnavailableCopy(
+    locale,
+    availability,
+    clicks.card.dataset.statsDirectoryOutboundClicksUnavailable?.trim()
+      || (locale === 'es'
+        ? 'Datos de clics en enlaces externos de Dónde Aprendo AWS: no disponibles.'
+        : 'Dónde Aprendo AWS external link click data are unavailable.')
+  );
   clicks.status.hidden = hidden;
 }
 
@@ -1327,11 +1384,13 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
   }
 
   const period = knownDirectoryOutboundClickPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const record = snapshot?.directoryOutboundClicks?.[period];
-  if (!record) {
-    renderDirectoryOutboundClicksUnavailable(elements, locale);
+  const records = snapshot?.directoryOutboundClicks;
+  const availability = classifyActivityAvailability(records, language, period, knownDirectoryOutboundClickPeriods);
+  if (availability) {
+    renderDirectoryOutboundClicksUnavailable(elements, locale, false, availability);
     return;
   }
+  const record = records?.[period];
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
