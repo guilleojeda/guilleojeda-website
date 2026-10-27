@@ -1345,11 +1345,13 @@ if (hasDirectoryAnalyticsSelection) {
 }
 const simpleAwsArticleSource = sourceConfig.sources.find((source) => source?.id === 'simple-aws');
 const cloudyThingsArticleSource = sourceConfig.sources.find((source) => source?.id === 'cloudy-things');
+const dondeAprendoAwsArticleSource = sourceConfig.sources.find((source) => source?.id === 'donde-aprendo-aws');
 const expectedArticleSourceIds = [
   'builder-center',
   'caylent',
   ...(simpleAwsArticleSource ? ['simple-aws'] : []),
-  ...(cloudyThingsArticleSource ? ['cloudy-things'] : [])
+  ...(cloudyThingsArticleSource ? ['cloudy-things'] : []),
+  ...(dondeAprendoAwsArticleSource ? ['donde-aprendo-aws'] : [])
 ].sort();
 assert.deepEqual(inputs.sources.map((source) => source?.id).sort(),
   expectedArticleSourceIds,
@@ -1368,6 +1370,10 @@ if (cloudyThingsArticleSource) {
   assert.equal(typeof cloudyThingsArticleSource.authorName, 'string');
   assert.notEqual(cloudyThingsArticleSource.authorName.trim(), '', 'Cloudy Things author name must be non-empty');
   assert.equal(cloudyThingsArticleSource.language, 'en', 'the selected Cloudy Things inventory uses the currently verified English title policy');
+}
+if (dondeAprendoAwsArticleSource) {
+  assert.deepEqual(dondeAprendoAwsArticleSource, { id: 'donde-aprendo-aws' },
+    'Dónde Aprendo AWS article selection fixes the public index and author policy in code, without source-provided selectors');
 }
 const caylentSource = inputs.sources.find((source) => source.id === 'caylent');
 assert.deepEqual(Object.keys(caylentSource).sort(), ['apiKey', 'authorId', 'id', 'language', 'originality'], 'Caylent input must contain only its public delivery key and counting configuration');

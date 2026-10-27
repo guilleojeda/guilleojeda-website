@@ -14,6 +14,7 @@ const builderCenter = { id: 'builder-center', label: 'AWS Builder Center' };
 const websiteInventory = { id: 'website-inventory', label: 'Website inventory' };
 const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
 const cloudyThings = { id: 'cloudy-things', label: 'Cloudy Things' };
+const dondeAprendoAws = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS' };
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const directoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
@@ -2173,6 +2174,31 @@ for (const locale of ['en', 'es']) {
         assert.equal(page.cards.newsletter.count.textContent, '27');
       }
       assert.equal(page.fetchCount, 1, 'language and period changes reuse the single aggregate request');
+    }
+  });
+
+  test(`${locale} Dónde Aprendo AWS coverage renders its actual cumulative counts in All, English, and Español`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    const collectedAt = '2026-10-26T12:34:56.000Z';
+    data.groups.articles.sources = [caylent, builderCenter, simpleAws, cloudyThings, dondeAprendoAws];
+    data.groups.articles.counts = { all: 209, en: 13, es: 196 };
+    data.groups.articles.collectedAt = collectedAt;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.cards.articles.results.hidden, false, 'the supported aggregate renders');
+    assert.equal(page.cards.articles.status.hidden, true);
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(209), 'All shows the published total');
+    assert.match(page.cards.articles.coverage.textContent, /Dónde Aprendo AWS/, 'source coverage names the new Spanish publication');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), 'the collection date remains truthful');
+
+    for (const [language, expected] of [['en', 13], ['es', 196], ['all', 209]]) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(expected), `${language} uses its own cumulative count`);
+      assert.match(page.cards.articles.coverage.textContent, /Dónde Aprendo AWS/, `${language} retains actual source coverage`);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), `${language} retains the aggregate collection date`);
+      assert.equal(page.fetchCount, 1, `${language} filtering reuses the snapshot`);
     }
   });
 
