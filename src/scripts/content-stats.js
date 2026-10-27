@@ -32,9 +32,10 @@ const supportedArticleSources = new Map([
   ['builder-center', 'AWS Builder Center'],
   ['simple-aws', 'Simple AWS'],
   ['cloudy-things', 'Cloudy Things'],
-  ['donde-aprendo-aws', 'Dónde Aprendo AWS']
+  ['donde-aprendo-aws', 'Dónde Aprendo AWS'],
+  ['aws-for-engineers', 'AWS for Engineers']
 ]);
-const supportedArticleSourceOrder = ['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws'];
+const supportedArticleSourceOrder = ['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws', 'aws-for-engineers'];
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
