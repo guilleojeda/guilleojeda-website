@@ -954,6 +954,62 @@ test('Dónde Aprendo AWS rejects configurable endpoint, author, language, and cr
   assert.throws(() => build(duplicate), /donde|source|duplicate|input/i, 'a source can be selected only once');
 });
 
+test('AWS for Engineers projects as an exact fixed selector in input10 without changing other generated facts', async () => {
+  const build = await inputBuilder();
+  const source = fixture();
+  source.articleConfig.sources.push(
+    { id: 'simple-aws' },
+    { id: 'cloudy-things', authorName: 'Guillermo Ojeda', language: 'en' },
+    { id: 'donde-aprendo-aws' }
+  );
+  source.articleConfig.newsletter = newsletterSelection();
+  source.articleConfig.analytics = analyticsSelection();
+  source.articleConfig.searchConsole = searchConsoleSelection();
+  source.articleConfig.directoryAnalytics = {
+    ...directoryAnalyticsClickSelection(),
+    recordedSince: '2024-01-21'
+  };
+  source.articleConfig.newsletterEngagements = true;
+  const before = build(source);
+  const awsSelector = { id: 'aws-for-engineers' };
+  source.articleConfig.sources.push(awsSelector);
+  freeze(source);
+  const after = build(source);
+
+  assert.equal(after.schemaVersion, 10, 'a new article source does not change the protected input version');
+  assert.deepEqual(after.sources, [...before.sources, awsSelector]);
+  assert.deepEqual(Object.keys(after.sources.at(-1)), ['id'], 'no endpoint, author, language, or credential is configurable');
+  assert.notEqual(after.sources, source.articleConfig.sources);
+  assert.notEqual(after.sources.at(-1), source.articleConfig.sources.at(-1));
+  const afterWithoutSource = { ...after, sources: after.sources.slice(0, -1) };
+  assert.deepEqual(afterWithoutSource, before, 'selecting the feed leaves every other generated fact unchanged');
+  assert.equal(Object.hasOwn(after, 'counts'), false);
+});
+
+test('AWS for Engineers rejects configurable endpoint, author, language, credential, and duplicate selectors', async () => {
+  const build = await inputBuilder();
+  const invalidSelectors = [
+    { id: 'aws-for-engineers', endpoint: 'https://another.example/feed.json' },
+    { id: 'aws-for-engineers', language: 'es' },
+    { id: 'aws-for-engineers', authorName: 'Different Author' },
+    { id: 'aws-for-engineers', apiKey: 'synthetic-private-key' }
+  ];
+
+  for (const selector of invalidSelectors) {
+    const source = fixture();
+    source.articleConfig.sources.push(selector);
+    assert.throws(
+      () => build(source),
+      /aws|source|selector|credential|input/i,
+      `invalid AWS for Engineers selector ${JSON.stringify(selector)}`
+    );
+  }
+
+  const duplicate = fixture();
+  duplicate.articleConfig.sources.push({ id: 'aws-for-engineers' }, { id: 'aws-for-engineers' });
+  assert.throws(() => build(duplicate), /aws|source|duplicate|input/i, 'a source can be selected only once');
+});
+
 test('Cloudy Things can generate input3 without newsletter access or a Simple AWS source', async () => {
   const build = await inputBuilder();
   const source = fixture();

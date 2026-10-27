@@ -15,6 +15,7 @@ const websiteInventory = { id: 'website-inventory', label: 'Website inventory' }
 const simpleAws = { id: 'simple-aws', label: 'Simple AWS' };
 const cloudyThings = { id: 'cloudy-things', label: 'Cloudy Things' };
 const dondeAprendoAws = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS' };
+const awsForEngineers = { id: 'aws-for-engineers', label: 'AWS for Engineers' };
 const articleViewPeriods = ['7d', '30d', '90d', '12m', 'ytd', 'total'];
 const articleSearchPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
 const directoryViewPeriods = ['7d', '30d', '90d', '12m', 'ytd'];
@@ -2199,6 +2200,36 @@ for (const locale of ['en', 'es']) {
       assert.match(page.cards.articles.coverage.textContent, /Dónde Aprendo AWS/, `${language} retains actual source coverage`);
       assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), `${language} retains the aggregate collection date`);
       assert.equal(page.fetchCount, 1, `${language} filtering reuses the snapshot`);
+    }
+  });
+
+  test(`${locale} AWS for Engineers coverage renders in All, English, and Español while activity filters stay local`, async () => {
+    const data = snapshotWithArticleSearchClicks();
+    const collectedAt = '2026-10-26T14:15:16.000Z';
+    data.groups.articles.sources = [caylent, builderCenter, simpleAws, cloudyThings, dondeAprendoAws, awsForEngineers];
+    data.groups.articles.counts = { all: 17, en: 12, es: 5 };
+    data.groups.articles.collectedAt = collectedAt;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.cards.articles.results.hidden, false, 'the six-source aggregate is recognized by the public client');
+    assert.equal(page.cards.articles.status.hidden, true);
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(17));
+    assert.match(page.cards.articles.coverage.textContent, /AWS for Engineers/, 'All names the new English source');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    for (const [language, expected] of [['en', 12], ['es', 5], ['all', 17]]) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(expected),
+        `${language} keeps its cumulative count when the activity period changes`);
+      assert.match(page.cards.articles.coverage.textContent, /AWS for Engineers/, `${language} retains selected source coverage`);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt),
+        `${language} retains the aggregate collection date`);
+      assert.equal(page.periodSelector.value, '30d');
+      assert.equal(page.fetchCount, 1, 'language and activity changes reuse the single aggregate request');
     }
   });
 

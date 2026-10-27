@@ -32,6 +32,8 @@ const directoryHostname = "dondeaprendoaws.com";
 const directoryTimeZone = "America/Buenos_Aires";
 const dondeAprendoOrigin = "https://dondeaprendoaws.com";
 const dondeAprendoIndexUrl = `${dondeAprendoOrigin}/article-index.json`;
+const awsForEngineersOrigin = "https://awsforengineers.com";
+const awsForEngineersIndexUrl = `${awsForEngineersOrigin}/article-index.json`;
 const googleResponseCanary = "synthetic-google-private-response-canary";
 const privateAuthorId = "synthetic-author-id";
 const builderAuthorId = "251f1678-ab8f-4f22-afb9-1ee13511c7ee";
@@ -141,6 +143,10 @@ function cloudyThingsSource({ authorName = "Guillermo Ojeda", language = "en" } 
 
 function dondeAprendoAwsSource() {
   return { id: "donde-aprendo-aws" };
+}
+
+function awsForEngineersSource() {
+  return { id: "aws-for-engineers" };
 }
 
 function phaseEightInput({ sources, ...options } = {}) {
@@ -628,6 +634,25 @@ function dondeAprendoIndex(articles, { schemaVersion = 1, sourceId = "donde-apre
   };
 }
 
+function awsForEngineersArticle({
+  title,
+  slug,
+  publishedAt = "2025-03-07T20:44:58.310000+00:00",
+  authorName = "Guille Ojeda",
+  authorUrl = "https://awsforengineers.com/authors/guille-ojeda/",
+  url = `${awsForEngineersOrigin}/blog/${slug}/`
+}) {
+  return { title, language: "en", publishedAt, url, author: { name: authorName, url: authorUrl } };
+}
+
+function awsForEngineersIndex(articles, { schemaVersion = 1, sourceId = "aws-for-engineers" } = {}) {
+  return {
+    schemaVersion,
+    source: { id: sourceId, label: "AWS for Engineers" },
+    articles
+  };
+}
+
 function dondeAprendoApiFetch({ requestLog = [], responder, response, ...apiOptions } = {}) {
   const fallback = phaseEightApiFetch({ requestLog, ...apiOptions });
   let attempt = 0;
@@ -659,9 +684,64 @@ function dondeAprendoApiFetch({ requestLog = [], responder, response, ...apiOpti
   };
 }
 
+function awsForEngineersApiFetch({
+  requestLog = [],
+  responder,
+  response,
+  dondeResponder,
+  dondeResponse,
+  dondeArticles = [],
+  ...apiOptions
+} = {}) {
+  const fallback = dondeAprendoApiFetch({
+    requestLog,
+    responder: dondeResponder,
+    response: dondeResponse ?? dondeAprendoIndex(dondeArticles),
+    ...apiOptions
+  });
+  let attempt = 0;
+  return async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.href !== awsForEngineersIndexUrl) return fallback(input, init);
+
+    attempt += 1;
+    const request = {
+      kind: "aws-for-engineers-index",
+      url: url.href,
+      method: init.method,
+      headers: init.headers ?? {},
+      redirect: init.redirect,
+      signal: init.signal,
+      attempt
+    };
+    requestLog.push(request);
+    let value = typeof responder === "function"
+      ? await responder({ request, attempt })
+      : response;
+    if (typeof value === "function") value = await value({ request, attempt });
+    if (value instanceof Response) return value;
+    return new Response(JSON.stringify(value ?? awsForEngineersIndex([])), {
+      headers: { "content-type": "application/json" }
+    });
+  };
+}
+
 function assertDondeAprendoRequest(request, harness) {
   const url = new URL(request.url);
   assert.equal(url.href, dondeAprendoIndexUrl, "the collector uses the fixed public index endpoint");
+  assert.equal(request.method === undefined ? "GET" : request.method, "GET");
+  const headers = new Headers(request.headers);
+  assert.equal(headers.has("authorization"), false, "the public feed request has no authorization header");
+  assert.equal(headers.has("cookie"), false, "the public feed request has no cookie");
+  assert.ok(request.signal, "the source request is bounded by an abort signal");
+  const timeout = harness.abortSignalRecords.find(({ signal }) => signal === request.signal);
+  assert.ok(timeout, "the request uses the collector's bounded fetch harness");
+  assert.equal(timeout.milliseconds, 10_000, "each source attempt has the established 10-second deadline");
+}
+
+function assertAwsForEngineersRequest(request, harness) {
+  const url = new URL(request.url);
+  assert.equal(url.href, awsForEngineersIndexUrl, "the collector uses the fixed public index endpoint");
   assert.equal(request.method === undefined ? "GET" : request.method, "GET");
   const headers = new Headers(request.headers);
   assert.equal(headers.has("authorization"), false, "the public feed request has no authorization header");
@@ -679,6 +759,47 @@ function assertNoDondeAprendoCanaries(harness, ...values) {
     assert.equal(published.includes(value), false, `public aggregates must omit ${value}`);
     assert.equal(logs.includes(value), false, `collector logs must omit ${value}`);
   }
+}
+
+function assertNoAwsForEngineersCanaries(harness, ...values) {
+  const published = harness.putCalls.map((call) => bodyText(call.Body)).join("\n");
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(published.includes(value), false, `public aggregates must omit ${value}`);
+    assert.equal(logs.includes(value), false, `collector logs must omit ${value}`);
+  }
+}
+
+function awsSixSourceInput(sources = [
+  ...phaseEightInput().sources,
+  dondeAprendoAwsSource(),
+  awsForEngineersSource()
+]) {
+  return phaseThirteenInput({ sources });
+}
+
+function awsSixSourceFetch({
+  requestLog = [],
+  awsResponder,
+  awsResponse,
+  dondeArticles = [dondeAprendoArticle({ title: "Six-source Spanish identity", slug: "six-source-spanish" })],
+  caylentRows = [article({ id: "six-source-caylent", title: "Six-source Caylent identity" })],
+  builderArticles = [builderArticle({ id: "six-source-builder", title: "Six-source Builder identity" })],
+  simpleArticles = [beehiivPost({ id: "six-source-simple", title: "Six-source Simple identity" })],
+  cloudyRows = [cloudyArticle({ id: "six-source-cloudy", title: "Six-source Cloudy identity" })],
+  ...apiOptions
+} = {}) {
+  return awsForEngineersApiFetch({
+    requestLog,
+    responder: awsResponder,
+    response: awsResponse,
+    dondeArticles,
+    caylentPages: new Map([[0, { results: caylentRows }]]),
+    builderPages: new Map([["", { articles: builderArticles, resultsSize: builderArticles.length }]]),
+    postsResponder: () => jsonResponse(beehiivPostsEnvelope(simpleArticles)),
+    cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: cloudyRows, totalPosts: cloudyRows.length })]]),
+    ...apiOptions
+  });
 }
 
 function assertNoCloudyCanaries(harness, ...values) {
@@ -5352,6 +5473,286 @@ test("a first Dónde Aprendo AWS failure leaves Articles unavailable instead of 
   assert.equal(Object.hasOwn(output.groups, "books"), true, "healthy book data still publishes");
   assertDondeAprendoRequest(requestLog.find(({ kind }) => kind === "donde-aprendo-index"), harness);
   assertNoDondeAprendoCanaries(harness, "synthetic-donde-error-body-canary");
+});
+
+test("AWS for Engineers joins all six selected sources with English title-language identity rules", async () => {
+  const requestLog = [];
+  let attempt = 0;
+  const awsRows = [
+    awsForEngineersArticle({ title: "  Shared   language identity ", slug: "shared-copy", publishedAt: "2024-01-02" }),
+    awsForEngineersArticle({ title: "SHARED LANGUAGE IDENTITY", slug: "shared-case-copy", publishedAt: "2024-02-03" }),
+    awsForEngineersArticle({ title: "  Café: Guide!  ", slug: "cafe-composed" }),
+    awsForEngineersArticle({ title: "CAFE\u0301: GUIDE!", slug: "cafe-decomposed" }),
+    awsForEngineersArticle({ title: "Cafe: Guide!", slug: "cafe-unaccented" }),
+    awsForEngineersArticle({ title: "Cloudy AWS only!", slug: "cloudy-copy" }),
+    awsForEngineersArticle({ title: "Cloudy AWS only", slug: "cloudy-punctuation" }),
+    awsForEngineersArticle({ title: "Boundary AWS", slug: "exact-cutoff", publishedAt: "2026-10-16T07:00:00.000000-05:00" }),
+    awsForEngineersArticle({ title: "Date-only AWS", slug: "date-only", publishedAt: "2024-07-09" }),
+    awsForEngineersArticle({ title: "Future date-only AWS", slug: "future-date-only", publishedAt: "2026-10-17" }),
+    awsForEngineersArticle({ title: "Future same-day AWS", slug: "future-same-day", publishedAt: "2026-10-16T12:00:01+00:00" }),
+    awsForEngineersArticle({
+      title: "Another author's AWS publication",
+      slug: "other-author",
+      authorName: "Synthetic unaffiliated author",
+      authorUrl: null
+    })
+  ];
+  const sources = [...phaseEightInput().sources, dondeAprendoAwsSource(), awsForEngineersSource()];
+  const harness = createHarness({
+    input: phaseThirteenInput({ sources }),
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: awsSixSourceFetch({
+      requestLog,
+      awsResponder: () => {
+        attempt += 1;
+        if (attempt === 1) throw new Error("synthetic AWS for Engineers transient interruption");
+        return awsForEngineersIndex(awsRows);
+      },
+      caylentRows: [article({ id: "same-title-caylent", title: "Shared language identity" })],
+      builderArticles: [builderArticle({ id: "same-title-builder", title: "Shared language identity", locale: "es" })],
+      simpleArticles: [beehiivPost({ id: "simple-only", title: "Simple AWS only" })],
+      cloudyRows: [cloudyArticle({ id: "cloudy-copy", title: "Cloudy AWS only!" })],
+      dondeArticles: [dondeAprendoArticle({ title: "Shared language identity", slug: "same-title-spanish" })]
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  const group = output.groups.articles;
+  assert.deepEqual(group.counts, { all: 9, en: 8, es: 1 },
+    "English copies collapse across sources, Spanish stays distinct, normalized title copies collapse, and punctuation or accents remain significant");
+  assert.deepEqual(group.sources.map(({ id }) => id), [
+    "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers"
+  ], "AWS for Engineers is appended after all five existing source identities");
+  assert.equal(group.collectedAt, "2026-10-16T12:00:00.000Z", "collection metadata reports the refresh time, not a feed publication date");
+  assert.ok(group.sources.some(({ id, label }) => id === "aws-for-engineers" && label === "AWS for Engineers"));
+  const requests = requestLog.filter(({ kind }) => kind === "aws-for-engineers-index");
+  assert.equal(requests.length, 2, "one transient fetch failure is retried once");
+  assert.deepEqual(requests.map(({ attempt: number }) => number), [1, 2]);
+  for (const request of requests) assertAwsForEngineersRequest(request, harness);
+  assertNoAwsForEngineersCanaries(harness,
+    ...awsRows.flatMap(({ title, url }) => [title, url]),
+    "Synthetic unaffiliated author");
+});
+
+test("a valid empty AWS for Engineers feed contributes zero without Beehiiv in an older input", async () => {
+  const requestLog = [];
+  const sources = [sourceInput().source, builderCenterSource(), awsForEngineersSource()];
+  const harness = createHarness({
+    input: phaseTwoInput({ sources }),
+    secretArn: null,
+    fetchFn: awsForEngineersApiFetch({
+      requestLog,
+      response: awsForEngineersIndex([]),
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const group = (await readPut(harness.putCalls[0])).groups.articles;
+  assert.deepEqual(group.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(group.sources.map(({ id }) => id), ["caylent", "builder-center", "aws-for-engineers"]);
+  assert.deepEqual(harness.secretCalls, [], "the public article feed adds no credential requirement");
+  assert.equal(requestLog.some(({ kind }) => kind.startsWith("beehiiv")), false, "an older source-array input makes no Beehiiv request");
+  assertAwsForEngineersRequest(requestLog.find(({ kind }) => kind === "aws-for-engineers-index"), harness);
+});
+
+test("invalid, incomplete, or oversized AWS for Engineers feeds retain the whole prior Articles family", async () => {
+  const goodRow = awsForEngineersArticle({ title: "Last complete AWS for Engineers identity", slug: "last-complete" });
+  const oversizedBody = JSON.stringify(awsForEngineersIndex([
+    goodRow,
+    awsForEngineersArticle({ title: `Oversized valid identity ${"x".repeat(2_200_000)}`, slug: "oversized-valid" })
+  ]));
+  assert.ok(Buffer.byteLength(oversizedBody, "utf8") > 1024 * 1024, "the valid source response exceeds the 1 MiB decoded-body ceiling");
+  const oversizedChunks = Array.from({ length: Math.ceil(oversizedBody.length / (64 * 1024)) }, (_, index) =>
+    oversizedBody.slice(index * 64 * 1024, (index + 1) * 64 * 1024));
+  let oversizedStream;
+  const makeOversizedResponse = () => {
+    oversizedStream = cloudyStreamingResponse(oversizedChunks, { contentType: "application/json; charset=utf-8" });
+    return oversizedStream.response;
+  };
+  const contradictoryCopy = awsForEngineersArticle({
+    title: "Contradictory metadata for the same URL",
+    slug: "contradictory-copy",
+    url: `${awsForEngineersOrigin}/blog/last-complete/`
+  });
+  const makeIncompleteResponse = () => {
+    let sentPartialBody = false;
+    const incompleteBody = new ReadableStream({
+      pull(controller) {
+        if (!sentPartialBody) {
+          sentPartialBody = true;
+          controller.enqueue(Buffer.from(JSON.stringify(awsForEngineersIndex([goodRow])).slice(0, -1)));
+          return;
+        }
+        controller.error(new Error("synthetic incomplete AWS for Engineers stream"));
+      }
+    });
+    return new Response(incompleteBody, { headers: { "content-type": "application/json" } });
+  };
+  const failureCases = [
+    ["wrong source identity", () => awsForEngineersIndex([goodRow], { sourceId: "another-source" })],
+    ["unsupported schema version", () => awsForEngineersIndex([goodRow], { schemaVersion: 2 })],
+    ["malformed eligible row after a valid row", () => awsForEngineersIndex([goodRow, { ...goodRow, title: "   ", url: `${awsForEngineersOrigin}/blog/malformed/` }])],
+    ["invalid publication date after a valid row", () => awsForEngineersIndex([goodRow, { ...goodRow, title: "Invalid date", url: `${awsForEngineersOrigin}/blog/invalid-date/`, publishedAt: "not-a-date" }])],
+    ["impossible calendar date after a valid row", () => awsForEngineersIndex([goodRow, { ...goodRow, title: "Impossible date", url: `${awsForEngineersOrigin}/blog/impossible-date/`, publishedAt: "2025-02-30" }])],
+    ["impossible ISO calendar timestamp after a valid row", () => awsForEngineersIndex([goodRow, { ...goodRow, title: "Impossible timestamp", url: `${awsForEngineersOrigin}/blog/impossible-timestamp/`, publishedAt: "2025-02-30T12:00:00+00:00" }])],
+    ["foreign article URL after a valid row", () => awsForEngineersIndex([goodRow, { ...goodRow, title: "Foreign article", url: "https://attacker.example/blog/foreign/" }])],
+    ["contradictory duplicate URL metadata", () => awsForEngineersIndex([goodRow, contradictoryCopy])],
+    ["truncated JSON", () => new Response('{"schemaVersion":1,"source":', { headers: { "content-type": "application/json" } })],
+    ["incomplete response stream", makeIncompleteResponse, undefined, true],
+    ["oversized valid JSON feed", makeOversizedResponse, undefined, false, () => oversizedStream],
+    ["failed HTTP response", () => new Response("synthetic-aws-for-engineers-error-body-canary", { status: 503 }), undefined, true]
+  ];
+
+  for (const [description, makeFailureResponse, _unused, retries, getStream] of failureCases) {
+    let failSource = false;
+    let subscribers = 17;
+    const requestLog = [];
+    const harness = createHarness({
+      input: awsSixSourceInput(),
+      fetchFn: awsSixSourceFetch({
+        requestLog,
+        awsResponder: () => failSource ? makeFailureResponse() : awsForEngineersIndex([goodRow]),
+        newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } })
+      })
+    });
+
+    await harness.handler({}, {});
+    const previous = (await readPut(harness.putCalls.at(-1))).groups.articles;
+    assert.deepEqual(previous.counts, { all: 6, en: 5, es: 1 }, `${description} begins with a complete six-source aggregate`);
+
+    failSource = true;
+    subscribers = 18;
+    harness.clock.set("2026-10-17T12:00:00.000Z");
+    await harness.handler({}, {});
+
+    const refreshed = await readPut(harness.putCalls.at(-1));
+    assert.deepEqual(refreshed.groups.articles, previous, `${description} retains counts, coverage, scope, and collection time together`);
+    assert.equal(refreshed.groups.newsletter.subscribers, 18, `${description} still refreshes a healthy sibling family`);
+    const requests = requestLog.filter(({ kind }) => kind === "aws-for-engineers-index");
+    assert.equal(requests.length, retries ? 3 : 2, `${description} uses the expected number of new-source reads`);
+    for (const request of requests) assertAwsForEngineersRequest(request, harness);
+    if (getStream !== undefined) {
+      const stats = getStream().stats();
+      assert.ok(stats.chunksRead < stats.totalChunks, "the decoded-body ceiling stops before reading the full oversized feed");
+      assert.equal(stats.cancelled, true, "the oversized source stream is cancelled after crossing the limit");
+    }
+    assertNoAwsForEngineersCanaries(harness, "synthetic-aws-for-engineers-error-body-canary");
+  }
+});
+
+test("a first AWS for Engineers failure leaves Articles unavailable instead of publishing zero or partial counts", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseTwoInput({ sources: [sourceInput().source, builderCenterSource(), awsForEngineersSource()] }),
+    secretArn: null,
+    fetchFn: awsForEngineersApiFetch({
+      requestLog,
+      response: new Response("synthetic-first-aws-source-error-canary", { status: 503 }),
+      caylentPages: new Map([[0, { results: [article({ id: "first-failure-caylent", title: "Valid sibling article" })] }]]),
+      builderPages: new Map([["", {
+        articles: [builderArticle({ id: "first-failure-builder", title: "Valid sibling article", locale: "es" })],
+        resultsSize: 1
+      }]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false, "a partial source set cannot publish as a measured total");
+  assert.equal(Object.hasOwn(output.groups, "talks"), true, "healthy sibling families still publish");
+  assert.equal(Object.hasOwn(output.groups, "books"), true);
+  assert.equal(requestLog.filter(({ kind }) => kind === "aws-for-engineers-index").length, 2, "the transient HTTP failure is retried once");
+  assert.deepEqual(harness.secretCalls, []);
+  assertNoAwsForEngineersCanaries(harness, "synthetic-first-aws-source-error-canary");
+});
+
+test("AWS for Engineers activation retains the five-source aggregate on failure, then recovers without changing other scopes", async () => {
+  let awsFeed = awsForEngineersIndex([]);
+  let subscribers = 17;
+  const requestLog = [];
+  const priorSources = [...phaseEightInput().sources, dondeAprendoAwsSource()];
+  const enabledSources = [...priorSources, awsForEngineersSource()];
+  const harness = createHarness({
+    input: phaseThirteenInput({ sources: priorSources }),
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: awsSixSourceFetch({
+      requestLog,
+      awsResponder: () => awsFeed,
+      newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
+      caylentRows: [article({ id: "activation-caylent", title: "Activation shared English" })],
+      builderArticles: [],
+      simpleArticles: [beehiivPost({ id: "activation-simple", title: "Activation Simple article" })],
+      cloudyRows: [cloudyArticle({ id: "activation-cloudy", title: "Activation shared English" })],
+      dondeArticles: [dondeAprendoArticle({ title: "Activation Spanish article", slug: "activation-spanish" })]
+    })
+  });
+
+  const independentScopes = (output) => Object.fromEntries(Object.entries(output.groups)
+    .filter(([name]) => name !== "articles")
+    .map(([name, group]) => [name, group.scopeId ?? Object.fromEntries(
+      Object.entries(group.records ?? {}).map(([period, record]) => [period, record.scopeId])
+    )]));
+
+  await harness.handler({}, {});
+  const beforeActivation = await readPut(harness.putCalls.at(-1));
+  const previousArticles = beforeActivation.groups.articles;
+  assert.deepEqual(previousArticles.sources.map(({ id }) => id), [
+    "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws"
+  ], "the prior snapshot contains all five currently selected article sources");
+  const previousIndependentScopes = independentScopes(beforeActivation);
+
+  harness.setInput(phaseThirteenInput({ sources: enabledSources }));
+  awsFeed = new Response("synthetic-aws-for-engineers-activation-error-canary", { status: 503 });
+  subscribers = 18;
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const failedActivation = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(failedActivation.groups.articles, previousArticles,
+    "a new source failure preserves the exact prior five-source coverage, counts, scope, and date");
+  assert.equal(failedActivation.groups.newsletter.subscribers, 18);
+  assert.deepEqual(independentScopes(failedActivation), previousIndependentScopes);
+
+  awsFeed = awsForEngineersIndex([
+    awsForEngineersArticle({ title: "AWS activation English article", slug: "activation-english", publishedAt: "2025-07-01T10:15:23.123456+00:00" })
+  ]);
+  subscribers = 19;
+  harness.clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(recovered.groups.articles.sources.map(({ id }) => id), [
+    "caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws", "aws-for-engineers"
+  ]);
+  assert.notEqual(recovered.groups.articles.scopeId, previousArticles.scopeId, "successful activation changes Articles selection scope");
+  assert.deepEqual(recovered.groups.articles.counts, { all: 4, en: 3, es: 1 });
+  assert.equal(recovered.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z");
+  assert.deepEqual(independentScopes(recovered), previousIndependentScopes,
+    "Newsletter, views, Search, and directory scope ids remain independent of article-source selection");
+
+  await harness.handler({}, {});
+  const repeated = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(repeated.groups.articles.counts, recovered.groups.articles.counts,
+    "a repeated invocation recomputes totals rather than adding the published count again");
+  assert.equal(repeated.groups.articles.scopeId, recovered.groups.articles.scopeId);
+
+  harness.setInput(phaseThirteenInput({ sources: [...enabledSources].reverse() }));
+  await harness.handler({}, {});
+  const reordered = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(reordered.groups.articles.sources, recovered.groups.articles.sources,
+    "reordered selectors still publish canonical source coverage");
+  assert.equal(reordered.groups.articles.scopeId, recovered.groups.articles.scopeId,
+    "selector order does not change semantic source scope");
+  assert.deepEqual(reordered.groups.articles.counts, recovered.groups.articles.counts);
+
+  for (const request of requestLog.filter(({ kind }) => kind === "aws-for-engineers-index")) {
+    assertAwsForEngineersRequest(request, harness);
+  }
+  assertNoAwsForEngineersCanaries(harness, "synthetic-aws-for-engineers-activation-error-canary");
 });
 
 test("Dónde Aprendo AWS recovery recomputes the full aggregate after retaining a prior snapshot", async () => {
