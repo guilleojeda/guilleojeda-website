@@ -212,15 +212,9 @@ function cloudyArticle({
   slug = id,
   url = `https://blog.guilleojeda.com/${slug}`,
   title = `Synthetic Cloudy headline ${id}`,
-  domTitle = title,
-  author = "Guillermo Ojeda",
-  publishedAt = "2025-03-07T20:44:58.310Z",
-  includeId = true,
-  includeHref = true,
-  includeDate = true,
-  includeAuthor = true
+  publishedAt = "2025-03-07T20:44:58.310Z"
 } = {}) {
-  return { id, slug, url, title, domTitle, author, publishedAt, includeId, includeHref, includeDate, includeAuthor };
+  return { id, slug, url, title, publishedAt };
 }
 
 function cloudyGeneratedArticles(count, offset = 0) {
@@ -230,8 +224,7 @@ function cloudyGeneratedArticles(count, offset = 0) {
     return cloudyArticle({
       id: `synthetic-cloudy-${id}`,
       slug: `synthetic-cloudy-article-${id}`,
-      title,
-      domTitle: title
+      title
     });
   });
 }
@@ -447,92 +440,46 @@ function jsonResponse(body, status = 200) {
   };
 }
 
-const cloudyArchiveOrigin = "https://blog.guilleojeda.com";
+const cloudyArticleOrigin = "https://blog.guilleojeda.com";
+const hashnodeApiUrl = "https://gql-beta.hashnode.com/";
+const hashnodeUsername = "GuilleOjeda";
+const hashnodeAuthorName = "Guillermo Ojeda";
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function cloudyArticleMarkup(row) {
-  let href = row.href;
-  if (href === undefined && row.includeHref) {
-    try {
-      href = new URL(row.url).pathname;
-    } catch {
-      href = String(row.url ?? "");
-    }
-  }
-  const articleLabel = row.includeId ? ` aria-labelledby="archive-post-${escapeHtml(row.id)}"` : "";
-  const hrefAttribute = row.includeHref ? ` href="${escapeHtml(href)}"` : "";
-  const time = row.includeDate
-    ? `<time dateTime="${escapeHtml(row.publishedAt)}">Mar 7, 2025</time>`
-    : "<time>Mar 7, 2025</time>";
-  const headingId = row.includeId ? ` id="archive-post-${escapeHtml(row.id)}"` : "";
-  const author = row.includeAuthor ? `<p>${escapeHtml(row.author)}</p>` : "";
-  return `<article${articleLabel}><a${hrefAttribute}>${time}<div><h2${headingId}>${escapeHtml(row.domTitle)}</h2>${author}</div></a></article>`;
-}
-
-function cloudyArchiveMarkup({
+function cloudyHashnodePage({
   page = 1,
   totalPages = 1,
-  declaredTotalPages = totalPages,
-  totalPosts,
-  headerTotal = totalPosts,
   rows = [],
-  jsonLdRows = rows,
-  includeCollectionPage = true,
-  jsonLdText,
-  currentPage = page,
-  nextHref = page < totalPages ? `/archive?page=${page + 1}` : null,
-  includeNextControl = true,
-  nextDisabled = nextHref === null,
-  includePagination = true,
-  extraHtml = ""
+  username = hashnodeUsername,
+  name = hashnodeAuthorName,
+  hasNextPage = page < totalPages,
+  endCursor = hasNextPage ? `cloudy-cursor-${page}` : null,
+  graphqlErrors,
+  user = true,
+  posts = true,
+  edges = rows.map(({ title, url, publishedAt }) => ({ node: { title, url, publishedAt } })),
+  pageInfo = { hasNextPage, endCursor }
 } = {}) {
-  const archiveUrl = page === 1 ? `${cloudyArchiveOrigin}/archive` : `${cloudyArchiveOrigin}/archive?page=${page}`;
-  const collection = {
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    url: archiveUrl,
-    hasPart: jsonLdRows.map((row) => ({ "@type": "Article", headline: row.title, url: row.url }))
+  if (graphqlErrors !== undefined) return { errors: graphqlErrors };
+  if (!user) return { data: { user: null } };
+  return {
+    data: {
+      user: {
+        username,
+        name,
+        ...(posts ? { posts: { edges, pageInfo } } : {})
+      }
+    }
   };
-  const script = includeCollectionPage
-    ? `<script type="application/ld+json">${jsonLdText ?? JSON.stringify(collection)}</script>`
-    : "";
-  const previous = page > 1
-    ? `<a href="/archive?page=${page - 1}">Previous</a>`
-    : `<button disabled="">Previous</button>`;
-  const pageButtons = Array.from({ length: totalPages }, (_, index) => {
-    const number = index + 1;
-    if (number === currentPage) return `<button disabled=""><span>${number}</span></button>`;
-    return `<a href="${number === 1 ? "/archive" : `/archive?page=${number}`}">${number}</a>`;
-  }).join("");
-  const next = includeNextControl
-    ? nextHref === null || nextDisabled
-      ? `<button disabled="">Next</button>`
-      : `<a href="${escapeHtml(nextHref)}">Next</a>`
-    : "";
-  const nav = includePagination
-    ? `<nav aria-label="Pagination">${previous}<div>${pageButtons}</div><div>Page <!-- -->${currentPage}<!-- --> of <!-- -->${declaredTotalPages}</div>${next}</nav>`
-    : "";
-  const total = totalPosts ?? rows.length;
-  const header = `<header><h1 id="archive-heading">Archive</h1><p>${headerTotal ?? total}<!-- --> <!-- -->posts<!-- --> published so far</p></header>`;
-  const archiveContent = `<section aria-labelledby="archive-heading">${header}${rows.map(cloudyArticleMarkup).join("")}</section>`;
-  return `${archiveContent}${script}${nav}${extraHtml}`;
 }
 
-function cloudyHtmlResponse(body, { status = 200, contentType = "text/html; charset=utf-8", headers = {} } = {}) {
-  return new Response(body, {
+function cloudyHashnodeResponse(body, { status = 200, headers = {} } = {}) {
+  return new Response(typeof body === "string" ? body : JSON.stringify(body), {
     status,
-    headers: { "content-type": contentType, ...headers }
+    headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
 }
 
-function cloudyStreamingResponse(chunks, { status = 200, contentType = "text/html; charset=utf-8" } = {}) {
+function hashnodeStreamingResponse(chunks, { status = 200, contentType = "application/json; charset=utf-8" } = {}) {
   let chunksRead = 0;
   let cancelled = false;
   let completed = false;
@@ -559,40 +506,53 @@ function cloudyStreamingResponse(chunks, { status = 200, contentType = "text/htm
   };
 }
 
-function cloudyArchiveFetcher({ requestLog = [], pages = new Map(), responder, fallback } = {}) {
+function hashnodeApiFetcher({ requestLog = [], pages = new Map(), responder, fallback } = {}) {
   const articleFetch = fallback ?? builderApiFetch({ requestLog });
   const attempts = new Map();
   return async (input, init = {}) => {
     const url = new URL(String(input));
-    if (url.origin !== cloudyArchiveOrigin || url.pathname !== "/archive") return articleFetch(input, init);
-    const page = url.searchParams.has("page") ? Number(url.searchParams.get("page")) : 1;
-    const attempt = (attempts.get(page) ?? 0) + 1;
-    attempts.set(page, attempt);
+    if (url.href !== hashnodeApiUrl) return articleFetch(input, init);
+    let json;
+    try {
+      json = JSON.parse(String(init.body ?? ""));
+    } catch {
+      json = {};
+    }
+    const after = json.variables?.after ?? null;
+    const cursorMatch = typeof after === "string" ? after.match(/^cloudy-cursor-(\d+)$/) : null;
+    const page = cursorMatch ? Number(cursorMatch[1]) + 1 : 1;
+    const attemptKey = `${page}:${after ?? "first"}`;
+    const attempt = (attempts.get(attemptKey) ?? 0) + 1;
+    attempts.set(attemptKey, attempt);
     const request = {
-      kind: "cloudy-archive",
+      kind: "hashnode-user-posts",
       url: url.toString(),
       page,
+      after,
       attempt,
       method: init.method,
       headers: init.headers ?? {},
       redirect: init.redirect,
-      signal: init.signal
+      signal: init.signal,
+      body: String(init.body ?? ""),
+      json
     };
     requestLog.push(request);
     let value = typeof responder === "function"
       ? await responder({ request, attempt, page })
       : pages.get(page);
     if (typeof value === "function") value = await value({ request, attempt, page });
-    if (typeof value === "string") return cloudyHtmlResponse(value);
-    if (value !== undefined) return value;
-    return cloudyHtmlResponse("<div>Page not found</div>");
+    if (value instanceof Response || (value && typeof value.text === "function" && typeof value.status === "number")) {
+      return value;
+    }
+    return cloudyHashnodeResponse(value ?? cloudyHashnodePage());
   };
 }
 
 function phaseEightApiFetch({
   requestLog = [],
-  cloudyPages = new Map(),
-  cloudyResponder,
+  hashnodePages = new Map(),
+  hashnodeResponder,
   caylentPages,
   builderPages,
   postsResponder,
@@ -603,7 +563,7 @@ function phaseEightApiFetch({
   searchResponder
 } = {}) {
   const sourceFetch = builderApiFetch({ requestLog, caylentPages, builderPages });
-  const articleFetcher = cloudyArchiveFetcher({ requestLog, pages: cloudyPages, responder: cloudyResponder, fallback: sourceFetch });
+  const articleFetcher = hashnodeApiFetcher({ requestLog, pages: hashnodePages, responder: hashnodeResponder, fallback: sourceFetch });
   return phaseFiveApiFetch({
     requestLog,
     articleFetcher,
@@ -793,7 +753,7 @@ function awsSixSourceFetch({
   caylentRows = [article({ id: "six-source-caylent", title: "Six-source Caylent identity" })],
   builderArticles = [builderArticle({ id: "six-source-builder", title: "Six-source Builder identity" })],
   simpleArticles = [beehiivPost({ id: "six-source-simple", title: "Six-source Simple identity" })],
-  cloudyRows = [cloudyArticle({ id: "six-source-cloudy", title: "Six-source Cloudy identity" })],
+  hashnodeRows = [cloudyArticle({ id: "six-source-cloudy", title: "Six-source Cloudy identity" })],
   ...apiOptions
 } = {}) {
   return awsForEngineersApiFetch({
@@ -804,7 +764,7 @@ function awsSixSourceFetch({
     caylentPages: new Map([[0, { results: caylentRows }]]),
     builderPages: new Map([["", { articles: builderArticles, resultsSize: builderArticles.length }]]),
     postsResponder: () => jsonResponse(beehiivPostsEnvelope(simpleArticles)),
-    cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: cloudyRows, totalPosts: cloudyRows.length })]]),
+    hashnodePages: new Map([[1, cloudyHashnodePage({ rows: hashnodeRows })]]),
     ...apiOptions
   });
 }
@@ -5188,23 +5148,17 @@ test("Simple AWS inventory and subscriber failures recover independently without
   assertNoBeehiivPostCanaries(harness, "synthetic catalog outage", "synthetic subscriber outage", beehiivApiKey);
 });
 
-test("Cloudy Things enumerates all 25/25/7 archive pages with safe aggregate-only output", async () => {
+test("Cloudy Things enumerates all 25/25/7 public user.posts pages with safe aggregate-only output", async () => {
   const records = cloudyGeneratedArticles(57);
   const pageFixture = new Map([
-    [1, cloudyArchiveMarkup({
-      page: 1,
-      totalPages: 3,
-      totalPosts: 57,
-      rows: records.slice(0, 25),
-      extraHtml: '<script type="application/json">{"provider":"synthetic-cloudy-private-metadata-canary"}</script><script type="application/ld+json">{"@type":"Thing","name":"unrelated provider addition"}</script>'
-    })],
-    [2, cloudyArchiveMarkup({ page: 2, totalPages: 3, totalPosts: 57, rows: records.slice(25, 50) })],
-    [3, cloudyArchiveMarkup({ page: 3, totalPages: 3, totalPosts: 57, rows: records.slice(50) })]
+    [1, cloudyHashnodePage({ page: 1, totalPages: 3, rows: records.slice(0, 25) })],
+    [2, cloudyHashnodePage({ page: 2, totalPages: 3, rows: records.slice(25, 50) })],
+    [3, cloudyHashnodePage({ page: 3, totalPages: 3, rows: records.slice(50) })]
   ]);
   const requestLog = [];
   const harness = createHarness({
     input: phaseEightInput(),
-    fetchFn: phaseEightApiFetch({ requestLog, cloudyPages: pageFixture })
+    fetchFn: phaseEightApiFetch({ requestLog, hashnodePages: pageFixture })
   });
 
   await harness.handler({}, {});
@@ -5220,57 +5174,65 @@ test("Cloudy Things enumerates all 25/25/7 archive pages with safe aggregate-onl
   ]);
   assert.deepEqual(group.counts, { all: 57, en: 57, es: 0 });
 
-  const requests = requestLog.filter(({ kind }) => kind === "cloudy-archive");
+  const requests = requestLog.filter(({ kind }) => kind === "hashnode-user-posts");
   assert.deepEqual(requests.map(({ page }) => page), [1, 2, 3]);
   for (const [index, request] of requests.entries()) {
-    const url = new URL(request.url);
-    assert.equal(url.origin, cloudyArchiveOrigin);
-    assert.equal(url.pathname, "/archive");
-    assert.equal(url.search, index === 0 ? "" : `?page=${index + 1}`);
-    assert.equal(url.username, "");
-    assert.equal(url.password, "");
-    assert.ok(request.method === undefined || request.method === "GET",
-      "the archive request uses Fetch's default GET or states GET explicitly");
-    assert.equal(String(Object.entries(request.headers).find(([name]) => name.toLowerCase() === "accept")?.[1]).includes("text/html"), true);
+    assert.equal(request.url, hashnodeApiUrl);
+    assert.equal(request.method, "POST");
+    assert.equal(request.json.variables.username, hashnodeUsername);
+    assert.equal(request.json.variables.after, index === 0 ? null : `cloudy-cursor-${index}`);
+    assert.match(request.json.query, /user\s*\(\s*username\s*:/);
+    assert.match(request.json.query, /posts[\s\S]*first\s*:?\s*25/);
+    assert.doesNotMatch(request.json.query, /\bauthor\b/i,
+      "the query must not request post author metadata");
+    assert.equal(String(Object.entries(request.headers).find(([name]) => name.toLowerCase() === "accept")?.[1]).includes("application/json"), true);
+    assert.equal(String(Object.entries(request.headers).find(([name]) => name.toLowerCase() === "content-type")?.[1]).includes("application/json"), true);
     assert.equal(Object.entries(request.headers).some(([name]) => ["authorization", "cookie"].includes(name.toLowerCase())), false);
-    assert.ok(["error", "manual"].includes(request.redirect), "redirects must be rejected or left unfollowed for explicit status rejection");
+    assert.equal(request.redirect, "error", "redirects are rejected for the fixed GraphQL endpoint");
     assert.ok(request.signal);
     assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 10_000);
   }
-  assert.equal(requestLog.some(({ url }) => /sitemap|rss|graphql|posts\//i.test(url)), false,
-    "archive counts use only the public archive and do not fall back to other source interfaces");
+  assert.equal(requestLog.some(({ url }) => url !== undefined && !String(url).startsWith(hashnodeApiUrl) && /sitemap|rss|graphql|posts\//i.test(String(url))), false,
+    "the source uses only the fixed public user.posts endpoint");
   assertNoCloudyCanaries(
     harness,
     ...records.flatMap(({ id, slug, url, title }) => [id, slug, url, title]),
-    "synthetic-cloudy-private-metadata-canary",
-    cloudyArchiveOrigin
+    cloudyArticleOrigin
   );
 });
 
-test("Cloudy Things uses JSON-LD headlines and the shared title-language rule for eligible authored posts", async () => {
+test("Cloudy Hashnode metadata uses shared title-language identity and excludes future or foreign-origin posts", async () => {
   const rows = [
     cloudyArticle({ id: "cafe-composed", slug: "cafe-composed", title: "  Café   Guide " }),
     cloudyArticle({ id: "cafe-decomposed", slug: "cafe-decomposed", title: "CAFE\u0301 guide" }),
     cloudyArticle({ id: "cafe-unaccented", slug: "cafe-unaccented", title: "Cafe Guide" }),
     cloudyArticle({ id: "shared-title", slug: "shared-title", title: "Shared title across sources" }),
     cloudyArticle({ id: "future", slug: "future", title: "Future archive record", publishedAt: "2027-01-01T00:00:00.000Z" }),
-    cloudyArticle({ id: "other-author", slug: "other-author", title: "Another author record", author: "A Different Author" }),
+    cloudyArticle({
+      id: "foreign-origin",
+      slug: "foreign-origin",
+      title: "Foreign-origin post is excluded",
+      url: "https://posts.hashnode.dev/foreign-origin"
+    }),
+    cloudyArticle({
+      id: "site-root-origin",
+      slug: "site-root-origin",
+      title: "Site-root origin is excluded",
+      url: "https://guilleojeda.com/site-root-origin"
+    }),
     cloudyArticle({
       id: "json-escaped-title",
       slug: "json-escaped-title",
-      title: "Café & Tools",
-      domTitle: "Rendered display title may differ",
-      includeId: false
+      title: "Café & Tools"
     })
   ];
-  const markup = cloudyArchiveMarkup({ totalPosts: rows.length, rows }).replace("Café & Tools", "Caf\\u00e9 & Tools");
   const requestLog = [];
   const harness = createHarness({
     input: phaseEightInput(),
     clock: createClock("2026-10-16T12:00:00.000Z"),
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, markup]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows, name: "  Guillermo\u00a0   Ojeda " })]]),
       caylentPages: new Map([[0, { results: [
         article({ id: "caylent-accent-copy", title: "Cafe Guide" }),
         article({ id: "caylent-json-headline-copy", title: "Café & Tools" })
@@ -5291,8 +5253,64 @@ test("Cloudy Things uses JSON-LD headlines and the shared title-language rule fo
   assert.deepEqual(group.counts, { all: 5, en: 4, es: 1 },
     "NFC/case/whitespace copies collapse, punctuation/accent differences remain significant, and Spanish stays distinct");
   assert.deepEqual(group.sources.map(({ id }) => id), ["caylent", "builder-center", "simple-aws", "cloudy-things"]);
-  assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 1);
-  assertNoCloudyCanaries(harness, ...rows.flatMap(({ id, slug, url, title, domTitle }) => [id, slug, url, title, domTitle]));
+  assert.equal(requestLog.filter(({ kind }) => kind === "hashnode-user-posts").length, 1);
+  assertNoCloudyCanaries(harness, ...rows.flatMap(({ id, slug, url, title }) => [id, slug, url, title]));
+});
+
+test("a healthy terminal Hashnode connection with no public posts contributes an explicit zero", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFourInput({
+      sources: [sourceInput().source, builderCenterSource(), cloudyThingsSource()],
+      curated: { talks: [], books: [] }
+    }),
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [], hasNextPage: false, endCursor: null })]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const group = (await readPut(harness.putCalls[0])).groups.articles;
+  assert.deepEqual(group.sources, [
+    { id: "caylent", label: "Caylent" },
+    { id: "builder-center", label: "AWS Builder Center" },
+    { id: "cloudy-things", label: "Cloudy Things" }
+  ]);
+  assert.deepEqual(group.counts, { all: 0, en: 0, es: 0 });
+  assert.deepEqual(requestLog.filter(({ kind }) => kind === "hashnode-user-posts").map(({ page, after }) => ({ page, after })), [
+    { page: 1, after: null }
+  ]);
+});
+
+test("Hashnode forwards opaque continuation cursors without deriving or rewriting them", async () => {
+  const cursor = "opaque/+==/cursor-one";
+  const first = cloudyArticle({ id: "opaque-cursor-first", title: "Opaque cursor first post" });
+  const second = cloudyArticle({ id: "opaque-cursor-second", title: "Opaque cursor second post" });
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFourInput({
+      sources: [sourceInput().source, builderCenterSource(), cloudyThingsSource()],
+      curated: { talks: [], books: [] }
+    }),
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+      hashnodeResponder: ({ request }) => request.json.variables.after === null
+        ? cloudyHashnodePage({ rows: [first], hasNextPage: true, endCursor: cursor })
+        : cloudyHashnodePage({ rows: [second], hasNextPage: false, endCursor: null })
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const requests = requestLog.filter(({ kind }) => kind === "hashnode-user-posts");
+  assert.deepEqual(requests.map(({ json }) => json.variables.after), [null, cursor]);
+  assert.deepEqual((await readPut(harness.putCalls[0])).groups.articles.counts, { all: 2, en: 2, es: 0 });
 });
 
 test("Dónde Aprendo AWS contributes eligible Spanish identities to the mixed-source aggregate", async () => {
@@ -5332,9 +5350,8 @@ test("Dónde Aprendo AWS contributes eligible Spanish identities to the mixed-so
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([
         beehiivPost({ id: "simple-shared-title", title: sharedTitle })
       ])),
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({
-        rows: [cloudyArticle({ id: "cloudy-shared-title", title: sharedTitle })],
-        totalPosts: 1
+      hashnodePages: new Map([[1, cloudyHashnodePage({
+        rows: [cloudyArticle({ id: "cloudy-shared-title", title: sharedTitle })]
       })]])
     })
   });
@@ -5389,7 +5406,7 @@ test("an invalid or incomplete Dónde Aprendo AWS index retains the whole prior 
   assert.ok(Buffer.byteLength(oversizedBody, "utf8") > 1024 * 1024, "the source response exceeds the shared 1 MiB decoded-body ceiling");
   const oversizedChunks = Array.from({ length: Math.ceil(oversizedBody.length / (64 * 1024)) }, (_, index) =>
     oversizedBody.slice(index * 64 * 1024, (index + 1) * 64 * 1024));
-  const oversizedStream = cloudyStreamingResponse(oversizedChunks, { contentType: "application/json; charset=utf-8" });
+  const oversizedStream = hashnodeStreamingResponse(oversizedChunks, { contentType: "application/json; charset=utf-8" });
   const contradictoryCopy = dondeAprendoArticle({
     title: "Contradictory metadata for the same URL",
     slug: "conflict",
@@ -5427,9 +5444,8 @@ test("an invalid or incomplete Dónde Aprendo AWS index retains the whole prior 
         newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
         caylentPages: new Map([[0, { results: [] }]]),
         builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
-        cloudyPages: new Map([[1, cloudyArchiveMarkup({
-          rows: [cloudyArticle({ id: "failure-cloudy-copy", title: goodRow.title })],
-          totalPosts: 1
+        hashnodePages: new Map([[1, cloudyHashnodePage({
+          rows: [cloudyArticle({ id: "failure-cloudy-copy", title: goodRow.title })]
         })]])
       })
     });
@@ -5468,9 +5484,8 @@ test("a first Dónde Aprendo AWS failure leaves Articles unavailable instead of 
       response: new Response("synthetic-donde-error-body-canary", { status: 503 }),
       caylentPages: new Map([[0, { results: [] }]]),
       builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({
-        rows: [cloudyArticle({ id: "first-failure-cloudy-row" })],
-        totalPosts: 1
+      hashnodePages: new Map([[1, cloudyHashnodePage({
+        rows: [cloudyArticle({ id: "first-failure-cloudy-row" })]
       })]])
     })
   });
@@ -5521,7 +5536,7 @@ test("AWS for Engineers joins all six selected sources with English title-langua
       caylentRows: [article({ id: "same-title-caylent", title: "Shared language identity" })],
       builderArticles: [builderArticle({ id: "same-title-builder", title: "Shared language identity", locale: "es" })],
       simpleArticles: [beehiivPost({ id: "simple-only", title: "Simple AWS only" })],
-      cloudyRows: [cloudyArticle({ id: "cloudy-copy", title: "Cloudy AWS only!" })],
+      hashnodeRows: [cloudyArticle({ id: "cloudy-copy", title: "Cloudy AWS only!" })],
       dondeArticles: [dondeAprendoArticle({ title: "Shared language identity", slug: "same-title-spanish" })]
     })
   });
@@ -5581,7 +5596,7 @@ test("invalid, incomplete, or oversized AWS for Engineers feeds retain the whole
     oversizedBody.slice(index * 64 * 1024, (index + 1) * 64 * 1024));
   let oversizedStream;
   const makeOversizedResponse = () => {
-    oversizedStream = cloudyStreamingResponse(oversizedChunks, { contentType: "application/json; charset=utf-8" });
+    oversizedStream = hashnodeStreamingResponse(oversizedChunks, { contentType: "application/json; charset=utf-8" });
     return oversizedStream.response;
   };
   const contradictoryCopy = awsForEngineersArticle({
@@ -5698,7 +5713,7 @@ test("AWS for Engineers activation retains the five-source aggregate on failure,
       caylentRows: [article({ id: "activation-caylent", title: "Activation shared English" })],
       builderArticles: [],
       simpleArticles: [beehiivPost({ id: "activation-simple", title: "Activation Simple article" })],
-      cloudyRows: [cloudyArticle({ id: "activation-cloudy", title: "Activation shared English" })],
+      hashnodeRows: [cloudyArticle({ id: "activation-cloudy", title: "Activation shared English" })],
       dondeArticles: [dondeAprendoArticle({ title: "Activation Spanish article", slug: "activation-spanish" })]
     })
   });
@@ -5785,9 +5800,8 @@ test("Dónde Aprendo AWS recovery recomputes the full aggregate after retaining 
         articles: [builderArticle({ id: "recovery-es", title: sharedTitle, locale: "es" })],
         resultsSize: 1
       }]]),
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({
-        rows: [cloudyArticle({ id: "recovery-cloudy-en", title: sharedTitle })],
-        totalPosts: 1
+      hashnodePages: new Map([[1, cloudyHashnodePage({
+        rows: [cloudyArticle({ id: "recovery-cloudy-en", title: sharedTitle })]
       })]])
     })
   });
@@ -5846,9 +5860,8 @@ test("a failed Dónde source activation retains the pre-activation family before
       newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
       caylentPages: new Map([[0, { results: [article({ id: "activation-en", title: "Existing English article" })] }]]),
       builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({
-        rows: [cloudyArticle({ id: "activation-cloudy-en", title: "Existing English article" })],
-        totalPosts: 1
+      hashnodePages: new Map([[1, cloudyHashnodePage({
+        rows: [cloudyArticle({ id: "activation-cloudy-en", title: "Existing English article" })]
       })]])
     })
   });
@@ -5914,14 +5927,14 @@ test("Cloudy Things is supported with source-array inputs 2 through 6 and adds n
       input,
       fetchFn: phaseEightApiFetch({
         requestLog,
-        cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: `input-${input.schemaVersion}-${expected.length}-post` })] })]])
+        hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ id: `input-${input.schemaVersion}-${expected.length}-post` })] })]])
       })
     });
     await harness.handler({}, {});
     const group = (await readPut(harness.putCalls[0])).groups.articles;
     assert.deepEqual(group.sources.map(({ id }) => id), expected, `${name} keeps canonical source coverage`);
     assert.deepEqual(group.counts, { all: 1, en: 1, es: 0 }, `${name} publishes the fetched Cloudy article`);
-    assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 1);
+    assert.equal(requestLog.filter(({ kind }) => kind === "hashnode-user-posts").length, 1);
     if (name === "input 2" || name === "input 3") {
       assert.deepEqual(harness.secretCalls, [], `${name} does not need a credential for Cloudy Things`);
       assert.equal(requestLog.some(({ kind }) => kind.startsWith("beehiiv")), false);
@@ -5939,7 +5952,7 @@ test("the Cloudy Things selector validates before provider work and can be disab
     phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, authorName: " \t " }] }),
     phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, language: "es" }] }),
     phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, language: "fr" }] }),
-    phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, archiveUrl: cloudyArchiveOrigin }] }),
+    phaseEightInput({ sources: [caylent, builder, simple, { ...validCloudy, archiveUrl: cloudyArticleOrigin }] }),
     phaseEightInput({ sources: [caylent, builder, simple, validCloudy, validCloudy] })
   ];
 
@@ -5964,7 +5977,7 @@ test("the Cloudy Things selector validates before provider work and can be disab
   await disabled.handler({}, {});
   const disabledGroup = (await readPut(disabled.putCalls[0])).groups.articles;
   assert.deepEqual(disabledGroup.sources.map(({ id }) => id), ["caylent", "builder-center"]);
-  assert.equal(disabledLog.some(({ kind }) => kind === "cloudy-archive"), false,
+  assert.equal(disabledLog.some(({ kind }) => kind === "hashnode-user-posts"), false,
     "the disabled Cloudy selector makes no archive request and needs no credential");
   assert.deepEqual(disabled.secretCalls, []);
 });
@@ -5979,7 +5992,7 @@ test("Cloudy Things selector scope is independent of archive contents and other 
   const requestLog = [];
   const fetchFn = phaseEightApiFetch({
     requestLog,
-    cloudyPages: new Map([[1, () => cloudyArchiveMarkup({ rows })]]),
+    hashnodePages: new Map([[1, () => cloudyHashnodePage({ rows })]]),
     postsResponder: () => jsonResponse(beehiivPostsEnvelope([]))
   });
   const harness = createHarness({ input: phaseSixInput({ sources: completeSources }), fetchFn });
@@ -6031,7 +6044,7 @@ test("Cloudy Things selector scope is independent of archive contents and other 
     "Cloudy source selection does not change subscribers, Views, or Search scopes");
 });
 
-test("incomplete Cloudy Things archives retain whole prior article groups and publish healthy siblings", async () => {
+test("incomplete Cloudy Hashnode connections retain whole prior article groups and publish healthy siblings", async () => {
   const caylent = sourceInput().source;
   const builder = builderCenterSource();
   const simple = simpleAwsArticleSource();
@@ -6039,8 +6052,6 @@ test("incomplete Cloudy Things archives retain whole prior article groups and pu
   const one = cloudyArticle({ id: "failure-first-row", slug: "failure-first-row", title: "First valid row" });
   const two = cloudyArticle({ id: "failure-second-row", slug: "failure-second-row", title: "Second valid row" });
   const three = cloudyArticle({ id: "failure-third-row", slug: "failure-third-row", title: "Third valid row" });
-  const twoPageOne = cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one] });
-  const threePageOne = cloudyArchiveMarkup({ page: 1, totalPages: 3, totalPosts: 3, rows: [one] });
   const previousCoverage = [
     priorGroup({
       sources: [{ id: "caylent", label: "Caylent" }, { id: "builder-center", label: "AWS Builder Center" }],
@@ -6060,92 +6071,116 @@ test("incomplete Cloudy Things archives retain whole prior article groups and pu
       counts: { all: 18, en: 15, es: 3 }, scopeId: "a".repeat(64), collectedAt: "2026-10-13T10:00:00.000Z"
     })
   ];
-  const oversizedStream = cloudyStreamingResponse([
-    cloudyArchiveMarkup({ rows: [one] }),
-    ...Array.from({ length: 32 }, () => Buffer.alloc(64 * 1024, 0x78))
-  ]);
+  const largeTitleCanary = "synthetic-large-cloudy-post-canary";
+  const oversizedBody = JSON.stringify(cloudyHashnodePage({
+    rows: [cloudyArticle({ ...one, title: `${largeTitleCanary}${"x".repeat(2_200_000)}` })]
+  }));
+  const oversizedChunks = Array.from({ length: Math.ceil(oversizedBody.length / (64 * 1024)) }, (_, index) =>
+    oversizedBody.slice(index * 64 * 1024, (index + 1) * 64 * 1024));
+  const oversizedStream = hashnodeStreamingResponse(oversizedChunks);
   const scenarios = [
-    { name: "missing CollectionPage", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], includeCollectionPage: false })]]), canaries: [one.title, one.url] },
-    { name: "malformed JSON-LD", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], jsonLdText: "{" })]]), canaries: [one.title, one.url] },
-    { name: "blank JSON-LD headline", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, title: " \t " })] })]]), canaries: [one.url] },
-    { name: "missing author", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, includeAuthor: false })] })]]), canaries: [one.title, one.url] },
-    { name: "missing publication date", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, includeDate: false })] })]]), canaries: [one.title, one.url] },
-    { name: "invalid publication date", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, publishedAt: "not-an-ISO-date" })] })]]), canaries: [one.title, one.url] },
-    { name: "unsafe article URL", pages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ ...one, url: "https://elsewhere.example/private-post" })] })]]), canaries: [one.title, "elsewhere.example"] },
-    { name: "rendered and JSON-LD rows do not join one-to-one", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], jsonLdRows: [] })]]), canaries: [one.title, one.url] },
-    { name: "duplicate article URL", pages: new Map([[1, cloudyArchiveMarkup({ totalPosts: 2, rows: [one, cloudyArticle({ ...two, url: one.url })] })]]), canaries: [one.title, two.title, one.url] },
-    { name: "truncated terminal inventory", pages: new Map([[1, cloudyArchiveMarkup({ totalPosts: 2, rows: [one] })]]), canaries: [one.title, one.url] },
-    { name: "response current page does not match request", pages: new Map([[1, cloudyArchiveMarkup({ rows: [one], currentPage: 2 })]]), canaries: [one.title, one.url] },
-    { name: "premature terminal page", pages: new Map([[1, cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one], nextHref: null, nextDisabled: true })]]), canaries: [one.title, one.url] },
-    { name: "missing live Next control", pages: new Map([[1, cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one], includeNextControl: false })]]), canaries: [one.title, one.url] },
-    { name: "foreign Next link", pages: new Map([[1, cloudyArchiveMarkup({ page: 1, totalPages: 2, totalPosts: 2, rows: [one], nextHref: "https://elsewhere.example/archive?page=2" })]]), canaries: [one.title, one.url] },
     {
-      name: "totals change during pagination",
+      name: "GraphQL error after a complete earlier page",
       pages: new Map([
-        [1, twoPageOne],
-        [2, cloudyArchiveMarkup({ page: 2, totalPages: 2, totalPosts: 3, rows: [two, three] })]
+        [1, cloudyHashnodePage({ page: 1, totalPages: 2, rows: [one] })],
+        [2, cloudyHashnodePage({ graphqlErrors: [{ message: "synthetic private GraphQL error", extensions: { code: "BAD_USER_INPUT" } }] })]
       ]),
-      canaries: [one.title, two.title, three.title, one.url]
+      canaries: [one.title, one.url, "synthetic private GraphQL error"],
+      expectedPages: [1, 2]
     },
     {
-      name: "repeated URL across pages",
-      pages: new Map([
-        [1, twoPageOne],
-        [2, cloudyArchiveMarkup({ page: 2, totalPages: 2, totalPosts: 2, rows: [cloudyArticle({ ...two, url: one.url })] })]
-      ]),
-      canaries: [one.title, two.title, one.url]
+      name: "nonempty GraphQL errors reject otherwise valid partial data",
+      pages: new Map([[1, {
+        ...cloudyHashnodePage({ rows: [one] }),
+        errors: [{ message: "synthetic partial-data error", extensions: { code: "BAD_USER_INPUT" } }]
+      }]]),
+      canaries: [one.title, one.url, "synthetic partial-data error"],
+      expectedPages: [1]
     },
     {
-      name: "HTTP-200 not-found page 4 is not an archive end marker",
-      pages: new Map([
-        [1, cloudyArchiveMarkup({ page: 1, totalPages: 4, totalPosts: 4, rows: [one] })],
-        [2, cloudyArchiveMarkup({ page: 2, totalPages: 4, totalPosts: 4, rows: [two] })],
-        [3, cloudyArchiveMarkup({ page: 3, totalPages: 4, totalPosts: 4, rows: [three] })],
-        [4, "<div>Page not found</div>"]
-      ]),
-      canaries: [one.title, two.title, three.title, one.url]
+      name: "mixed transient and permanent GraphQL errors are not retried",
+      pages: new Map([[1, cloudyHashnodePage({ graphqlErrors: [
+        { message: "synthetic internal error", extensions: { code: "INTERNAL_SERVER_ERROR" } },
+        { message: "synthetic permanent error", extensions: { code: "BAD_USER_INPUT" } }
+      ] })]]),
+      canaries: ["synthetic internal error", "synthetic permanent error"],
+      expectedPages: [1]
     },
     {
-      name: "body exceeds the bounded archive response size",
-      pages: new Map([[1, () => oversizedStream.response]]),
+      name: "malformed JSON is not retried",
+      pages: new Map([[1, () => cloudyHashnodeResponse('{"data":')]]),
+      canaries: ["data"],
+      expectedPages: [1]
+    },
+    { name: "missing API user", pages: new Map([[1, cloudyHashnodePage({ user: false })]]), canaries: [one.title] },
+    { name: "username mismatch", pages: new Map([[1, cloudyHashnodePage({ username: "unrelated-user", rows: [one] })]]), canaries: [one.title] },
+    { name: "missing public display name", pages: new Map([[1, cloudyHashnodePage({ name: null, rows: [one] })]]), canaries: [one.title] },
+    { name: "missing posts connection", pages: new Map([[1, cloudyHashnodePage({ posts: false, rows: [one] })]]), canaries: [one.title] },
+    { name: "missing page info", pages: new Map([[1, cloudyHashnodePage({ rows: [one], pageInfo: null })]]), canaries: [one.title] },
+    {
+      name: "malformed post after a valid prefix",
+      pages: new Map([[1, cloudyHashnodePage({ edges: [
+        { node: { title: one.title, url: one.url, publishedAt: one.publishedAt } },
+        { node: { title: "Invalid post missing date", url: two.url } }
+      ] })]]),
+      canaries: [one.title, one.url, "Invalid post missing date", two.url]
+    },
+    { name: "blank title", pages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ ...one, title: " \t " })] })]]), canaries: [one.url] },
+    { name: "missing publication date", pages: new Map([[1, cloudyHashnodePage({ edges: [{ node: { title: one.title, url: one.url } }] })]]), canaries: [one.title, one.url] },
+    { name: "impossible publication date", pages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ ...one, publishedAt: "2025-02-30T00:00:00.000Z" })] })]]), canaries: [one.title, one.url] },
+    { name: "unsafe same-host URL", pages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ ...one, url: `${cloudyArticleOrigin}/post?preview=private` })] })]]), canaries: [one.title, "preview=private"] },
+    {
+      name: "duplicate URL across pages",
+      pages: new Map([
+        [1, cloudyHashnodePage({ page: 1, totalPages: 2, rows: [one] })],
+        [2, cloudyHashnodePage({ page: 2, totalPages: 2, rows: [cloudyArticle({ ...two, url: one.url })] })]
+      ]),
+      canaries: [one.title, two.title, one.url],
+      expectedPages: [1, 2]
+    },
+    {
+      name: "nonterminal empty page",
+      pages: new Map([
+        [1, cloudyHashnodePage({ page: 1, totalPages: 3, rows: [one] })],
+        [2, cloudyHashnodePage({ page: 2, totalPages: 3, rows: [] })]
+      ]),
       canaries: [one.title, one.url],
+      expectedPages: [1, 2]
+    },
+    { name: "hasNextPage without a usable cursor", pages: new Map([[1, cloudyHashnodePage({ rows: [one], hasNextPage: true, endCursor: null })]]), canaries: [one.title] },
+    {
+      name: "repeated cursor",
+      pages: new Map([
+        [1, cloudyHashnodePage({ page: 1, totalPages: 2, rows: [one], endCursor: "cloudy-cursor-1" })],
+        [2, cloudyHashnodePage({ page: 2, totalPages: 3, rows: [two], endCursor: "cloudy-cursor-1" })]
+      ]),
+      canaries: [one.title, two.title],
+      expectedPages: [1, 2]
+    },
+    {
+      name: "body exceeds the bounded JSON response size",
+      pages: new Map([[1, () => oversizedStream.response]]),
+      canaries: [largeTitleCanary, one.url],
       stream: oversizedStream
     },
     {
-      name: "declared archive exceeds the bounded page count",
-      pages: new Map(Array.from({ length: 11 }, (_, index) => [index + 1, cloudyArchiveMarkup({
+      name: "maximum cursor page count",
+      pages: new Map(Array.from({ length: 11 }, (_, index) => [index + 1, cloudyHashnodePage({
         page: index + 1,
         totalPages: 11,
-        totalPosts: 11,
         rows: [cloudyArticle({ id: `cap-row-${index + 1}`, title: `Cap private title ${index + 1}` })]
       })])),
       canaries: ["Cap private title 1", "cap-row-1"],
       maxRequests: 10
     },
     {
-      name: "later-page service failure after an earlier valid page",
+      name: "later-page permanent HTTP failure after an earlier valid page",
       pages: new Map([
-        [1, twoPageOne],
-        [2, () => cloudyHtmlResponse("synthetic Cloudy late-page failure", { status: 503 })]
+        [1, cloudyHashnodePage({ page: 1, totalPages: 2, rows: [one] })],
+        [2, () => cloudyHashnodeResponse({ error: "synthetic Cloudy provider failure" }, { status: 403 })]
       ]),
-      canaries: [one.title, one.url, "synthetic Cloudy late-page failure"],
-      expectedPages: [1, 2, 2]
-    },
-    {
-      name: "non-HTML content type",
-      pages: new Map([[1, () => cloudyHtmlResponse(cloudyArchiveMarkup({ rows: [one] }), { contentType: "application/json" })]]),
-      canaries: [one.title, one.url]
-    },
-    {
-      name: "redirect response",
-      pages: new Map([[1, () => cloudyHtmlResponse("synthetic redirect response", { status: 302, headers: { location: "https://elsewhere.example/archive" } })]]),
-      canaries: ["synthetic redirect response", "elsewhere.example"]
-    },
-    {
-      name: "permanent forbidden response",
-      pages: new Map([[1, () => cloudyHtmlResponse("synthetic Cloudy forbidden response", { status: 403 })]]),
-      canaries: ["synthetic Cloudy forbidden response"],
-      expectedPages: [1]
+      canaries: [one.title, one.url, "synthetic Cloudy provider failure"],
+      expectedPages: [1, 2]
     }
   ];
 
@@ -6157,9 +6192,9 @@ test("incomplete Cloudy Things archives retain whole prior article groups and pu
     const harness = createHarness({
       input: phaseFourInput({
         sources: [caylent, builder, simple, cloudy],
-        curated: { talks: [talkFact(`fresh-cloudy-talk-${index}`)], books: [bookFact(`fresh-cloudy-book-${index}`)] }
+        curated: { talks: [talkFact(`fresh-hashnode-talk-${index}`)], books: [bookFact(`fresh-hashnode-book-${index}`)] }
       }),
-      fetchFn: phaseEightApiFetch({ requestLog, cloudyPages: scenario.pages, cloudyResponder: scenario.responder })
+      fetchFn: phaseEightApiFetch({ requestLog, hashnodePages: scenario.pages, hashnodeResponder: scenario.responder })
     });
     harness.objects.set(outputKey, JSON.stringify(previous));
 
@@ -6170,24 +6205,20 @@ test("incomplete Cloudy Things archives retain whole prior article groups and pu
     assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 });
     assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 });
     assert.ok(output.groups.newsletter, "a healthy subscriber family still refreshes");
-    assert.ok(requestLog.some(({ kind }) => kind === "cloudy-archive"), `${scenario.name} follows an actual archive request`);
-    const cloudyRequests = requestLog.filter(({ kind }) => kind === "cloudy-archive");
+    const requests = requestLog.filter(({ kind }) => kind === "hashnode-user-posts");
+    assert.ok(requests.length > 0, `${scenario.name} reaches the fixed public API`);
     if (scenario.maxRequests !== undefined) {
-      assert.ok(cloudyRequests.length <= scenario.maxRequests, "pagination fails within the configured finite bound");
+      assert.ok(requests.length <= scenario.maxRequests, "cursor pagination stops within the configured finite bound");
     }
     if (scenario.stream !== undefined) {
       const stats = scenario.stream.stats();
-      assert.equal(scenario.stream.response.headers.get("content-length"), null,
-        "the size guard is exercised from streamed body bytes rather than a declared length");
-      assert.ok(stats.chunksRead < stats.totalChunks, "the body reader stops before consuming the full oversized response");
-      assert.equal(stats.cancelled, true, "the unread response body is cancelled after the size limit is exceeded");
+      assert.equal(scenario.stream.response.headers.get("content-length"), null);
+      assert.ok(stats.chunksRead < stats.totalChunks, "the bounded reader stops before consuming the oversized response");
+      assert.equal(stats.cancelled, true, "the unread body is cancelled after the size limit is exceeded");
     }
     if (scenario.expectedPages !== undefined) {
-      assert.deepEqual(cloudyRequests.map(({ page }) => page), scenario.expectedPages,
-        "a transient later-page failure gets one retry and never publishes its earlier page");
+      assert.deepEqual(requests.map(({ page }) => page), scenario.expectedPages);
     }
-    assert.equal(requestLog.some(({ url }) => /sitemap|rss|graphql/i.test(url)), false,
-      "an archive failure never falls back to sitemap, RSS, or a private API");
     assertNoCloudyCanaries(harness, ...scenario.canaries, beehiivApiKey);
   }
 
@@ -6199,17 +6230,17 @@ test("incomplete Cloudy Things archives retain whole prior article groups and pu
     }),
     fetchFn: phaseEightApiFetch({
       requestLog: absentLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "absent-prior-row" })], includeCollectionPage: false })]])
+      hashnodePages: new Map([[1, cloudyHashnodePage({ graphqlErrors: [{ message: "synthetic malformed first fetch", extensions: { code: "BAD_USER_INPUT" } }] })]])
     })
   });
   await absent.handler({}, {});
   const absentOutput = await readPut(absent.putCalls[0]);
   assert.equal(Object.hasOwn(absentOutput.groups, "articles"), false,
-    "a first Cloudy archive failure omits Articles instead of publishing a partial or zero count");
+    "a first API connection failure omits Articles instead of publishing a partial or zero count");
   assert.deepEqual(absentOutput.groups.talks.counts, { all: 1, en: 1, es: 0 });
   assert.deepEqual(absentOutput.groups.books.counts, { all: 1, en: 1, es: 0 });
   assert.ok(absentOutput.groups.newsletter);
-  assertNoCloudyCanaries(absent, "absent-prior-row");
+  assertNoCloudyCanaries(absent, "absent-prior-row", "synthetic malformed first fetch");
 });
 
 test("Cloudy Things failure and recovery recompute the complete family without blocking subscribers", async () => {
@@ -6224,9 +6255,9 @@ test("Cloudy Things failure and recovery recompute the complete family without b
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, () => cloudyFails
-        ? cloudyHtmlResponse("synthetic Cloudy recovery outage", { status: 503 })
-        : cloudyArchiveMarkup({ rows })]]),
+      hashnodePages: new Map([[1, () => cloudyFails
+        ? cloudyHashnodeResponse("synthetic Cloudy recovery outage", { status: 503 })
+        : cloudyHashnodePage({ rows })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope(posts)),
       newsletterResponder: ({ request }) => {
         const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
@@ -6265,13 +6296,13 @@ test("Cloudy Things failure and recovery recompute the complete family without b
   assert.equal(recovered.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z");
   assert.equal(recovered.groups.newsletter.subscribers, 20);
   assert.equal(recovered.groups.newsletter.scopeId, initialNewsletter.scopeId);
-  assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 4,
+  assert.equal(requestLog.filter(({ kind }) => kind === "hashnode-user-posts").length, 4,
     "success, one failed attempt plus its single retry, and recovery all use only archive pages");
   assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-posts").length, 3);
   assertNoCloudyCanaries(harness, "synthetic Cloudy recovery outage", "recovery-cloudy-one", "recovery-simple-one", beehiivApiKey);
 });
 
-test("Cloudy Things rejects boundary-lookalike metadata while retaining the whole article family", async () => {
+test("Cloudy Hashnode rejects noncanonical article destinations while retaining the whole article family", async () => {
   const sources = [sourceInput().source, builderCenterSource(), simpleAwsArticleSource(), cloudyThingsSource()];
   const previousArticles = priorGroup({
     sources: [
@@ -6288,47 +6319,22 @@ test("Cloudy Things rejects boundary-lookalike metadata while retaining the whol
   const cases = [
     {
       name: "non-default article port",
-      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, url: "https://blog.guilleojeda.com:8443/boundary-port" })] }),
+      page: cloudyHashnodePage({ rows: [cloudyArticle({ ...valid, url: "https://blog.guilleojeda.com:8443/boundary-port" })] }),
       canaries: [valid.title, "8443"]
     },
     {
       name: "nested article path",
-      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, url: "https://blog.guilleojeda.com/author/boundary-nested" })] }),
+      page: cloudyHashnodePage({ rows: [cloudyArticle({ ...valid, url: "https://blog.guilleojeda.com/author/boundary-nested" })] }),
       canaries: [valid.title, "author/boundary-nested"]
     },
     {
       name: "impossible ISO datetime",
-      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, publishedAt: "2025-02-30T00:00:00.000Z" })] }),
+      page: cloudyHashnodePage({ rows: [cloudyArticle({ ...valid, publishedAt: "2025-02-30T00:00:00.000Z" })] }),
       canaries: [valid.title, valid.url]
     },
     {
       name: "numeric datetime",
-      page: cloudyArchiveMarkup({ rows: [cloudyArticle({ ...valid, publishedAt: "999" })] }),
-      canaries: [valid.title, valid.url]
-    },
-    {
-      name: "data-href attribute",
-      page: cloudyArchiveMarkup({ rows: [valid] }).replace(' href="/boundary-valid-row"', ' data-href="/boundary-valid-row"'),
-      canaries: [valid.title, valid.url]
-    },
-    {
-      name: "aria-disabled attribute",
-      page: cloudyArchiveMarkup({ rows: [valid] }).replace('<button disabled="">Next</button>', '<button aria-disabled="true">Next</button>'),
-      canaries: [valid.title, valid.url]
-    },
-    {
-      name: "data-type script attribute",
-      page: cloudyArchiveMarkup({ rows: [valid] }).replace('<script type="application/ld+json">', '<script data-type="application/ld+json">'),
-      canaries: [valid.title, valid.url]
-    },
-    {
-      name: "data-aria-labelledby section attribute",
-      page: cloudyArchiveMarkup({ rows: [valid] }).replace('aria-labelledby="archive-heading"', 'data-aria-labelledby="archive-heading"'),
-      canaries: [valid.title, valid.url]
-    },
-    {
-      name: "data-aria-label nav attribute",
-      page: cloudyArchiveMarkup({ rows: [valid] }).replace('aria-label="Pagination"', 'data-aria-label="Pagination"'),
+      page: cloudyHashnodePage({ rows: [cloudyArticle({ ...valid, publishedAt: "999" })] }),
       canaries: [valid.title, valid.url]
     }
   ];
@@ -6339,7 +6345,7 @@ test("Cloudy Things rejects boundary-lookalike metadata while retaining the whol
       input: phaseFourInput({ sources, curated: { talks: [talkFact(`boundary-talk-${scenario.name}`)], books: [bookFact(`boundary-book-${scenario.name}`)] } }),
       fetchFn: phaseEightApiFetch({
         requestLog,
-        cloudyPages: new Map([[1, scenario.page]])
+        hashnodePages: new Map([[1, scenario.page]])
       })
     });
     const previous = priorFullOutput({ articleViews: null });
@@ -6353,7 +6359,7 @@ test("Cloudy Things rejects boundary-lookalike metadata while retaining the whol
     assert.deepEqual(output.groups.talks.counts, { all: 1, en: 1, es: 0 }, `${scenario.name} refreshes healthy talks`);
     assert.deepEqual(output.groups.books.counts, { all: 1, en: 1, es: 0 }, `${scenario.name} refreshes healthy books`);
     assert.ok(output.groups.newsletter, `${scenario.name} refreshes the healthy subscriber family`);
-    assert.ok(requestLog.some(({ kind }) => kind === "cloudy-archive"), `${scenario.name} reaches the Cloudy provider`);
+    assert.ok(requestLog.some(({ kind }) => kind === "hashnode-user-posts"), `${scenario.name} reaches the fixed Cloudy API`);
     assertNoCloudyCanaries(harness, ...scenario.canaries, beehiivApiKey);
   }
 });
@@ -6557,7 +6563,7 @@ test("directory reports retain and recover per period while sharing OAuth with S
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudy] })]]),
       tokenResponder: () => oauthFails
         ? jsonResponse({ error: googleResponseCanary }, 403)
         : jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" }),
@@ -7017,7 +7023,7 @@ test("input 8 adds outbound clicks to four-source collection with one shared Goo
     input: phaseTenInput(),
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudy] })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
       reportResponder: ({ request }) => {
@@ -7072,7 +7078,7 @@ test("input 9 adds both directory totals to the existing collection with sent to
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudy] })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20, 88)),
       reportResponder: ({ request }) => {
@@ -7413,7 +7419,7 @@ test("input 8 adds the Simple AWS available-history total without changing other
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudy], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudy] })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
       reportResponder: ({ request }) => {
@@ -7536,7 +7542,7 @@ test("outbound-click failures retain and recover per period independently from d
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })] })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 20)),
       reportResponder: ({ request }) => {
@@ -7612,7 +7618,7 @@ test("outbound clicks can be the only fresh family and total failure never repla
       requestLog,
       caylentPages: new Map([[0, () => jsonResponse({ error: googleResponseCanary }, 503)]]),
       builderPages: new Map([["", () => jsonResponse({ error: googleResponseCanary }, 503)]]),
-      cloudyResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
+      hashnodeResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
       postsResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
       newsletterResponder: () => jsonResponse({ error: googleResponseCanary }, 503),
       reportResponder: ({ request }) => request.json.metrics?.[0]?.name === "eventCount" && clicksAvailable
@@ -7734,7 +7740,7 @@ test("shared Google credential failure retains outbound clicks with other Google
     clock,
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })] })]]),
       tokenResponder: () => tokenFails
         ? jsonResponse({ error: googleResponseCanary }, 503)
         : jsonResponse({ access_token: googleAccessToken, expires_in: 3600, token_type: "Bearer" }),
@@ -7779,7 +7785,7 @@ test("outbound-click scope is independent from Views, and removing selection rem
     input: phaseTenInput(),
     fetchFn: phaseEightApiFetch({
       requestLog,
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle({ id: "phase-ten-valid-cloudy-row" })] })]]),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
       newsletterResponder: ({ request }) => {
         const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
@@ -7935,12 +7941,12 @@ function phaseThirteenEnvelopeForRequest(request, extraForDate = () => ({})) {
 
 function phaseThirteenFetch({ requestLog = [], engagementResponder, newsletterResponder, reportResponder,
   searchResponder, postsResponder, builderPages, caylentPages,
-  cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [], totalPosts: 0 })]]) } = {}) {
+  hashnodePages = new Map([[1, cloudyHashnodePage({ rows: [] })]]) } = {}) {
   return phaseEightApiFetch({
     requestLog,
     builderPages,
     caylentPages,
-    cloudyPages,
+    hashnodePages,
     engagementResponder,
     newsletterResponder,
     reportResponder,
@@ -8000,7 +8006,7 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
   const allFamiliesInput = phaseTwelveInput({
     directoryAnalytics: phaseNineDirectoryAnalytics({ outboundClicks: true })
   });
-  const cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]);
+  const hashnodePages = new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle()] })]]);
   const omittedDate = "2026-10-14";
   const clock = createClock("2026-10-20T12:00:00.000Z");
   const newsletterResponder = ({ request }) => {
@@ -8019,7 +8025,7 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
   const legacyHarness = createHarness({
     input: allFamiliesInput,
     clock: createClock("2026-10-20T12:00:00.000Z"),
-    fetchFn: phaseThirteenFetch({ requestLog: legacyRequestLog, cloudyPages, newsletterResponder, reportResponder })
+    fetchFn: phaseThirteenFetch({ requestLog: legacyRequestLog, hashnodePages, newsletterResponder, reportResponder })
   });
   await legacyHarness.handler({}, {});
   const legacy = await readPut(legacyHarness.putCalls[0]);
@@ -8030,7 +8036,7 @@ test("input10 derives both metrics from one clipped daily dataset and preserves 
     clock,
     fetchFn: phaseThirteenFetch({
       requestLog,
-      cloudyPages,
+      hashnodePages,
       newsletterResponder,
       reportResponder,
       engagementResponder: ({ request }) => {
@@ -8269,7 +8275,7 @@ test("input10 sanitizes malformed prior email periods while retaining valid reco
     }),
     clock,
     fetchFn: phaseThirteenFetch({
-      cloudyPages: new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]),
+      hashnodePages: new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle()] })]]),
       newsletterResponder,
       reportResponder,
       engagementResponder: ({ request }) => failEngagements
@@ -9182,7 +9188,7 @@ function healthyGoogleReport(request) {
 test("a stalled Analytics endpoint times out in parallel by family and still publishes healthy siblings", async () => {
   const directoryAnalytics = phaseNineDirectoryAnalytics({ outboundClicks: true, recordedSince: "2024-01-21" });
   const analytics = phaseFiveAnalytics({ recordedSince: "2024-01-01" });
-  const cloudyPages = new Map([[1, cloudyArchiveMarkup({ rows: [cloudyArticle()], totalPosts: 1 })]]);
+  const hashnodePages = new Map([[1, cloudyHashnodePage({ rows: [cloudyArticle()] })]]);
   const previousInput = phaseThirteenInput({
     analytics,
     directoryAnalytics,
@@ -9194,7 +9200,7 @@ test("a stalled Analytics endpoint times out in parallel by family and still pub
     clock: createClock("2026-10-16T12:00:00.000Z"),
     fetchFn: phaseThirteenFetch({
       requestLog: previousLog,
-      cloudyPages,
+      hashnodePages,
       engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request)),
       newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, 17, 100)),
       postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
@@ -9243,7 +9249,7 @@ test("a stalled Analytics endpoint times out in parallel by family and still pub
   const concurrencyViolations = [];
   const phaseFetch = phaseThirteenFetch({
     requestLog,
-    cloudyPages,
+    hashnodePages,
     engagementResponder: ({ request }) => jsonResponse(phaseThirteenEnvelopeForRequest(request)),
     newsletterResponder: () => jsonResponse(newsletterEnvelope(beehiivPublicationId, subscribers, sent)),
     postsResponder: () => jsonResponse(beehiivPostsEnvelope([])),
@@ -9632,7 +9638,7 @@ test("input11 keeps manual Builder totals independent while all six article sour
     caylentRows: [article({ id: "synthetic-manual-view-caylent-copy", title: sameEnglishTitle })],
     builderArticles: builderPages.get("").articles,
     simpleArticles: [beehiivPost({ id: "synthetic-manual-view-simple-copy", title: sameEnglishTitle })],
-    cloudyRows: [cloudyArticle({ id: "synthetic-manual-view-cloudy-copy", title: sameEnglishTitle })],
+    hashnodeRows: [cloudyArticle({ id: "synthetic-manual-view-cloudy-copy", title: sameEnglishTitle })],
     dondeArticles: [dondeAprendoArticle({ title: "Café, cache & AWS", slug: "synthetic-manual-view-donde-copy" })],
     awsResponse: awsForEngineersIndex([
       awsForEngineersArticle({ title: sameEnglishTitle, slug: "synthetic-manual-view-aws-copy" })
@@ -9804,9 +9810,9 @@ test("inputs3 through 10 never refresh Builder views and retain a valid prior v1
       clock: createClock("2026-10-22T12:00:00.000Z"),
       fetchFn: phaseThirteenFetch({
         requestLog,
-        cloudyPages: new Map([[1, cloudyArchiveMarkup({
-          rows: [cloudyArticle({ id: `synthetic-retired-views-cloudy-${index}`, author: "Another Author" })],
-          totalPosts: 1
+        hashnodePages: new Map([[1, cloudyHashnodePage({
+          rows: [cloudyArticle({ id: `synthetic-retired-views-cloudy-${index}` })],
+          name: "Another Author"
         })]]),
         builderPages: new Map([[
           "",
@@ -9821,7 +9827,8 @@ test("inputs3 through 10 never refresh Builder views and retain a valid prior v1
     const output = await readPut(harness.putCalls[0]);
     assert.deepEqual(output.groups.builderArticleViews, previous,
       `input${input.schemaVersion} preserves historical provenance and never rewrites views from the Builder API`);
-    assert.deepEqual(output.groups.articles.counts, { all: 1, en: 1, es: 0 });
+    assert.deepEqual(output.groups.articles.counts, { all: 1, en: 1, es: 0 },
+      "the unrelated Builder article remains counted while the mismatched Hashnode display name adds no article");
     assert.equal(requestLog.filter(({ kind }) => kind === "builder-list").length, 1,
       "the Builder article listing still runs exactly once for the Articles family");
   }
@@ -10336,7 +10343,7 @@ test("input12 joins all six automatic sources with manual publications by normal
         beehiivPost({ id: "phase4-email-post", title: "Beehiiv email shared", platform: "email" }),
         beehiivPost({ id: "phase4-both-post", title: "Beehiiv both unique", platform: "both" })
       ],
-      cloudyRows: [cloudyArticle({ id: "phase4-cloudy", title: "Cloudy unique" })],
+      hashnodeRows: [cloudyArticle({ id: "phase4-cloudy", title: "Cloudy unique" })],
       dondeArticles: [dondeAprendoArticle({ title: "Directory Spanish unique", slug: "phase4-directory" })],
       awsResponder: () => awsForEngineersIndex([
         awsForEngineersArticle({ title: "AWS for Engineers unique", slug: "phase4-aws-unique" })
@@ -11040,80 +11047,45 @@ test("implementation regression: automatic-source failure diagnostics expose onl
   assert.ok(requestLog.some(({ kind }) => kind === "caylent-list"));
 });
 
-test("implementation regression: Cloudy archive identifies itself and logs only bounded HTTP challenge facts", async () => {
-  const article = cloudyArticle({
-    id: "cloudy-diagnostic-page-one",
-    slug: "cloudy-diagnostic-page-one",
-    title: "Valid first page before provider failure"
+test("implementation regression: Hashnode retries one transient GraphQL error without exposing provider data", async () => {
+  const privateMessage = "synthetic-private-graphql-message-canary";
+  const privateCursor = "synthetic-private-cursor-canary";
+  const article = cloudyArticle({ id: "hashnode-retry-success", title: "Recovered Hashnode article" });
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseFourInput({
+      sources: [sourceInput().source, builderCenterSource(), cloudyThingsSource()],
+      curated: { talks: [], books: [] }
+    }),
+    fetchFn: phaseEightApiFetch({
+      requestLog,
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+      hashnodeResponder: ({ attempt }) => attempt === 1
+        ? cloudyHashnodePage({ graphqlErrors: [{
+          message: privateMessage,
+          extensions: { code: "INTERNAL_SERVER_ERROR", cursor: privateCursor }
+        }] })
+        : cloudyHashnodePage({ rows: [article] })
+    })
   });
-  const privateBody = "synthetic-private-cloudy-forbidden-body-canary";
-  const cases = [
-    { challengeHeader: "challenge", expectedChallenge: true },
-    { challengeHeader: "challenge-private-header-canary", expectedChallenge: false }
-  ];
 
-  for (const { challengeHeader, expectedChallenge } of cases) {
-    const requestLog = [];
-    const pages = new Map([
-      [1, cloudyArchiveMarkup({
-        page: 1,
-        currentPage: 1,
-        totalPages: 2,
-        totalPosts: 2,
-        rows: [article],
-        nextHref: "/archive?page=2"
-      })],
-      [2, () => cloudyHtmlResponse(privateBody, {
-        status: 403,
-        headers: { "x-vercel-mitigated": challengeHeader }
-      })]
-    ]);
-    const harness = createHarness({
-      input: phaseFourInput({
-        sources: [sourceInput().source, builderCenterSource(), cloudyThingsSource()],
-        curated: { talks: [], books: [] }
-      }),
-      fetchFn: phaseEightApiFetch({ requestLog, cloudyPages: pages })
-    });
+  await harness.handler({}, {});
 
-    await harness.handler({}, {});
-
-    const archiveRequests = requestLog.filter(({ kind }) => kind === "cloudy-archive");
-    assert.deepEqual(archiveRequests.map(({ page }) => page), [1, 2],
-      "the failure is observed after one complete earlier page");
-    for (const request of archiveRequests) {
-      const userAgent = Object.entries(request.headers)
-        .find(([name]) => name.toLowerCase() === "user-agent")?.[1];
-      assert.equal(userAgent, "GuilleOjedaContentStats/1.0 (+https://guilleojeda.com)");
-    }
-
-    const cloudyFailureLine = harness.logs.find((line) => line.includes('"event":"content_stats_cloudy_http_failure"'));
-    assert.ok(cloudyFailureLine, "a permanent Cloudy HTTP failure has a focused diagnostic");
-    const cloudyFailure = JSON.parse(cloudyFailureLine);
-    assert.deepEqual(cloudyFailure, {
-      event: "content_stats_cloudy_http_failure",
-      sourceId: "cloudy-things",
-      page: 2,
-      status: 403,
-      vercelChallenge: expectedChallenge
-    }, "the event contains only the bounded page, integer status and exact challenge boolean");
-    assert.equal(cloudyFailure.page >= 1 && cloudyFailure.page <= 10, true);
-    assert.equal(JSON.stringify(cloudyFailure).includes(challengeHeader), false);
-    assert.equal(JSON.stringify(cloudyFailure).includes(privateBody), false);
-    const sourceFailureLine = harness.logs.find((line) => line.includes('"event":"content_stats_source_collection_failed"'));
-    assert.deepEqual(JSON.parse(sourceFailureLine), {
-      event: "content_stats_source_collection_failed",
-      sourceId: "cloudy-things",
-      code: "SOURCE_HTTP_403"
-    }, "the established three-field source failure diagnostic remains unchanged");
-    const successLine = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
-    assert.equal(successLine.familyFailures.articles, "SOURCE_HTTP_403");
-    const output = await readPut(harness.putCalls[0]);
-    assert.equal(Object.hasOwn(output.groups, "articles"), false,
-      "the valid page-one row is not published as a partial Article family");
-    assert.ok(output.groups.talks && output.groups.books,
-      "healthy sibling groups still publish after the Cloudy source failure");
-    assert.equal(harness.logs.join("\n").includes(privateBody), false);
-    assert.equal(harness.logs.join("\n").includes(challengeHeader), false);
+  const requests = requestLog.filter(({ kind }) => kind === "hashnode-user-posts");
+  assert.deepEqual(requests.map(({ page, attempt, after }) => ({ page, attempt, after })), [
+    { page: 1, attempt: 1, after: null },
+    { page: 1, attempt: 2, after: null }
+  ], "only the first transient GraphQL failure is retried once for the same cursor");
+  for (const request of requests) {
+    assert.equal(request.url, hashnodeApiUrl);
+    assert.equal(request.json.variables.username, hashnodeUsername);
+    assert.equal(Object.entries(request.headers).some(([name]) => ["authorization", "cookie"].includes(name.toLowerCase())), false);
   }
+  const output = await readPut(harness.putCalls[0]);
+  assert.deepEqual(output.groups.articles.counts, { all: 1, en: 1, es: 0 });
+  assert.equal(output.groups.articles.sources.at(-1).id, "cloudy-things");
+  assert.equal(harness.logs.join("\n").includes(privateMessage), false);
+  assert.equal(harness.logs.join("\n").includes(privateCursor), false);
+  assertNoCloudyCanaries(harness, article.title, article.url, privateMessage, privateCursor);
 });
