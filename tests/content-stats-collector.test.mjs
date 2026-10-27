@@ -2400,7 +2400,10 @@ test("if every input 3 family fails there is no output write, and a failed Put p
   assert.equal(allFailed.putCalls.length, 0);
   assert.equal(allFailed.objects.get(outputKey), previousAllFailed);
 
-  const previous = "previous public bytes remain exact";
+  const previous = JSON.stringify({
+    schemaVersion: 1,
+    groups: { articles: priorGroup(), builderArticleViews: priorBuilderArticleViewsGroup() }
+  });
   const writeRequests = [];
   const writeFailure = new Error("synthetic S3 PutObject failure");
   const failedWrite = createHarness({
@@ -3081,7 +3084,7 @@ test("newsletter failures retain their exact prior group, omit it on first failu
   assert.equal(retained.groups.talks.collectedAt, "2026-10-17T12:00:00.000Z");
   assert.deepEqual(retained.groups.talks.counts, { all: 1, en: 1, es: 0 }, "fresh curated siblings are published while the family is retained");
   assert.deepEqual(retained.groups.books.counts, { all: 2, en: 1, es: 1 });
-  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "fallback reads the previous aggregate only after newsletter failure");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 2, "one prior-object read per invocation supports Builder retention and newsletter fallback");
 
   mode = "success";
   subscribers = 47;
@@ -3981,7 +3984,7 @@ test("rolling back to input 5 removes Search even when Analytics refresh fails",
   assert.equal(Object.hasOwn(rolledBack.groups, "articleSearchClicks"), false, "removing the selector intentionally removes its prior family");
   assert.deepEqual(rolledBack.groups.articleViews, first.groups.articleViews, "the still-enabled Analytics family keeps its prior records after failed refresh");
   assert.equal(googleRequests(requestLog, "google-search").length, searchRequestCount, "input 5 makes no Search request during rollback");
-  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "fallback accepts the known Search family while retaining enabled siblings");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 2, "one prior-object read per invocation retains Builder history and enabled siblings during Search rollback");
 });
 
 test("input 6 all-failed runs and fallback storage failures do not replace the previous object", async () => {
@@ -4223,7 +4226,7 @@ test("one report failure retains only its exact prior period; recovery replaces 
   assert.deepEqual(retained.groups.articleViews.records["30d"], old30d, "failed supported period retains its exact original dates, scope, value, and collection time");
   assert.equal(retained.groups.articleViews.records["7d"].collectedAt, "2026-10-17T12:00:00.000Z");
   assert.equal(retained.groups.articleViews.records["7d"].views, 81);
-  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 1, "one prior-object read supports independent period fallback");
+  assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 2, "one prior-object read per invocation supports Builder retention and independent period fallback");
 
   failStart = null;
   clock.set("2026-10-18T12:00:00.000Z");
@@ -9801,6 +9804,10 @@ test("inputs3 through 10 never refresh Builder views and retain a valid prior v1
       clock: createClock("2026-10-22T12:00:00.000Z"),
       fetchFn: phaseThirteenFetch({
         requestLog,
+        cloudyPages: new Map([[1, cloudyArchiveMarkup({
+          rows: [cloudyArticle({ id: `synthetic-retired-views-cloudy-${index}`, author: "Another Author" })],
+          totalPosts: 1
+        })]]),
         builderPages: new Map([[
           "",
           { articles: [phase15BuilderArticle({ id: `synthetic-no-auto-views-${index}`, viewsCount: 900 + index })], resultsSize: 1 }
