@@ -11006,3 +11006,36 @@ test("input12 supports individual articles without optional Newsletter, analytic
   assert.deepEqual([...new Set(requestLog.map(({ kind }) => kind))].sort(), ["builder-list", "caylent-list"],
     "only the two selected automatic sources are queried");
 });
+
+test("implementation regression: automatic-source failure diagnostics expose only the source and sanitized code", async () => {
+  const requestLog = [];
+  const privateResponseBody = "synthetic-private-provider-response-canary";
+  const harness = createHarness({
+    input: phaseTwelveArticleInventoryInput(),
+    fetchFn: phaseFourInventoryFetch({
+      requestLog,
+      caylentPages: new Map([[0, () => jsonResponse({ error: privateResponseBody }, 403)]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const sourceFailureLine = harness.logs.find((line) => line.includes('"event":"content_stats_source_collection_failed"'));
+  assert.ok(sourceFailureLine, "the failed automatic-source boundary emits a diagnostic");
+  const sourceFailure = JSON.parse(sourceFailureLine);
+  assert.deepEqual(sourceFailure, {
+    event: "content_stats_source_collection_failed",
+    sourceId: "caylent",
+    code: "SOURCE_HTTP_403"
+  }, "the diagnostic preserves the known source and existing HTTP error code without provider details");
+  assert.equal(harness.logs.filter((line) => line.includes('"event":"content_stats_source_collection_failed"')).length, 1);
+  const successLine = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+  assert.equal(successLine.familyFailures.articles, "SOURCE_HTTP_403",
+    "the original sanitized error still reaches family-level retention handling unchanged");
+  assert.equal(JSON.stringify(sourceFailure).includes(privateResponseBody), false);
+  assert.equal(JSON.stringify(sourceFailure).includes(secretKey), false);
+  assert.equal(JSON.stringify(sourceFailure).includes(privateAuthorId), false);
+  assert.equal(Object.hasOwn((await readPut(harness.putCalls[0])).groups, "articles"), false);
+  assert.deepEqual((await readPut(harness.putCalls[0])).groups.talks.counts, { all: 0, en: 0, es: 0 });
+  assert.ok(requestLog.some(({ kind }) => kind === "caylent-list"));
+});

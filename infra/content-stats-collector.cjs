@@ -2769,13 +2769,19 @@ async function collectPublications(sources, now, env, articleInventory) {
   const pagesBySource = {};
   for (const source of sources) {
     let result;
-    if (source.id === "caylent") result = await collectCaylent(source, now);
-    else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
-    else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
-    else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
-    else if (source.id === "donde-aprendo-aws") result = await collectDondeAprendoAws(source, now);
-    else if (source.id === "aws-for-engineers") result = await collectAwsForEngineers(source, now);
-    else throw fail("SOURCE_UNSUPPORTED");
+    try {
+      if (source.id === "caylent") result = await collectCaylent(source, now);
+      else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
+      else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
+      else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
+      else if (source.id === "donde-aprendo-aws") result = await collectDondeAprendoAws(source, now);
+      else if (source.id === "aws-for-engineers") result = await collectAwsForEngineers(source, now);
+      else throw fail("SOURCE_UNSUPPORTED");
+    } catch (error) {
+      const code = error instanceof CollectorError ? error.code : "COLLECTION_FAILED";
+      log("warn", { event: "content_stats_source_collection_failed", sourceId: source.id, code });
+      throw error;
+    }
     pagesBySource[source.id] = result.pages;
     automaticPublications.push(...result.publications);
   }
