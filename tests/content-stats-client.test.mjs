@@ -517,12 +517,12 @@ const initialUnits = {
 const viewsCopy = {
   en: {
     loading: 'Loading page views…',
-    unavailable: 'Page views are unavailable for this period.',
+    unavailable: 'Page view data are unavailable.',
     unit: 'views'
   },
   es: {
     loading: 'Cargando vistas de artículos…',
-    unavailable: 'No se pueden mostrar las vistas de páginas para este período.',
+    unavailable: 'No hay datos disponibles de vistas de páginas.',
     unit: 'vistas'
   }
 };
@@ -530,12 +530,12 @@ const viewsCopy = {
 const searchCopy = {
   en: {
     loading: 'Loading Search clicks…',
-    unavailable: 'Search clicks are unavailable for this period.',
+    unavailable: 'Search click data are unavailable.',
     unit: 'clicks'
   },
   es: {
     loading: 'Cargando clics de búsqueda…',
-    unavailable: 'Los clics de búsqueda no están disponibles para este período.',
+    unavailable: 'No hay datos disponibles de clics de búsqueda.',
     unit: 'clics'
   }
 };
@@ -543,12 +543,12 @@ const searchCopy = {
 const directoryViewsCopy = {
   en: {
     loading: 'Loading Dónde Aprendo AWS page views…',
-    unavailable: 'Dónde Aprendo AWS page views are unavailable for this period.',
+    unavailable: 'Dónde Aprendo AWS page view data are unavailable.',
     unit: 'page views'
   },
   es: {
     loading: 'Cargando vistas de página de Dónde Aprendo AWS…',
-    unavailable: 'Las vistas de página de Dónde Aprendo AWS no están disponibles para este período.',
+    unavailable: 'No hay datos disponibles de vistas de páginas de Dónde Aprendo AWS.',
     unit: 'vistas de página'
   }
 };
@@ -557,13 +557,13 @@ const directoryOutboundClicksCopy = {
   en: {
     label: 'External link clicks',
     loading: 'Loading Dónde Aprendo AWS external link clicks…',
-    unavailable: 'Dónde Aprendo AWS external link clicks are unavailable for this period.',
+    unavailable: 'Dónde Aprendo AWS external link click data are unavailable.',
     unit: 'clicks'
   },
   es: {
     label: 'Clics en enlaces externos',
     loading: 'Cargando clics en enlaces externos de Dónde Aprendo AWS…',
-    unavailable: 'Los clics en enlaces externos de Dónde Aprendo AWS no están disponibles para este período.',
+    unavailable: 'No hay datos disponibles de clics en enlaces externos de Dónde Aprendo AWS.',
     unit: 'clics'
   }
 };
@@ -573,13 +573,13 @@ const newsletterEmailCopy = {
     opens: {
       label: 'Email opens',
       loading: 'Loading email opens…',
-      unavailable: 'Email opens are unavailable for this period.',
+      unavailable: 'Email open data are unavailable.',
       unit: 'opens'
     },
     clicks: {
       label: 'Verified email clicks',
       loading: 'Loading verified email clicks…',
-      unavailable: 'Verified email clicks are unavailable for this period.',
+      unavailable: 'Verified email click data are unavailable.',
       unit: 'clicks'
     }
   },
@@ -587,13 +587,13 @@ const newsletterEmailCopy = {
     opens: {
       label: 'Aperturas de emails',
       loading: 'Cargando aperturas de emails…',
-      unavailable: 'Las aperturas de emails no están disponibles para este período.',
+      unavailable: 'No hay datos disponibles de aperturas de emails.',
       unit: 'aperturas'
     },
     clicks: {
       label: 'Clics verificados en emails',
       loading: 'Cargando clics verificados en emails…',
-      unavailable: 'Los clics verificados en emails no están disponibles para este período.',
+      unavailable: 'No hay datos disponibles de clics verificados en emails.',
       unit: 'clics'
     }
   }
@@ -1381,6 +1381,13 @@ function assertNewsletterUnavailable(page, locale) {
   assertUnavailable(page, locale, 'newsletter');
 }
 
+function assertActivityUnavailableMessage(text, locale) {
+  assert.match(text, locale === 'es'
+    ? /no.*disponible|no\s+se\s+pueden|(?:s[oó]lo|[uú]nicamente).{0,90}ingl[eé]s|no\s+(?:ofrece|admite|soporta|permite).{0,60}total\s+registrado/i
+    : /unavailable|not available|(?:only|exclusively).{0,90}English|(?:does\s+not|doesn't)\s+(?:offer|support|provide|admit).{0,60}recorded\s+total/i,
+  'unavailable data has a localized data, language or recorded-total explanation');
+}
+
 function assertNewsletterEmailUnavailable(page, locale, spec, { hidden = false } = {}) {
   const metric = page.cards.newsletter[spec.region];
   assert.equal(metric.results.hidden, true, `${spec.group}: unavailable result stays hidden`);
@@ -1390,7 +1397,7 @@ function assertNewsletterEmailUnavailable(page, locale, spec, { hidden = false }
   assert.equal(metric.collectedDate.textContent, '', `${spec.group}: unavailable result clears the old collection date`);
   assert.equal(metric.status.hidden, hidden, `${spec.group}: unavailable status follows content-language visibility`);
   if (hidden) return;
-  assert.equal(metric.status.textContent, newsletterEmailCopy[locale][spec.metric].unavailable);
+  assertActivityUnavailableMessage(metric.status.textContent, locale);
 }
 
 function assertNewsletterEmailVisible(page, locale, spec, period) {
@@ -1419,8 +1426,7 @@ function assertViewsUnavailable(page, locale) {
   assert.equal(views.collectedDate.textContent, '', 'unavailable views must clear an old collection date');
   assert.equal(views.qualifications.textContent, '', 'unavailable views must clear old qualifications');
   assert.equal(views.status.hidden, false, 'unavailable views need a visible status');
-  if (locale === 'es') assert.match(views.status.textContent, /no\s+est.n\s+disponibles?|no\s+está[n]?\s+disponible|no\s+se\s+pueden/i);
-  else assert.match(views.status.textContent, /unavailable|not available/i);
+  assertActivityUnavailableMessage(views.status.textContent, locale);
 }
 
 function assertLocalizedViewsUnit(page, locale) {
@@ -1525,8 +1531,7 @@ function assertSearchUnavailable(page, locale) {
   assert.equal(search.interval.textContent, '', 'unavailable Search clicks must clear the old interval');
   assert.equal(search.collectedDate.textContent, '', 'unavailable Search clicks must clear the old collection date');
   assert.equal(search.status.hidden, false, 'unavailable Search clicks need a visible status');
-  if (locale === 'es') assert.match(search.status.textContent, /no\s+est.n\s+disponibles?|no\s+está[n]?\s+disponible|no\s+se\s+pueden/i);
-  else assert.match(search.status.textContent, /unavailable|not available/i);
+  assertActivityUnavailableMessage(search.status.textContent, locale);
 }
 
 function assertLocalizedSearchUnit(page, locale) {
@@ -5896,3 +5901,367 @@ test('catalog sorting preserves URL queries that a native search input displays 
   assert.equal(new URL(page.location.href).hash, '#newline');
   assert.equal(page.fetchCount, 1);
 });
+
+const phase7MetricSpecs = [
+  {
+    key: 'articleViews',
+    label: 'article views',
+    group: 'articleViews',
+    field: 'views',
+    records: articleViewsRecords,
+    metric: (page) => page.cards.articles.views,
+    copy: (page, value) => { page.cards.articles.views.region.dataset.statsViewsUnavailable = value; },
+    assertVisible: assertViewsVisible
+  },
+  {
+    key: 'articleSearchClicks',
+    label: 'Search clicks',
+    group: 'articleSearchClicks',
+    field: 'clicks',
+    records: articleSearchRecords,
+    metric: (page) => page.cards.articles.search,
+    copy: (page, value) => { page.cards.articles.search.region.dataset.statsSearchUnavailable = value; },
+    assertVisible: assertSearchVisible
+  },
+  {
+    key: 'newsletterEmailOpens',
+    label: 'newsletter opens',
+    group: 'newsletterEmailOpens',
+    field: 'opens',
+    records: () => newsletterEmailRecords('opens'),
+    metric: (page) => page.cards.newsletter.emailOpens,
+    copy: (page, value) => { page.cards.newsletter.emailOpens.region.dataset.statsNewsletterEmailOpensUnavailable = value; },
+    assertVisible: (page, locale, period) => assertNewsletterEmailVisible(page, locale, newsletterEmailMetricSpecs[0], period)
+  },
+  {
+    key: 'newsletterEmailVerifiedClicks',
+    label: 'verified email clicks',
+    group: 'newsletterEmailVerifiedClicks',
+    field: 'clicks',
+    records: () => newsletterEmailRecords('clicks'),
+    metric: (page) => page.cards.newsletter.emailVerifiedClicks,
+    copy: (page, value) => { page.cards.newsletter.emailVerifiedClicks.region.dataset.statsNewsletterEmailVerifiedClicksUnavailable = value; },
+    assertVisible: (page, locale, period) => assertNewsletterEmailVisible(page, locale, newsletterEmailMetricSpecs[1], period)
+  },
+  {
+    key: 'directoryViews',
+    label: 'directory page views',
+    group: 'directoryViews',
+    field: 'views',
+    records: () => ({ ...directoryViewsRecords(), total: directoryViewsRecord('total') }),
+    metric: (page) => page.cards.directoryViews,
+    copy: (page, value) => { page.cards.directoryViews.card.dataset.statsDirectoryViewsUnavailable = value; },
+    assertVisible: assertDirectoryViewsVisible
+  },
+  {
+    key: 'directoryOutboundClicks',
+    label: 'directory outbound clicks',
+    group: 'directoryOutboundClicks',
+    field: 'clicks',
+    records: () => ({ ...directoryOutboundClicksRecords(), total: directoryOutboundClicksRecord('total') }),
+    metric: (page) => page.cards.directoryOutboundClicks,
+    copy: (page, value) => { page.cards.directoryViews.card.dataset.statsDirectoryOutboundClicksUnavailable = value; },
+    assertVisible: assertDirectoryOutboundClicksVisible
+  }
+];
+
+const phase7GenericCopy = {
+  en: {
+    articleViews: 'Page view data are unavailable.',
+    articleSearchClicks: 'Search click data are unavailable.',
+    newsletterEmailOpens: 'Email open data are unavailable.',
+    newsletterEmailVerifiedClicks: 'Verified email click data are unavailable.',
+    directoryViews: 'Dónde Aprendo AWS page view data are unavailable.',
+    directoryOutboundClicks: 'Dónde Aprendo AWS external click data are unavailable.'
+  },
+  es: {
+    articleViews: 'No hay datos disponibles de vistas de páginas.',
+    articleSearchClicks: 'No hay datos disponibles de clics de búsqueda.',
+    newsletterEmailOpens: 'No hay datos disponibles de aperturas de emails.',
+    newsletterEmailVerifiedClicks: 'No hay datos disponibles de clics verificados en emails.',
+    directoryViews: 'No hay datos disponibles de vistas de página de Dónde Aprendo AWS.',
+    directoryOutboundClicks: 'No hay datos disponibles de clics en enlaces externos de Dónde Aprendo AWS.'
+  }
+};
+
+function phase7Snapshot() {
+  const data = snapshotWithArticleSearchClicks();
+  data.groups.newsletterEmailOpens = { definitionVersion: 1, records: newsletterEmailRecords('opens') };
+  data.groups.newsletterEmailVerifiedClicks = { definitionVersion: 1, records: newsletterEmailRecords('clicks') };
+  data.groups.directoryViews = {
+    definitionVersion: 1,
+    records: { ...directoryViewsRecords(), total: directoryViewsRecord('total') }
+  };
+  data.groups.directoryOutboundClicks = {
+    definitionVersion: 1,
+    records: { ...directoryOutboundClicksRecords(), total: directoryOutboundClicksRecord('total') }
+  };
+  return data;
+}
+
+function phase7CreatePage(locale, data = phase7Snapshot(), options = {}) {
+  const page = createPage({ locale, data, ...options });
+  for (const spec of phase7MetricSpecs) spec.copy(page, phase7GenericCopy[locale][spec.key]);
+  return page;
+}
+
+function phase7MetricRecords(data, spec) {
+  return data.groups[spec.group].records;
+}
+
+function phase7NormalizeCopy(value) {
+  return String(value).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+function assertPhase7ReasonText(text, locale, reason, label) {
+  const normalized = phase7NormalizeCopy(text);
+  assert.notEqual(normalized.trim(), '', `${label}: unavailable message is visible`);
+  assert.doesNotMatch(normalized, /\b(?:failed|failure|error|fallo|falla|fallaron)\b/,
+    `${label}: the message does not invent a collection or provider failure`);
+
+  if (reason === 'generic') {
+    assert.match(normalized, /\bdata\b|\bdatos\b/, `${label}: generic copy identifies missing data`);
+    assert.match(normalized, locale === 'en' ? /unavailable|not available/ : /\bno\b.{0,60}\bdisponible/,
+      `${label}: generic copy says the data are unavailable`);
+    assert.doesNotMatch(normalized, /(?:only|exclusively).{0,70}(?:english|spanish)|(?:solo|unicamente).{0,70}(?:ingles|espanol)|unsupported|not supported|does not (?:offer|support|provide)|no (?:ofrece|admite|permite|soporta)/,
+      `${label}: generic copy does not claim language-only coverage or an unsupported total`);
+    return;
+  }
+
+  if (reason === 'language') {
+    assert.match(normalized, locale === 'en' ? /\benglish\b/ : /\bingles\b/, `${label}: the covered language is named`);
+    assert.match(normalized, /simple\s+aws/, `${label}: the metric's own source is named`);
+    assert.match(normalized, locale === 'en' ? /\bonly\b/ : /\bsolo\b|\bunicamente\b/,
+      `${label}: the message explains that language coverage is limited`);
+    assert.doesNotMatch(normalized, /unsupported|not supported|does not (?:offer|support|provide)|no (?:ofrece|admite|permite|soporta)/, `${label}: language takes precedence over total-period support`);
+    return;
+  }
+
+  assert.match(normalized, locale === 'en'
+    ? /(?:does not|doesn't) (?:offer|admit|support|provide)/
+    : /no (?:ofrece|admite|permite)/,
+  `${label}: the metric states that it does not offer this total`);
+  assert.match(normalized, locale === 'en' ? /recorded total/ : /total registrado/,
+    `${label}: the message names the recorded total`);
+  assert.doesNotMatch(normalized, /(?:only|exclusively).{0,70}(?:english|spanish)|(?:solo|unicamente).{0,70}(?:ingles|espanol)/,
+    `${label}: total support is not confused with source-language coverage`);
+}
+
+function assertPhase7MetricUnavailable(page, locale, spec, reason = 'generic') {
+  const metric = spec.metric(page);
+  assert.equal(metric.results.hidden, true, `${spec.label}: unavailable results stay hidden`);
+  assert.equal(metric.value.textContent, '', `${spec.label}: unavailable value is cleared`);
+  assert.equal(metric.coverage.textContent, '', `${spec.label}: unavailable coverage is cleared`);
+  assert.equal(metric.interval.textContent, '', `${spec.label}: unavailable interval is cleared`);
+  assert.equal(metric.collectedDate.textContent, '', `${spec.label}: unavailable collection date is cleared`);
+  if (metric.qualifications) assert.equal(metric.qualifications.textContent, '', `${spec.label}: unavailable qualifications are cleared`);
+  assert.equal(metric.status.hidden, false, `${spec.label}: the visible metric explains its unavailable state`);
+  assertPhase7ReasonText(metric.status.textContent, locale, reason, spec.label);
+}
+
+function assertPhase7OverviewUnchanged(page, expected) {
+  for (const [kind, value] of Object.entries(expected)) {
+    assert.equal(page.overviewValues[kind].textContent, value, `${kind} overview is unaffected by activity availability`);
+  }
+}
+
+function phase7OverviewValues(page) {
+  return Object.fromEntries(Object.entries(page.overviewValues).map(([kind, value]) => [kind, value.textContent]));
+}
+
+function invalidatePhase7Records(records, field) {
+  for (const record of Object.values(records)) {
+    if (record) record[field] = -1;
+  }
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} activity metrics with absent, invalid, empty, or all-invalid families use generic missing-data copy`, async () => {
+    for (const spec of phase7MetricSpecs) {
+      for (const scenario of ['absent', 'invalid group', 'empty records', 'no valid records']) {
+        const data = phase7Snapshot();
+        if (scenario === 'absent') {
+          delete data.groups[spec.group];
+        } else if (scenario === 'invalid group') {
+          data.groups[spec.group].definitionVersion = 99;
+        } else if (scenario === 'empty records') {
+          data.groups[spec.group] = { definitionVersion: 1, records: {} };
+        } else {
+          invalidatePhase7Records(phase7MetricRecords(data, spec), spec.field);
+        }
+
+        const page = phase7CreatePage(locale, data);
+        await page.settle();
+        if (spec.key === 'articleViews' || spec.key === 'articleSearchClicks') {
+          page.selector.value = 'es';
+          page.selector.dispatch('change');
+        }
+        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        assert.equal(page.periodSelector.disabled, false, `${spec.label}/${scenario}: a healthy sibling keeps the shared period selector available`);
+        assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: a healthy sibling still supports Recorded total`);
+        page.periodSelector.value = 'total';
+        page.periodSelector.dispatch('change');
+
+        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        assert.equal(page.fetchCount, 1, `${spec.label}/${scenario}: reason selection is local to the fetched snapshot`);
+      }
+    }
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  for (const spec of phase7MetricSpecs) {
+    test(`${locale} ${spec.label} clears only a missing period and restores its own valid zero and metadata`, async () => {
+      const data = phase7Snapshot();
+      const records = phase7MetricRecords(data, spec);
+      records['7d'] = null;
+      records['12m'][spec.field] = 0;
+      const page = phase7CreatePage(locale, data);
+      await page.settle();
+
+      spec.assertVisible(page, locale, '12m');
+      const count = page.cards.articles.count.textContent;
+      const overview = phase7OverviewValues(page);
+      page.periodSelector.value = '7d';
+      page.periodSelector.dispatch('change');
+      assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+      for (const sibling of phase7MetricSpecs.filter(({ key }) => key !== spec.key)) {
+        const siblingMetric = sibling.metric(page);
+        assert.equal(siblingMetric.results.hidden, false, `${sibling.label} remains available when ${spec.label} has no selected record`);
+        assert.equal(siblingMetric.status.hidden, true, `${sibling.label} clears its independent status`);
+      }
+      assert.equal(page.cards.articles.count.textContent, count, 'period changes do not alter article counts');
+      assertPhase7OverviewUnchanged(page, overview);
+
+      page.periodSelector.value = '12m';
+      page.periodSelector.dispatch('change');
+      spec.assertVisible(page, locale, '12m');
+      assert.equal(spec.metric(page).value.textContent, '0', `${spec.label} keeps a valid zero visible`);
+      assert.equal(page.cards.articles.count.textContent, count);
+      assertPhase7OverviewUnchanged(page, overview);
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} article Views and Search use same-family English coverage before missing-period or total reasons`, async () => {
+    const data = phase7Snapshot();
+    data.groups.articleViews.records['7d'] = null;
+    data.groups.articleSearchClicks.records['7d'] = null;
+    data.groups.articleViews.records['12m'].views = 0;
+    data.groups.articleSearchClicks.records['12m'].clicks = 0;
+    const page = phase7CreatePage(locale, data);
+    await page.settle();
+    const overview = phase7OverviewValues(page);
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodOptions.total.disabled, false, 'valid Dónde totals keep the shared total choice enabled in Spanish');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    for (const spec of phase7MetricSpecs.slice(0, 2)) {
+      assert.equal(spec.metric(page).region.hidden, false, `${spec.label} stays visible to explain its English coverage`);
+      assertPhase7MetricUnavailable(page, locale, spec, 'language');
+    }
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    for (const spec of phase7MetricSpecs.slice(0, 2)) assertPhase7MetricUnavailable(page, locale, spec, 'language');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailUnavailable(page, locale, spec, { hidden: true });
+    assert.equal(page.cards.newsletter.card.hidden, true, 'Spanish still hides English-only newsletter engagement');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    page.periodSelector.value = '12m';
+    page.periodSelector.dispatch('change');
+    for (const spec of phase7MetricSpecs.slice(0, 2)) {
+      spec.assertVisible(page, locale, '12m');
+      assert.equal(spec.metric(page).value.textContent, '0', `${spec.label}: returning to covered English restores a valid zero`);
+    }
+    assertPhase7OverviewUnchanged(page, overview);
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} Search and email engagement explain unsupported totals only when each family has valid data`, async () => {
+    const data = phase7Snapshot();
+    data.groups.articleSearchClicks.records['12m'].clicks = 0;
+    data.groups.newsletterEmailOpens.records['12m'].opens = 0;
+    data.groups.newsletterEmailVerifiedClicks.records['12m'].clicks = 0;
+    const page = phase7CreatePage(locale, data);
+    await page.settle();
+    const overview = phase7OverviewValues(page);
+
+    for (const language of ['all', 'en']) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.periodOptions.total.disabled, false, `${language}: valid article Views keep Recorded total available`);
+      const count = page.cards.articles.count.textContent;
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      for (const spec of phase7MetricSpecs.slice(1, 4)) assertPhase7MetricUnavailable(page, locale, spec, 'total');
+
+      page.periodSelector.value = '12m';
+      page.periodSelector.dispatch('change');
+      for (const spec of phase7MetricSpecs.slice(1, 4)) {
+        spec.assertVisible(page, locale, '12m');
+        assert.equal(spec.metric(page).value.textContent, '0', `${spec.label}: a supported zero remains valid after the total view`);
+      }
+      assert.equal(page.cards.articles.count.textContent, count, `${language}: periods do not change counts`);
+      assertPhase7OverviewUnchanged(page, overview);
+    }
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} missing or invalid article/directory totals use generic data-unavailable copy`, async () => {
+    for (const spec of [phase7MetricSpecs[0], phase7MetricSpecs[4], phase7MetricSpecs[5]]) {
+      for (const scenario of ['missing total', 'invalid total']) {
+        const data = phase7Snapshot();
+        const records = phase7MetricRecords(data, spec);
+        if (scenario === 'missing total') delete records.total;
+        else records.total[spec.field] = -1;
+        const page = phase7CreatePage(locale, data);
+        await page.settle();
+        assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: another valid Views family keeps the total choice enabled`);
+        const count = page.cards.articles.count.textContent;
+        const overview = phase7OverviewValues(page);
+        page.periodSelector.value = 'total';
+        page.periodSelector.dispatch('change');
+
+        assert.equal(page.periodSelector.value, 'total', `${spec.label}/${scenario}: a healthy sibling keeps the selected total in place`);
+        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        const siblingDirectorySpec = spec.key === 'directoryViews' ? phase7MetricSpecs[5] : phase7MetricSpecs[4];
+        siblingDirectorySpec.assertVisible(page, locale, 'total');
+        assert.equal(page.cards.articles.count.textContent, count);
+        assertPhase7OverviewUnchanged(page, overview);
+        assert.equal(page.fetchCount, 1);
+      }
+    }
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} failed snapshots leave the six activity metrics with generic, non-causal messages`, async () => {
+    const failedCases = [
+      ['network', { fetchError: new Error('private transport detail') }],
+      ['HTTP', { responseOk: false }],
+      ['JSON', { jsonError: new Error('private parser detail') }],
+      ['invalid root', { data: { schemaVersion: 2, groups: {} } }]
+    ];
+    for (const [description, options] of failedCases) {
+      const page = phase7CreatePage(locale, options.data ?? phase7Snapshot(), options);
+      await page.settle();
+      for (const spec of phase7MetricSpecs) {
+        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        assert.doesNotMatch(spec.metric(page).status.textContent, /private transport detail|private parser detail/i,
+          `${description}: private exception details do not appear in the metric message`);
+      }
+      assert.equal(page.fetchCount, 1, `${description}: one rejected snapshot does not trigger another request`);
+    }
+  });
+}
