@@ -10,6 +10,9 @@ const CONTENT_API_ENDPOINT = "https://cdn.builder.io/api/v3/content/blog-post";
 const BUILDER_API_ENDPOINT = "https://api.builder.aws.com/cs/v2/articles/user/";
 const CLOUDY_ARCHIVE_ORIGIN = "https://blog.guilleojeda.com";
 const CLOUDY_ARCHIVE_PATH = "/archive";
+const DONDE_APRENDO_INDEX_URL = "https://dondeaprendoaws.com/article-index.json";
+const DONDE_APRENDO_ORIGIN = "https://dondeaprendoaws.com";
+const DONDE_APRENDO_AUTHOR = Object.freeze({ name: "Guille Ojeda", url: "https://guilleojeda.com/es/" });
 const PAGE_SIZE = 10;
 const MAX_CAYLENT_PAGES = 100;
 const BUILDER_PAGE_SIZE = 50;
@@ -17,7 +20,7 @@ const MAX_BUILDER_PAGES = 20;
 const BEEHIIV_POST_PAGE_SIZE = 100;
 const MAX_BEEHIIV_POST_PAGES = 5;
 const MAX_CLOUDY_PAGES = 10;
-const MAX_CLOUDY_BODY_BYTES = 1024 * 1024;
+const MAX_DECODED_SOURCE_BODY_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_TRANSIENT_RETRIES = 1;
 const OUTPUT_CACHE_CONTROL = "public,max-age=0,must-revalidate";
@@ -61,7 +64,8 @@ const SOURCE_LABELS = Object.freeze({
   caylent: "Caylent",
   "builder-center": "AWS Builder Center",
   "simple-aws": "Simple AWS",
-  "cloudy-things": "Cloudy Things"
+  "cloudy-things": "Cloudy Things",
+  "donde-aprendo-aws": "Dónde Aprendo AWS"
 });
 
 class CollectorError extends Error {
@@ -173,6 +177,11 @@ function validateCloudySource(source) {
   return { id: "cloudy-things", authorName, language: "en" };
 }
 
+function validateDondeAprendoAwsSource(source) {
+  if (!exactKeys(source, ["id"]) || source.id !== "donde-aprendo-aws") throw fail("INPUT_SCHEMA_INVALID");
+  return { id: "donde-aprendo-aws" };
+}
+
 function isValidIanaTimeZone(value) {
   if (typeof value !== "string" || value.trim() === "") return false;
   try {
@@ -272,8 +281,7 @@ function validateInput(input) {
 
   const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6 ||
     input.schemaVersion === 7 || input.schemaVersion === 8 || input.schemaVersion === 9 || input.schemaVersion === 10;
-  const allowedSourceCounts = simpleAwsAllowed ? [2, 3, 4] : [2, 3];
-  if (!Array.isArray(input.sources) || !allowedSourceCounts.includes(input.sources.length)) {
+  if (!Array.isArray(input.sources)) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
   const sourcesById = new Map();
@@ -283,6 +291,7 @@ function validateInput(input) {
     if (source.id === "caylent") sourcesById.set(source.id, validateCaylentSource(source));
     else if (source.id === "builder-center") sourcesById.set(source.id, validateBuilderSource(source));
     else if (source.id === "cloudy-things") sourcesById.set(source.id, validateCloudySource(source));
+    else if (source.id === "donde-aprendo-aws") sourcesById.set(source.id, validateDondeAprendoAwsSource(source));
     else if (source.id === "simple-aws") {
       if (!simpleAwsAllowed || !exactKeys(source, ["id"])) throw fail("INPUT_SCHEMA_INVALID");
       sourcesById.set(source.id, { id: "simple-aws" });
@@ -291,8 +300,8 @@ function validateInput(input) {
   }
   const hasSimpleAws = sourcesById.has("simple-aws");
   const hasCloudyThings = sourcesById.has("cloudy-things");
-  if (sourcesById.size !== 2 + Number(hasSimpleAws) + Number(hasCloudyThings) ||
-      !sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
+  const hasDondeAprendoAws = sourcesById.has("donde-aprendo-aws");
+  if (!sourcesById.has("caylent") || !sourcesById.has("builder-center")) {
     throw fail("SOURCE_SET_INVALID");
   }
 
@@ -300,6 +309,7 @@ function validateInput(input) {
     const sources = [sourcesById.get("caylent"), sourcesById.get("builder-center")];
     if (!hasSimpleAws) {
       if (hasCloudyThings) sources.push(sourcesById.get("cloudy-things"));
+      if (hasDondeAprendoAws) sources.push(sourcesById.get("donde-aprendo-aws"));
       return { sources, newsletter: newsletterValue };
     }
     const newsletter = validateNewsletterSelection(newsletterValue);
@@ -310,6 +320,7 @@ function validateInput(input) {
       language: newsletter.language
     });
     if (hasCloudyThings) sources.push(sourcesById.get("cloudy-things"));
+    if (hasDondeAprendoAws) sources.push(sourcesById.get("donde-aprendo-aws"));
     return { sources, newsletter };
   };
 
@@ -436,7 +447,8 @@ function validateInput(input) {
     sources: [
       sourcesById.get("caylent"),
       sourcesById.get("builder-center"),
-      ...(hasCloudyThings ? [sourcesById.get("cloudy-things")] : [])
+      ...(hasCloudyThings ? [sourcesById.get("cloudy-things")] : []),
+      ...(hasDondeAprendoAws ? [sourcesById.get("donde-aprendo-aws")] : [])
     ]
   };
 }
@@ -871,6 +883,7 @@ function scopeFingerprint(sources) {
     if (source.id === "cloudy-things") {
       return { id: source.id, authorName: source.authorName, language: source.language };
     }
+    if (source.id === "donde-aprendo-aws") return { id: source.id };
     return { id: source.id, authorId: source.authorId };
   })
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -1932,7 +1945,7 @@ function parseCloudyArchive(body, page) {
   return { ...pagination, publications };
 }
 
-async function readCloudyBody(response) {
+async function readBoundedBody(response, { tooLargeCode, readFailedCode }) {
   if (response?.body && typeof response.body.getReader === "function") {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -1944,24 +1957,39 @@ async function readCloudyBody(response) {
         if (result.done) break;
         const text = decoder.decode(result.value, { stream: true });
         bytes += Buffer.byteLength(text, "utf8");
-        if (bytes > MAX_CLOUDY_BODY_BYTES) {
+        if (bytes > MAX_DECODED_SOURCE_BODY_BYTES) {
           await reader.cancel();
-          throw fail("CLOUDY_BODY_TOO_LARGE");
+          throw fail(tooLargeCode);
         }
         chunks.push(text);
       }
       const tail = decoder.decode();
       bytes += Buffer.byteLength(tail, "utf8");
-      if (bytes > MAX_CLOUDY_BODY_BYTES) throw fail("CLOUDY_BODY_TOO_LARGE");
+      if (bytes > MAX_DECODED_SOURCE_BODY_BYTES) throw fail(tooLargeCode);
       chunks.push(tail);
       return chunks.join("");
     } catch (error) {
       if (error instanceof CollectorError) throw error;
       try { await reader.cancel(); } catch { /* best effort */ }
-      throw fail("CLOUDY_BODY_READ_FAILED");
+      throw fail(readFailedCode);
     }
   }
-  throw fail("CLOUDY_BODY_READ_FAILED");
+
+  throw fail(readFailedCode);
+}
+
+function readCloudyBody(response) {
+  return readBoundedBody(response, {
+    tooLargeCode: "CLOUDY_BODY_TOO_LARGE",
+    readFailedCode: "CLOUDY_BODY_READ_FAILED"
+  });
+}
+
+function readDondeAprendoBody(response) {
+  return readBoundedBody(response, {
+    tooLargeCode: "DONDE_BODY_TOO_LARGE",
+    readFailedCode: "DONDE_BODY_READ_FAILED"
+  });
 }
 
 async function fetchCloudyArchive(url, page) {
@@ -2004,6 +2032,57 @@ async function fetchCloudyArchive(url, page) {
       throw error;
     }
   }
+  throw fail("SOURCE_NETWORK_FAILED");
+}
+
+async function fetchDondeAprendoIndex() {
+  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(DONDE_APRENDO_INDEX_URL, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        redirect: "error",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      });
+    } catch (error) {
+      if (isRejectedRedirect(error)) throw fail("SOURCE_REDIRECT_REJECTED");
+      if (attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "donde-aprendo-aws", page: 1, reason: "network" });
+        continue;
+      }
+      throw fail("SOURCE_NETWORK_FAILED");
+    }
+
+    if (!response || typeof response.ok !== "boolean" || !Number.isInteger(response.status)) {
+      throw fail("SOURCE_RESPONSE_INVALID");
+    }
+    if (!response.ok) {
+      if (isTransientStatus(response.status) && attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "donde-aprendo-aws", page: 1, status: response.status });
+        continue;
+      }
+      throw fail(`SOURCE_HTTP_${response.status}`);
+    }
+
+    let raw;
+    try {
+      raw = await readDondeAprendoBody(response);
+    } catch (error) {
+      if (error instanceof CollectorError && error.code === "DONDE_BODY_READ_FAILED" && attempt < MAX_TRANSIENT_RETRIES) {
+        log("warn", { event: "content_stats_source_retry", sourceId: "donde-aprendo-aws", page: 1, reason: "body" });
+        continue;
+      }
+      throw error;
+    }
+
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw fail("DONDE_INDEX_JSON_INVALID");
+    }
+  }
+
   throw fail("SOURCE_NETWORK_FAILED");
 }
 
@@ -2051,6 +2130,91 @@ async function collectCloudyThings(source, now) {
     if (parsed.nextUrl !== expectedNext) throw fail("CLOUDY_PAGINATION_INVALID");
     page = parsed.currentPage + 1;
   }
+}
+
+function normalizedDondeAprendoArticleUrl(value) {
+  if (typeof value !== "string" || value.trim() !== value || value === "") throw fail("DONDE_RECORD_INVALID");
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw fail("DONDE_RECORD_INVALID");
+  }
+  if (parsed.href !== value || parsed.origin !== DONDE_APRENDO_ORIGIN ||
+      parsed.username !== "" || parsed.password !== "" || parsed.search !== "" || parsed.hash !== "" ||
+      !/^\/blog\/[^/]+\/$/.test(parsed.pathname) || /%(?:2f|5c)/i.test(parsed.pathname)) {
+    throw fail("DONDE_RECORD_INVALID");
+  }
+  return value;
+}
+
+function normalizedDondeAprendoAuthorUrl(value) {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.trim() !== value || value === "") throw fail("DONDE_AUTHOR_INVALID");
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw fail("DONDE_AUTHOR_INVALID");
+  }
+  if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "") {
+    throw fail("DONDE_AUTHOR_INVALID");
+  }
+  return value;
+}
+
+function validateDondeAprendoIndex(envelope, now) {
+  if (!exactKeys(envelope, ["schemaVersion", "source", "articles"]) ||
+      envelope.schemaVersion !== 1 ||
+      !exactKeys(envelope.source, ["id", "label"]) ||
+      envelope.source.id !== "donde-aprendo-aws" ||
+      envelope.source.label !== SOURCE_LABELS["donde-aprendo-aws"] ||
+      !Array.isArray(envelope.articles)) {
+    throw fail("DONDE_INDEX_INVALID");
+  }
+
+  const today = new Date(now).toISOString().slice(0, 10);
+  const seenUrls = new Map();
+  const publications = [];
+  for (const article of envelope.articles) {
+    if (!exactKeys(article, ["title", "language", "publishedAt", "url", "author"]) ||
+        article.language !== "es" || !isRealIsoDate(article.publishedAt) ||
+        !exactKeys(article.author, ["name", "url"])) {
+      throw fail("DONDE_RECORD_INVALID");
+    }
+
+    const title = normalizedTitle(article.title);
+    const url = normalizedDondeAprendoArticleUrl(article.url);
+    const authorName = requireString(article.author.name, "DONDE_AUTHOR_INVALID");
+    const authorUrl = normalizedDondeAprendoAuthorUrl(article.author.url);
+    const metadata = JSON.stringify([article.title, article.language, article.publishedAt, authorName, authorUrl]);
+    const previousMetadata = seenUrls.get(url);
+    if (previousMetadata !== undefined) {
+      if (previousMetadata !== metadata) throw fail("DONDE_URL_CONTRADICTORY");
+      continue;
+    }
+    seenUrls.set(url, metadata);
+
+    if (authorName !== DONDE_APRENDO_AUTHOR.name) continue;
+    if (authorUrl !== DONDE_APRENDO_AUTHOR.url) throw fail("DONDE_AUTHOR_INVALID");
+    if (article.publishedAt > today) continue;
+
+    publications.push({
+      sourceId: "donde-aprendo-aws",
+      providerId: url,
+      title,
+      language: "es",
+      url,
+      publishedAt: article.publishedAt
+    });
+  }
+  return publications;
+}
+
+async function collectDondeAprendoAws(source, now) {
+  const envelope = await fetchDondeAprendoIndex();
+  const publications = validateDondeAprendoIndex(envelope, now);
+  return { publications, pages: 1 };
 }
 
 function parseDate(value, { optional = false } = {}) {
@@ -2250,6 +2414,7 @@ async function collectPublications(sources, now, env, getBuilderCollection) {
     }
     else if (source.id === "simple-aws") result = await collectSimpleAws(source, now, env);
     else if (source.id === "cloudy-things") result = await collectCloudyThings(source, now);
+    else if (source.id === "donde-aprendo-aws") result = await collectDondeAprendoAws(source, now);
     else throw fail("SOURCE_UNSUPPORTED");
     pagesBySource[source.id] = result.pages;
     publications.push(...result.publications);
@@ -2301,15 +2466,22 @@ function makeOutput(groups) {
 function validSourceList(sources, family) {
   if (!Array.isArray(sources)) return false;
   if (family === "articles") {
-    const expected = [
-      [["caylent", "Caylent"]],
-      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"]],
-      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["simple-aws", "Simple AWS"]],
-      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["cloudy-things", "Cloudy Things"]],
-      [["caylent", "Caylent"], ["builder-center", "AWS Builder Center"], ["simple-aws", "Simple AWS"], ["cloudy-things", "Cloudy Things"]]
-    ].find((candidate) => candidate.length === sources.length && candidate.every(([id, label], index) =>
-      exactKeys(sources[index], ["id", "label"]) && sources[index].id === id && sources[index].label === label));
-    return expected !== undefined;
+    if (sources.length === 0) return false;
+    const orderedIds = ["caylent", "builder-center", "simple-aws", "cloudy-things", "donde-aprendo-aws"];
+    const seen = new Set();
+    let previousIndex = -1;
+    for (const source of sources) {
+      if (!exactKeys(source, ["id", "label"]) ||
+          typeof source.id !== "string" ||
+          SOURCE_LABELS[source.id] !== source.label ||
+          seen.has(source.id)) return false;
+      const index = orderedIds.indexOf(source.id);
+      if (index < 0 || index <= previousIndex) return false;
+      seen.add(source.id);
+      previousIndex = index;
+    }
+    return sources[0].id === "caylent" &&
+      (sources.length === 1 || sources[1].id === "builder-center");
   }
   return sources.length === 1 && exactKeys(sources[0], ["id", "label"]) &&
     sources[0].id === CURATED_SOURCE.id && sources[0].label === CURATED_SOURCE.label;

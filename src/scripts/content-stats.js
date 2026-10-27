@@ -31,15 +31,10 @@ const supportedArticleSources = new Map([
   ['caylent', 'Caylent'],
   ['builder-center', 'AWS Builder Center'],
   ['simple-aws', 'Simple AWS'],
-  ['cloudy-things', 'Cloudy Things']
+  ['cloudy-things', 'Cloudy Things'],
+  ['donde-aprendo-aws', 'Dónde Aprendo AWS']
 ]);
-const supportedArticleSourceSets = new Set([
-  'caylent',
-  'caylent,builder-center',
-  'caylent,builder-center,simple-aws',
-  'caylent,builder-center,cloudy-things',
-  'caylent,builder-center,simple-aws,cloudy-things'
-]);
+const supportedArticleSourceOrder = ['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws'];
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
@@ -116,7 +111,15 @@ function hasSources(group, kind) {
   }
 
   if (kind === 'articles') {
-    return supportedArticleSourceSets.has(sources.map((source) => source.id).join(','));
+    const sourceIds = sources.map((source) => source.id);
+    if (sourceIds[0] !== 'caylent' || (sourceIds.length > 1 && sourceIds[1] !== 'builder-center')) return false;
+    let previousIndex = -1;
+    for (const id of sourceIds) {
+      const index = supportedArticleSourceOrder.indexOf(id);
+      if (index <= previousIndex) return false;
+      previousIndex = index;
+    }
+    return true;
   }
   return sources.length === 1 && ids.has(supportedCuratedSource.id);
 }
