@@ -1565,6 +1565,45 @@ for (const page of policyPages) {
 
 console.log('Static output checks passed for both content-statistics privacy routes.');
 
+function checkArticleCatalogDiscoveryControls(locale, catalogHtml) {
+  const queryInputs = [...catalogHtml.matchAll(/<input\b[^>]*>/gi)]
+    .filter(([tag]) => /\bdata-catalog-query(?:\s|=|>|\/)/i.test(tag));
+  assert.equal(queryInputs.length, 1, `${locale} catalog has one native article search input`);
+  const query = queryInputs[0][0];
+  assert.match(query, /\btype=["']search["']/i, `${locale} catalog search uses the native search input`);
+  assert.match(query, /\bdisabled(?:\s|=|>|\/)/i, `${locale} catalog search waits for a valid catalog`);
+  const queryId = query.match(/\bid=["']([^"']+)["']/i)?.[1];
+  assert.ok(queryId, `${locale} catalog search has a label target`);
+  const queryLabel = extractElement(catalogHtml, 'label', 'for', queryId);
+  const searchLabelText = normalizedText(queryLabel?.html ?? '');
+  assert.match(searchLabelText, locale === 'en' ? /title/ : /titul/, `${locale} catalog search label identifies titles`);
+  assert.match(searchLabelText, locale === 'en' ? /source/ : /fuente/, `${locale} catalog search label identifies sources`);
+  assert.equal(query.match(/\bvalue=["']([^"']*)["']/i)?.[1] ?? '', '', `${locale} catalog search is initially empty`);
+
+  const sort = extractElement(catalogHtml, 'select', 'data-catalog-sort');
+  assert.ok(sort, `${locale} catalog has a native sort select`);
+  const sortId = sort.html.match(/\bid=["']([^"']+)["']/i)?.[1];
+  assert.ok(sortId, `${locale} catalog sort has a label target`);
+  const sortLabel = extractElement(catalogHtml, 'label', 'for', sortId);
+  assert.ok(normalizedText(sortLabel?.html ?? ''), `${locale} catalog sort has a nonempty label`);
+  assert.match(normalizedText(sortLabel.html), locale === 'en' ? /sort|order/ : /orden/,
+    `${locale} catalog sort label is localized`);
+  assert.match(sort.html.slice(0, sort.html.indexOf('>')), /\bdisabled(?:\s|=|$)/i,
+    `${locale} catalog sort waits for a valid catalog`);
+  const sortChoices = [...sort.html.matchAll(/<option\b[^>]*\bvalue=["']([^"']+)["'][^>]*>[\s\S]*?<\/option>/gi)];
+  assert.deepEqual(sortChoices.map((choice) => choice[1]),
+    ['date-desc', 'date-asc', 'title-asc', 'title-desc', 'source-asc', 'source-desc'],
+    `${locale} catalog offers both directions for publication date, title, and source`);
+  for (const choice of sortChoices) {
+    assert.ok(normalizedText(choice[0]), `${locale} catalog sort choice ${choice[1]} has a visible name`);
+  }
+  assert.equal(new Set(sortChoices.map(([option]) => normalizedText(option))).size, 6,
+    `${locale} catalog sort choices have distinct visible names`);
+  const selected = sortChoices.filter(([option]) => /\bselected(?:\s|=|>)/i.test(option.slice(0, option.indexOf('>') + 1)));
+  assert.ok(selected.length <= 1, `${locale} catalog has one initial sort selection`);
+  if (selected.length) assert.equal(selected[0][1], 'date-desc', `${locale} catalog defaults to most recent publication`);
+}
+
 // The catalog is a daily snapshot consumer. Its shell and source links must
 // remain useful before JavaScript or a compatible Articles snapshot is ready.
 for (const locale of ['en', 'es']) {
@@ -1619,6 +1658,10 @@ for (const locale of ['en', 'es']) {
     assert.match(button.html, /\btype="button"/, `${locale} catalog ${attribute} does not submit a form`);
     assert.match(button.html.slice(0, button.html.indexOf('>')), /\bdisabled(?:\s|=|$)/i, `${locale} catalog ${attribute} starts disabled`);
     assert.ok(normalizedText(button.html), `${locale} catalog ${attribute} has an accessible name`);
+  }
+  checkArticleCatalogDiscoveryControls(locale, catalog.html);
+  for (const attribute of ['data-catalog-query', 'data-catalog-sort']) {
+    mustNotContain(homeHtml, attribute, `${locale} homepage keeps catalog discovery controls on their own page`);
   }
   const range = extractElement(catalog.html, null, 'data-catalog-range');
   assert.ok(range, `${locale} catalog result summary exists`);
