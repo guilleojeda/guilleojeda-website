@@ -18,7 +18,8 @@ const allowedKeys = {
   publication: ['id', 'label', 'language'],
   articleViewsGroup: ['definitionVersion', 'records'],
   articleViewsRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'views', 'qualifications'],
-  builderArticleViewsGroup: ['basis', 'collectedAt', 'definitionVersion', 'scopeId', 'source', 'startDate', 'views'],
+  builderArticleViewsV1: ['basis', 'collectedAt', 'definitionVersion', 'scopeId', 'source', 'startDate', 'views'],
+  builderArticleViewsV2: ['basis', 'definitionVersion', 'observedAt', 'provenance', 'scopeId', 'source', 'startDate', 'views'],
   builderArticleViews: ['all', 'en', 'es'],
   articleSearchClicksGroup: ['definitionVersion', 'records'],
   articleSearchClicksRecord: ['basis', 'collectedAt', 'scopeId', 'publication', 'timeZone', 'startDate', 'endDate', 'clicks'],
@@ -174,10 +175,15 @@ function validateNewsletterSentGroup(value) {
 }
 
 function validateBuilderArticleViews(value) {
-  if (!hasOnlyKeys(value, allowedKeys.builderArticleViewsGroup)
-    || value.definitionVersion !== 1
+  const isHistorical = hasOnlyKeys(value, allowedKeys.builderArticleViewsV1);
+  const isManual = hasOnlyKeys(value, allowedKeys.builderArticleViewsV2);
+  if ((!isHistorical && !isManual)
     || value.basis !== 'recorded-total'
-    || !isSupportedTimestamp(value.collectedAt)
+    || (isHistorical && (value.definitionVersion !== 1 || !isSupportedTimestamp(value.collectedAt)))
+    || (isManual && (value.definitionVersion !== 2
+      || value.provenance !== 'manual'
+      || !isSupportedTimestamp(value.observedAt)
+      || Date.parse(value.observedAt) < Date.parse('2026-01-06T00:00:00.000Z')))
     || !isSha256(value.scopeId)
     || !hasOnlyKeys(value.source, allowedKeys.source)
     || value.source.id !== supportedBuilderArticleViewsSource.id
@@ -475,7 +481,8 @@ function getElements(section) {
     value: builderViewsRegion.querySelector('[data-stats-builder-views-value]'),
     coverage: builderViewsRegion.querySelector('[data-stats-builder-views-coverage]'),
     since: builderViewsRegion.querySelector('[data-stats-builder-views-since]'),
-    collectedDate: builderViewsRegion.querySelector('[data-stats-builder-views-collected-date]')
+    collectedDate: builderViewsRegion.querySelector('[data-stats-builder-views-collected-date]'),
+    provenance: builderViewsRegion.querySelector('[data-stats-builder-views-provenance]')
   } : null;
 
   const searchRegion = section.querySelector('[data-stats-search]');
@@ -785,7 +792,7 @@ function renderNewsletterSent(snapshot, locale, language, elements, newsletterCa
 function builderViewsElementsReady(elements) {
   const builderViews = elements.builderViews;
   return Boolean(builderViews?.region && builderViews.status && builderViews.result
-    && builderViews.value && builderViews.coverage && builderViews.since && builderViews.collectedDate);
+    && builderViews.value && builderViews.coverage && builderViews.since && builderViews.collectedDate && builderViews.provenance);
 }
 
 function clearBuilderViewsResult(builderViews) {
@@ -793,6 +800,7 @@ function clearBuilderViewsResult(builderViews) {
   builderViews.coverage.textContent = '';
   builderViews.since.textContent = '';
   builderViews.collectedDate.textContent = '';
+  builderViews.provenance.textContent = '';
 }
 
 function renderBuilderViewsLoading(builderViews) {
@@ -830,7 +838,13 @@ function renderBuilderViews(snapshot, locale, language, elements) {
   builderViews.value.textContent = new Intl.NumberFormat(locale).format(group.views[language]);
   builderViews.coverage.textContent = group.source.label;
   builderViews.since.textContent = formatDateOnly(group.startDate, locale);
-  builderViews.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
+  const observedAt = group.definitionVersion === 1 ? group.collectedAt : group.observedAt;
+  builderViews.collectedDate.textContent = formatCollectedDate(observedAt, locale);
+  builderViews.provenance.textContent = group.definitionVersion === 1
+    ? builderViews.region.dataset.statsBuilderViewsAutomaticProvenance?.trim()
+      || (locale === 'es' ? 'Observación automática histórica' : 'Automatic historical observation')
+    : builderViews.region.dataset.statsBuilderViewsManualProvenance?.trim()
+      || (locale === 'es' ? 'Mantenimiento manual' : 'Manually maintained');
   builderViews.result.hidden = false;
   builderViews.status.hidden = true;
   builderViews.status.textContent = '';

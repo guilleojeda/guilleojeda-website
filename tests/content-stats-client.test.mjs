@@ -156,6 +156,23 @@ function builderArticleViewsGroup({
   return { definitionVersion, basis, collectedAt: groupCollectedAt, scopeId, source, startDate, views };
 }
 
+function manualBuilderArticleViewsGroup({
+  views = { all: 83, en: 31, es: 52 },
+  observedAt = '2026-10-22T17:30:00.000Z',
+  scopeId = '8'.repeat(64)
+} = {}) {
+  return {
+    definitionVersion: 2,
+    basis: 'recorded-total',
+    provenance: 'manual',
+    observedAt,
+    scopeId,
+    source: { ...builderCenter },
+    startDate: '2026-01-06',
+    views
+  };
+}
+
 function snapshotWithNewsletter(options = {}) {
   const data = threeGroupSnapshot();
   data.groups.newsletter = newsletterGroup(options);
@@ -715,7 +732,8 @@ function makeBuilderArticleViews(locale, card) {
   const coverage = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsCoverage: '' } }));
   const since = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsSince: '' } }));
   const collectedDate = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsCollectedDate: '' } }));
-  return { region, label, status, result, value, coverage, since, collectedDate };
+  const provenance = result.appendChild(new SemanticElement({ dataset: { statsBuilderViewsProvenance: '' } }));
+  return { region, label, status, result, value, coverage, since, collectedDate, provenance };
 }
 
 function createPage({ locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError, includeViews = true, includeSearch = true } = {}) {
@@ -997,7 +1015,7 @@ function assertBuilderViewsUnavailable(page, locale, { hidden = false } = {}) {
   const builder = page.cards.articles.builderViews;
   assert.equal(builder.region.hidden, hidden, 'Builder Center availability follows only its own content-language selection');
   assert.equal(builder.result.hidden, true, 'unavailable Builder Center results stay hidden');
-  for (const [name, field] of Object.entries({ value: builder.value, coverage: builder.coverage, since: builder.since, collectedDate: builder.collectedDate })) {
+  for (const [name, field] of Object.entries({ value: builder.value, coverage: builder.coverage, since: builder.since, collectedDate: builder.collectedDate, provenance: builder.provenance })) {
     assert.equal(field.textContent, '', `unavailable Builder Center views clear ${name}`);
   }
   assert.equal(builder.status.hidden, hidden, 'Builder Center status follows row visibility');
@@ -1006,7 +1024,7 @@ function assertBuilderViewsUnavailable(page, locale, { hidden = false } = {}) {
   } else if (locale === 'en') {
     assert.match(builder.status.textContent, /unavailable|not available/i, 'English unavailable copy is clear');
   } else {
-    assert.match(builder.status.textContent, /no disponible|no disponibles|no se pueden/i, 'Spanish unavailable copy is clear');
+    assert.match(builder.status.textContent, /no disponible|no disponibles|no est[aá]n disponibles|no se pueden/i, 'Spanish unavailable copy is clear');
   }
 }
 
@@ -3017,7 +3035,7 @@ test('missing newsletter sent data stays unavailable without hiding healthy news
 });
 
 const invalidNewsletterSentGroups = [
-  ['future definition version', (group) => { group.definitionVersion = 2; }],
+  ['manual definition with legacy automatic fields', (group) => { group.definitionVersion = 2; }],
   ['period basis', (group) => { group.basis = 'recorded-total'; }],
   ['noncanonical collection timestamp', (group) => { group.collectedAt = '2026-09-01T00:00:00Z'; }],
   ['nonlowercase scope hash', (group) => { group.scopeId = 'F'.repeat(64); }],
@@ -3664,3 +3682,153 @@ test('Builder Center displays retained and refreshed snapshots with each page’
   assert.equal(retainedPage.fetchCount, 1);
   assert.equal(refreshedPage.fetchCount, 1);
 });
+
+// The manual observation date belongs to this metric, independently of a daily
+// collector run or the dates of counts and other traffic measures.
+function assertManualBuilderViews(page, locale, language, group) {
+  const builder = page.cards.articles.builderViews;
+  assert.equal(builder.region.hidden, false);
+  assert.equal(builder.result.hidden, false, 'a valid manual observation is available');
+  assert.equal(builder.status.hidden, true);
+  assert.equal(builder.status.textContent, '');
+  assert.equal(builder.value.textContent, new Intl.NumberFormat(locale).format(group.views[language]));
+  assert.equal(builder.coverage.textContent, 'AWS Builder Center');
+  assert.equal(builder.since.textContent, expectedDateOnly(locale, '2026-01-06'));
+  assert.equal(builder.collectedDate.textContent, expectedDate(locale, group.observedAt), 'show the actual observation date, not the collector date');
+  assert.match(builder.provenance.textContent, /manual/i, 'the visible metadata identifies manual maintenance');
+  assert.equal(builder.provenance.hidden, false);
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} manual Builder views preserve observation and provenance through language and period changes`, async () => {
+    const group = manualBuilderArticleViewsGroup();
+    const page = createPage({ locale, data: snapshotWithBuilderArticleViews({ group }) });
+    const builder = page.cards.articles.builderViews;
+    assert.equal(builder.result.hidden, true);
+    assert.equal(builder.value.textContent, '');
+    assert.equal(builder.provenance.textContent, '');
+    await page.settle();
+
+    for (const language of ['all', 'en', 'es', 'all']) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, { all: '11', en: '7', es: '4' }[language]);
+      for (const period of language === 'es' ? articleSearchPeriods : articleViewPeriods) {
+        page.periodSelector.value = period;
+        page.periodSelector.dispatch('change');
+        assert.equal(page.periodSelector.value, period, 'manual views do not reset an applicable activity period');
+        assertManualBuilderViews(page, locale, language, group);
+        if (language === 'es') assertViewsUnavailable(page, locale);
+        else assertViewsVisible(page, locale, period);
+      }
+    }
+    assert.equal(page.fetchCount, 1, 'manual views reuse the same fetched snapshot');
+  });
+
+  test(`${locale} manual Builder zero works without counts or analytics and never enables Recorded total`, async () => {
+    const group = manualBuilderArticleViewsGroup({ views: { all: 0, en: 0, es: 0 } });
+    const page = createPage({ locale, data: { schemaVersion: 1, groups: { builderArticleViews: group } } });
+    await page.settle();
+    for (const language of ['all', 'en', 'es']) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assertManualBuilderViews(page, locale, language, group);
+      assert.equal(page.periodOptions.total.disabled, true, 'a fixed Builder row cannot supply an activity-period total');
+      assert.equal(page.periodSelector.value, '12m');
+    }
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} the retained October 21 Builder observation stays explicitly automatic`, async () => {
+    const group = builderArticleViewsGroup({
+      views: { all: 2624, en: 242, es: 2382 },
+      collectedAt: '2026-10-21T20:23:53.969Z',
+      scopeId: '3da7c7cd74258140ea982b74dd053ca7202f04c22ad8986c81e581052572e389'
+    });
+    const page = createPage({ locale, data: snapshotWithBuilderArticleViews({ group }) });
+    await page.settle();
+    for (const language of ['all', 'en', 'es']) {
+      page.selector.value = language;
+      page.selector.dispatch('change');
+      assertBuilderViewsVisible(page, locale, language, group);
+      assert.match(page.cards.articles.builderViews.provenance.textContent, locale === 'en' ? /automatic/i : /autom.tic/i);
+      assert.doesNotMatch(page.cards.articles.builderViews.provenance.textContent, /manual/i, 'the old automatic result must never be relabeled manual');
+    }
+  });
+
+  test(`${locale} manual Builder corrections replace the visible observation rather than appearing as daily refreshes`, async () => {
+    const initial = manualBuilderArticleViewsGroup();
+    const corrected = manualBuilderArticleViewsGroup({
+      views: { all: 69, en: 24, es: 45 },
+      observedAt: '2026-10-23T18:00:00.000Z',
+      scopeId: initial.scopeId
+    });
+    const before = createPage({ locale, data: snapshotWithBuilderArticleViews({ group: initial }) });
+    const repeated = createPage({ locale, data: snapshotWithBuilderArticleViews({ group: structuredClone(initial) }) });
+    const after = createPage({ locale, data: snapshotWithBuilderArticleViews({ group: corrected }) });
+    await Promise.all([before.settle(), repeated.settle(), after.settle()]);
+    assertManualBuilderViews(before, locale, 'all', initial);
+    assertManualBuilderViews(repeated, locale, 'all', initial);
+    assertManualBuilderViews(after, locale, 'all', corrected);
+    assert.equal(before.cards.articles.builderViews.collectedDate.textContent, repeated.cards.articles.builderViews.collectedDate.textContent);
+    assert.notEqual(before.cards.articles.builderViews.collectedDate.textContent, after.cards.articles.builderViews.collectedDate.textContent);
+  });
+}
+
+const invalidManualBuilderGroups = [
+  ['unsupported definition version', (group) => { group.definitionVersion = 3; }],
+  ['wrong basis', (group) => { group.basis = 'period'; }],
+  ['automatic provenance on the manual definition', (group) => { group.provenance = 'automatic'; }],
+  ['missing provenance', (group) => { delete group.provenance; }],
+  ['missing observation date', (group) => { delete group.observedAt; }],
+  ['impossible observation date', (group) => { group.observedAt = '2026-02-30T17:30:00.000Z'; }],
+  ['noncanonical observation date', (group) => { group.observedAt = '2026-10-22T17:30:00Z'; }],
+  ['observation before the tracking boundary', (group) => { group.observedAt = '2026-01-05T23:59:59.999Z'; }],
+  ['collector date substituted for observation', (group) => { delete group.observedAt; group.collectedAt = '2026-10-23T00:00:00.000Z'; }],
+  ['additional collector timestamp', (group) => { group.collectedAt = '2026-10-23T00:00:00.000Z'; }],
+  ['wrong source', (group) => { group.source.id = 'simple-aws'; }],
+  ['malformed scope', (group) => { group.scopeId = 'manual'; }],
+  ['mismatched All total', (group) => { group.views.all += 1; }],
+  ['negative language value', (group) => { group.views.en = -1; group.views.all = 51; }],
+  ['fractional language value', (group) => { group.views.en = 1.5; group.views.all = 53.5; }],
+  ['string language value', (group) => { group.views.es = '52'; }],
+  ['missing language value', (group) => { delete group.views.es; }],
+  ['unsafe language sum', (group) => { group.views = { all: Number.MAX_SAFE_INTEGER + 1, en: Number.MAX_SAFE_INTEGER, es: 1 }; }],
+  ['private field', (group) => { group.providerResponse = { private: 'fixture-only' }; }]
+];
+
+for (const [description, mutate] of invalidManualBuilderGroups) {
+  test(`invalid manual Builder views reject ${description} independently of healthy siblings`, async () => {
+    const group = manualBuilderArticleViewsGroup();
+    mutate(group);
+    const page = createPage({ data: snapshotWithBuilderArticleViews({ group }) });
+    await page.settle();
+    assertBuilderViewsUnavailable(page, 'en');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assertViewsVisible(page, 'en', '12m');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  for (const [description, options] of [
+    ['network failure', { fetchError: new Error('synthetic manual snapshot failure') }],
+    ['missing observation', { data: snapshotWithArticleViews() }],
+    ['invalid observation', { data: snapshotWithBuilderArticleViews({ group: { ...manualBuilderArticleViewsGroup(), provenance: 'automatic' } }) }]
+  ]) {
+    test(`${locale} ${description} clears stale manual Builder values, date and provenance`, async () => {
+      const page = createPage({ locale, data: snapshotWithBuilderArticleViews({ group: manualBuilderArticleViewsGroup() }), ...options });
+      const builder = page.cards.articles.builderViews;
+      assert.equal(builder.provenance.textContent, '', 'loading has no observation provenance');
+      builder.result.hidden = false;
+      builder.value.textContent = '9999';
+      builder.coverage.textContent = 'Stale source';
+      builder.since.textContent = 'Stale start';
+      builder.collectedDate.textContent = 'Stale date';
+      builder.provenance.textContent = locale === 'en' ? 'Manual update' : 'Actualización manual';
+      await page.settle();
+      assertBuilderViewsUnavailable(page, locale);
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+}

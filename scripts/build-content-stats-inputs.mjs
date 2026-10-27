@@ -19,6 +19,7 @@ const BOOK_STATUSES = new Set(['published', 'in-progress', 'unknown']);
 const LANGUAGES = new Set(['en', 'es', null]);
 const ARTICLE_SOURCE_IDS = new Set(['caylent', 'builder-center', 'simple-aws', 'cloudy-things', 'donde-aprendo-aws', 'aws-for-engineers']);
 const REQUIRED_ARTICLE_SOURCE_IDS = ['caylent', 'builder-center'];
+const BUILDER_VIEWS_START_AT = '2026-01-06T00:00:00.000Z';
 
 function invalid(message) {
   throw new Error(`Invalid content statistics input: ${message}`);
@@ -258,6 +259,32 @@ function projectDirectoryAnalytics(directoryAnalytics) {
   return result;
 }
 
+function projectBuilderArticleViews(value) {
+  assertObject(value, 'builderArticleViews');
+  if (Object.keys(value).sort().join(',') !== 'observedAt,views') {
+    invalid('builderArticleViews must contain only observedAt and views');
+  }
+  if (typeof value.observedAt !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.observedAt)) {
+    invalid('builderArticleViews observedAt must be a canonical UTC ISO timestamp with milliseconds');
+  }
+  const observedAt = Date.parse(value.observedAt);
+  if (!Number.isFinite(observedAt) || new Date(observedAt).toISOString() !== value.observedAt ||
+      observedAt < Date.parse(BUILDER_VIEWS_START_AT) || observedAt > Date.now()) {
+    invalid('builderArticleViews observedAt must be real, no earlier than 2026-01-06, and not in the future');
+  }
+  assertObject(value.views, 'builderArticleViews views');
+  if (Object.keys(value.views).sort().join(',') !== 'en,es') {
+    invalid('builderArticleViews views must contain only en and es');
+  }
+  const { en, es } = value.views;
+  if (!Number.isSafeInteger(en) || en < 0 || !Number.isSafeInteger(es) || es < 0 ||
+      !Number.isSafeInteger(en + es)) {
+    invalid('builderArticleViews language totals and their sum must be safe nonnegative integers');
+  }
+  return { observedAt: value.observedAt, views: { en, es } };
+}
+
 export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const sourceIds = validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
@@ -271,6 +298,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     && articleConfig.directoryAnalytics
     && Object.hasOwn(articleConfig.directoryAnalytics, 'outboundClicks');
   const hasNewsletterEngagements = Object.hasOwn(articleConfig, 'newsletterEngagements');
+  const hasBuilderArticleViews = Object.hasOwn(articleConfig, 'builderArticleViews');
   if (hasNewsletterEngagements && articleConfig.newsletterEngagements !== true) {
     invalid('newsletterEngagements must be the literal true opt-in');
   }
@@ -295,9 +323,13 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
   const directoryAnalytics = hasDirectoryAnalytics
     ? projectDirectoryAnalytics(articleConfig.directoryAnalytics)
     : null;
+  const builderArticleViews = hasBuilderArticleViews
+    ? projectBuilderArticleViews(articleConfig.builderArticleViews)
+    : null;
 
   return {
-    schemaVersion: hasNewsletterEngagements ? 10
+    schemaVersion: hasBuilderArticleViews ? 11
+      : hasNewsletterEngagements ? 10
       : hasDirectoryRecordedSince ? 9
       : hasDirectoryOutboundClicks ? 8
         : hasDirectoryAnalytics ? 7
@@ -314,7 +346,8 @@ export function buildContentStatsInputs({ articleConfig, talks, books } = {}) {
     ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
     ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {}),
-    ...(directoryAnalytics ? { directoryAnalytics } : {})
+    ...(directoryAnalytics ? { directoryAnalytics } : {}),
+    ...(builderArticleViews ? { builderArticleViews } : {})
   };
 }
 

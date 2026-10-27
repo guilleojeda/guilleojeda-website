@@ -56,7 +56,10 @@ const copy = locale === 'en'
         unit: 'views',
         coverage: 'Source',
         since: 'Tracking starts',
-        collected: 'Last updated'
+        observed: 'Observation date',
+        provenance: 'Provenance',
+        automaticProvenance: 'Automatically observed · historical',
+        manualProvenance: 'Manually maintained'
       },
       searchTitle: 'Google Search clicks · Simple AWS',
       searchLoading: 'Loading Search clicks…',
@@ -129,7 +132,7 @@ const copy = locale === 'en'
         'Talks & sessions count delivered talks, workshops, training, panels and technical sessions; repeat deliveries at separate events count again. Host-only appearances, commentary, podcasts, conversations and upcoming sessions are excluded.',
         'Books count published titles, including historical books whose current source is unavailable; books in progress are excluded. Talk and book languages follow their original titles.',
         'Simple AWS page views cover only newsletter publication pages, a partial coverage compared with article counts. Views can repeat for one reader; reports may be delayed or revised.',
-        'Builder Center’s recorded total covers views of this author’s articles currently published there; views include republications and translations even when matching titles count as one article. Tracking began January 6, 2026, excludes the author’s own visits, and counts one visit per reader per article every 24 hours; a later return can count again. Earlier activity or tracking gaps may be missing, and source corrections or publication changes can revise the total. It is independent of the selected period and is not a complete lifetime total or a count of unique readers.',
+        'Builder Center’s recorded total covers views of this author’s articles currently published there; views include republications and translations even when matching titles count as one article. Tracking began January 6, 2026, excludes the author’s own visits, and counts one visit per reader per article every 24 hours; a later return can count again. New totals are maintained manually, and the displayed date is the actual observation date; the retained earlier total is labeled as a historical automatic observation. Earlier activity or tracking gaps may be missing, and source corrections or publication changes can revise the total. It is independent of the selected period and is not a complete lifetime total or a count of unique readers.',
         'Google Search Console clicks cover canonical or Google-preferred Simple AWS article URLs. Reporting limits may omit clicks; they are not unique readers, may be delayed or revised, and remain separate from Analytics page views.',
         'Dónde Aprendo AWS page views cover the full directory and can repeat for one person; they are separate from article views. Reports may be delayed or revised.',
         'Recorded traffic totals include only activity available since the start date shown under Source & dates; earlier activity or tracking gaps may be missing. View reports can be delayed or revised.',
@@ -189,7 +192,10 @@ const copy = locale === 'en'
         unit: 'vistas',
         coverage: 'Fuente',
         since: 'Inicio del registro',
-        collected: 'Última actualización'
+        observed: 'Fecha de observación',
+        provenance: 'Procedencia',
+        automaticProvenance: 'Observación automática · histórica',
+        manualProvenance: 'Mantenimiento manual'
       },
       searchTitle: 'Clics de búsqueda de Google · Simple AWS',
       searchLoading: 'Cargando clics de búsqueda…',
@@ -262,7 +268,7 @@ const copy = locale === 'en'
         'Charlas y sesiones cuentan charlas, workshops, capacitaciones, paneles y sesiones técnicas realizadas; las entregas repetidas en eventos distintos vuelven a contar. Se excluyen apariciones solo como anfitrión, comentarios, podcasts, conversaciones y sesiones futuras.',
         'Los libros cuentan títulos publicados, incluidos libros históricos cuya fuente actual no está disponible; se excluyen los libros en preparación. El idioma de las charlas y los libros se determina por sus títulos originales.',
         'Las vistas de páginas de Simple AWS cubren solo las páginas de publicación del boletín; es una cobertura parcial frente al conteo de artículos. Una persona puede generar varias vistas; los informes pueden tener demora o revisarse.',
-        'El total registrado de Builder Center cubre vistas de los artículos de este autor publicados actualmente allí; las vistas incluyen republicaciones y traducciones aunque los títulos coincidentes cuenten como un solo artículo. El seguimiento comenzó el 6 de enero de 2026, excluye las visitas propias del autor y cuenta una visita por lector y artículo cada 24 horas; una visita posterior puede volver a contar. Puede faltar actividad anterior o de períodos sin seguimiento, y las correcciones de la fuente o los cambios en las publicaciones pueden modificar el total. Es independiente del período seleccionado y no representa un total de por vida completo ni lectores únicos.',
+        'El total registrado de Builder Center cubre vistas de los artículos de este autor publicados actualmente allí; las vistas incluyen republicaciones y traducciones aunque los títulos coincidentes cuenten como un solo artículo. El seguimiento comenzó el 6 de enero de 2026, excluye las visitas propias del autor y cuenta una visita por lector y artículo cada 24 horas; una visita posterior puede volver a contar. Los nuevos totales se mantienen manualmente y la fecha mostrada es la fecha real de observación; el total anterior conservado se identifica como una observación histórica automática. Puede faltar actividad anterior o de períodos sin seguimiento, y las correcciones de la fuente o los cambios en las publicaciones pueden modificar el total. Es independiente del período seleccionado y no representa un total de por vida completo ni lectores únicos.',
         'Google Search Console informa clics de URLs canónicas o preferidas por Google de artículos de Simple AWS. Los límites del informe pueden omitir clics; no representan lectores únicos, pueden tener demora o revisarse y se mantienen separados de las vistas de Analytics.',
         'Las vistas de páginas de Dónde Aprendo AWS cubren el directorio completo y pueden repetirse para una persona; se informan aparte de las vistas de artículos. Los informes pueden tener demora o revisarse.',
         'Los totales de tráfico registrados solo incluyen actividad disponible desde la fecha de inicio indicada en “Fuente y fechas”; puede faltar actividad anterior o de períodos sin seguimiento. Los informes de vistas pueden tener demora o revisarse.',
@@ -471,6 +477,8 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                 class="content-stats-views content-stats-builder-views"
                 data-stats-builder-views
                 data-stats-builder-views-unavailable={copy.builderViews.unavailable}
+                data-stats-builder-views-automatic-provenance={copy.builderViews.automaticProvenance}
+                data-stats-builder-views-manual-provenance={copy.builderViews.manualProvenance}
                 aria-labelledby="content-stats-builder-views-title"
                 aria-busy="false"
               >
@@ -496,8 +504,12 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                         <dd data-stats-builder-views-since></dd>
                       </div>
                       <div>
-                        <dt>{copy.builderViews.collected}</dt>
+                        <dt>{copy.builderViews.observed}</dt>
                         <dd data-stats-builder-views-collected-date></dd>
+                      </div>
+                      <div>
+                        <dt>{copy.builderViews.provenance}</dt>
+                        <dd data-stats-builder-views-provenance></dd>
                       </div>
                     </dl>
                   </details>
