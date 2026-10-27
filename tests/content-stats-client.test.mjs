@@ -391,6 +391,8 @@ class SemanticElement {
     this.hidden = hidden;
     this.disabled = disabled;
     this.value = value;
+    this.selectionStart = 0;
+    this.selectionEnd = 0;
     this.tagName = tagName.toUpperCase();
     this.ownerDocument = documentRef;
     this.children = [];
@@ -400,6 +402,16 @@ class SemanticElement {
 
   get id() { return this.attributes.get('id') ?? ''; }
   get classList() { return (this.attributes.get('class') ?? '').split(/\s+/).filter(Boolean); }
+  get href() {
+    const value = this.attributes.get('href');
+    if (value === undefined) return '';
+    try {
+      return new URL(value, this.ownerDocument?.baseURI ?? 'https://guilleojeda.com/').href;
+    } catch {
+      return value;
+    }
+  }
+  set href(value) { this.setAttribute('href', value); }
 
   appendChild(child) {
     if (child.tagName === '#DOCUMENT-FRAGMENT') {
@@ -439,14 +451,33 @@ class SemanticElement {
     return value === undefined ? null : String(value);
   }
 
+  setSelectionRange(start, end) {
+    this.selectionStart = Math.max(0, Math.min(Number(start), String(this.value).length));
+    this.selectionEnd = Math.max(this.selectionStart, Math.min(Number(end), String(this.value).length));
+  }
+
   addEventListener(name, callback) {
     const callbacks = this.listeners.get(name) ?? [];
     callbacks.push(callback);
     this.listeners.set(name, callbacks);
   }
 
-  dispatch(name) {
-    for (const callback of this.listeners.get(name) ?? []) callback({ type: name, target: this });
+  dispatch(name, init = {}) {
+    const event = {
+      type: name,
+      target: this,
+      currentTarget: this,
+      defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; },
+      ...init
+    };
+    for (const callback of this.listeners.get(name) ?? []) callback(event);
+    return event;
+  }
+
+  removeEventListener(name, callback) {
+    const callbacks = this.listeners.get(name) ?? [];
+    this.listeners.set(name, callbacks.filter((current) => current !== callback));
   }
 
   click() {
@@ -454,7 +485,7 @@ class SemanticElement {
   }
 
   focus() {
-    if (this.ownerDocument) this.ownerDocument.activeElement = this;
+    if (this.ownerDocument && !this.disabled) this.ownerDocument.activeElement = this;
   }
 }
 
@@ -785,6 +816,22 @@ function makeArticleCatalog(locale) {
     },
     attributes: { id: 'article-catalog' }
   });
+  const query = root.appendChild(new SemanticElement({
+    dataset: { catalogQuery: '' },
+    tagName: 'input',
+    value: '',
+    disabled: true,
+    attributes: { type: 'search', id: 'article-catalog-query' }
+  }));
+  const sort = root.appendChild(new SemanticElement({
+    dataset: { catalogSort: '' },
+    tagName: 'select',
+    value: 'date-desc',
+    disabled: true
+  }));
+  for (const value of ['date-desc', 'date-asc', 'title-asc', 'title-desc', 'source-asc', 'source-desc']) {
+    sort.appendChild(new SemanticElement({ tagName: 'option', attributes: { value }, textContent: value }));
+  }
   const language = root.appendChild(new SemanticElement({
     dataset: { catalogLanguage: '' },
     tagName: 'select',
@@ -815,6 +862,7 @@ function makeArticleCatalog(locale) {
   }));
   const list = results.appendChild(new SemanticElement({ dataset: { catalogList: '' }, tagName: 'ol' }));
   const empty = root.appendChild(new SemanticElement({ dataset: { catalogEmpty: '' }, hidden: true }));
+  const fallback = root.appendChild(new SemanticElement({ dataset: { catalogFallback: '' } }));
   const previous = root.appendChild(new SemanticElement({
     dataset: { catalogPrevious: '' }, tagName: 'button', value: '', disabled: true,
     attributes: { type: 'button' }
@@ -823,12 +871,74 @@ function makeArticleCatalog(locale) {
     dataset: { catalogNext: '' }, tagName: 'button', value: '', disabled: true,
     attributes: { type: 'button' }
   }));
-  return { root, language, size, collectedDate, coverage, status, results, range, list, empty, previous, next };
+  return { root, query, sort, language, size, collectedDate, coverage, status, results, range, list, empty, fallback, previous, next };
+}
+
+function createBrowser(initialHref) {
+  const entries = [{ url: new URL(initialHref), state: null }];
+  const calls = [];
+  const listeners = new Map();
+  let index = 0;
+  const current = () => entries[index];
+  const location = {};
+  for (const property of ['href', 'origin', 'pathname', 'search', 'hash']) {
+    Object.defineProperty(location, property, {
+      enumerable: true,
+      get() { return current().url[property]; }
+    });
+  }
+
+  const dispatch = (event) => {
+    for (const callback of listeners.get(event.type) ?? []) callback({ target: windowRef, currentTarget: windowRef, ...event });
+    return true;
+  };
+  const history = {
+    pushState(state, title, url = null) {
+      const nextUrl = url === null ? new URL(current().url) : new URL(url, current().url);
+      calls.push({ method: 'pushState', state, title, url: url === null ? null : String(url), href: nextUrl.href });
+      entries.splice(index + 1);
+      entries.push({ url: nextUrl, state });
+      index = entries.length - 1;
+    },
+    replaceState(state, title, url = null) {
+      const nextUrl = url === null ? new URL(current().url) : new URL(url, current().url);
+      calls.push({ method: 'replaceState', state, title, url: url === null ? null : String(url), href: nextUrl.href });
+      entries[index] = { url: nextUrl, state };
+    },
+    go(delta = 0) {
+      const nextIndex = Math.max(0, Math.min(entries.length - 1, index + Number(delta)));
+      if (nextIndex === index) return;
+      index = nextIndex;
+      dispatch({ type: 'popstate', state: current().state });
+    },
+    back() { this.go(-1); },
+    forward() { this.go(1); },
+    get state() { return current().state; },
+    get length() { return entries.length; },
+    get calls() { return calls; },
+    get entries() { return entries.map(({ url, state }) => ({ href: url.href, state })); }
+  };
+  const windowRef = {
+    location,
+    history,
+    addEventListener(name, callback) {
+      const callbacks = listeners.get(name) ?? [];
+      callbacks.push(callback);
+      listeners.set(name, callbacks);
+    },
+    removeEventListener(name, callback) {
+      const callbacks = listeners.get(name) ?? [];
+      listeners.set(name, callbacks.filter((currentCallback) => currentCallback !== callback));
+    },
+    dispatchEvent: dispatch
+  };
+  windowRef.window = windowRef;
+  return { window: windowRef, location, history, calls };
 }
 
 function createPage({
   locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError,
-  includeViews = true, includeSearch = true, includeCatalog = false, includeStats = true, fetchGate
+  includeViews = true, includeSearch = true, includeCatalog = false, includeStats = true, fetchGate, url
 } = {}) {
   const section = new SemanticElement({
     dataset: {
@@ -875,12 +985,26 @@ function createPage({
   if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
   const catalog = includeCatalog ? makeArticleCatalog(locale) : null;
   const fetchCalls = [];
+  const browser = createBrowser(url ?? 'https://guilleojeda.com/');
+  const langToggle = new SemanticElement({
+    tagName: 'a',
+    attributes: {
+      class: 'lang-toggle',
+      href: includeCatalog
+        ? (locale === 'es' ? '/articles/' : '/es/articles/')
+        : (locale === 'es' ? '/' : '/es/')
+    }
+  });
   const documentRef = {
     activeElement: null,
+    get baseURI() { return browser.location.href; },
     getElementById: (id) => id === 'content-stats' && includeStats ? section : id === 'article-catalog' ? catalog?.root ?? null : null,
+    querySelector: (selector) => selector === '.lang-toggle' ? langToggle : null,
+    querySelectorAll: (selector) => selector === '.lang-toggle' ? [langToggle] : [],
     createElement: (tagName) => new SemanticElement({ tagName, documentRef }),
     createDocumentFragment: () => new SemanticElement({ tagName: '#document-fragment', documentRef })
   };
+  langToggle.ownerDocument = documentRef;
 
   if (catalog) {
     for (const element of [catalog.root, ...catalog.root.descendants()]) element.ownerDocument = documentRef;
@@ -888,8 +1012,13 @@ function createPage({
 
   const context = {
     document: documentRef,
-    window: { location: { href: 'https://guilleojeda.com/', origin: 'https://guilleojeda.com' } },
+    window: browser.window,
+    location: browser.location,
+    history: browser.history,
     URL,
+    URLSearchParams,
+    addEventListener: browser.window.addEventListener.bind(browser.window),
+    removeEventListener: browser.window.removeEventListener.bind(browser.window),
     fetch: async (url, options) => {
       fetchCalls.push({ url: String(url), options });
       if (fetchError) throw fetchError;
@@ -920,8 +1049,12 @@ function createPage({
     periodOptions,
     section,
     catalog,
+    langToggle,
     document: documentRef,
-    location: context.window.location,
+    window: browser.window,
+    location: browser.location,
+    history: browser.history,
+    historyCalls: browser.calls,
     status: cards.articles.status,
     async settle() { await new Promise((resolve) => setImmediate(resolve)); },
     get fetchCount() { return fetchCalls.length; },
@@ -1001,6 +1134,97 @@ function articleCatalogSnapshot({ records = [], sources = articleSourceCoverage,
     records
   };
   return data;
+}
+
+function catalogSearchRecords() {
+  return [
+    catalogRecord(1201, {
+      title: 'Café agent guide', language: 'en', publishedAt: '2024-05-01',
+      publications: [
+        catalogPublication({ sourceId: 'caylent', title: 'Café agent guide', publishedAt: '2024-05-01' }),
+        catalogPublication({ sourceId: 'dev-community', title: 'Café agent guide', publishedAt: '2024-05-01', url: 'https://dev.to/guille/url-secret-token' })
+      ]
+    }),
+    catalogRecord(1202, {
+      title: 'Cafe agent patterns', language: 'en', publishedAt: '2024-04-01',
+      publications: [catalogPublication({ sourceId: 'linkedin-articles', title: 'Cafe agent patterns', publishedAt: '2024-04-01' })]
+    }),
+    catalogRecord(1203, {
+      title: 'Café para agentes', language: 'es', publishedAt: '2024-03-01',
+      publications: [catalogPublication({ sourceId: 'spainclouds', title: 'Café para agentes', publishedAt: '2024-03-01' })]
+    }),
+    catalogRecord(1204, {
+      title: 'Literal [C++] reference', language: 'en', publishedAt: '2024-02-01',
+      publications: [catalogPublication({ sourceId: 'hackernoon', title: 'Literal [C++] reference', publishedAt: '2024-02-01' })]
+    }),
+    catalogRecord(1205, {
+      title: 'Another AWS article', language: 'en', publishedAt: '2024-01-01',
+      publications: [catalogPublication({ sourceId: 'caylent', title: 'Another AWS article', publishedAt: '2024-01-01' })]
+    }),
+    catalogRecord(1206, {
+      title: '<img src=x onerror=alert(1)> sample', language: 'en', publishedAt: '2023-12-01',
+      publications: [catalogPublication({ sourceId: 'simple-aws', title: '<img src=x onerror=alert(1)> sample', publishedAt: '2023-12-01', url: null, emailOnly: true })]
+    })
+  ];
+}
+
+function catalogSortRecords() {
+  const earlierFraction = '2024-03-01T00:00:00.1234Z';
+  const laterFraction = '2024-03-01T00:00:00.12345Z';
+  return {
+    alphaEn: catalogRecord(1102, {
+      title: 'Alpha', language: 'en', publishedAt: earlierFraction,
+      publications: [catalogPublication({ sourceId: 'caylent', title: 'Alpha', publishedAt: earlierFraction })]
+    }),
+    alphaEs: catalogRecord(1105, {
+      title: 'Alpha', language: 'es', publishedAt: '2024-03-01T01:00:00.12345+01:00',
+      publications: [catalogPublication({ sourceId: 'cloudy-things', title: 'Alpha', publishedAt: '2024-03-01T01:00:00.12345+01:00' })]
+    }),
+    accentedAlpha: catalogRecord(1103, {
+      title: 'Álpha', language: 'en', publishedAt: laterFraction,
+      publications: [catalogPublication({ sourceId: 'builder-center', title: 'Álpha', publishedAt: laterFraction })]
+    }),
+    beta: catalogRecord(1104, {
+      title: 'Beta', language: 'en', publishedAt: '2024-02-01',
+      publications: [
+        catalogPublication({ sourceId: 'caylent', title: 'Beta', publishedAt: '2024-02-01' }),
+        catalogPublication({ sourceId: 'builder-center', title: 'Beta', publishedAt: '2024-02-01' })
+      ]
+    }),
+    betaEs: catalogRecord(1111, {
+      title: 'Beta', language: 'es', publishedAt: '2024-02-01',
+      publications: [catalogPublication({ sourceId: 'simple-aws', title: 'Beta', publishedAt: '2024-02-01', url: null, emailOnly: true })]
+    }),
+    cafe: catalogRecord(1106, {
+      title: 'Cafe', language: 'en', publishedAt: '2024-01-01',
+      publications: [catalogPublication({ sourceId: 'linkedin-articles', title: 'Cafe', publishedAt: '2024-01-01' })]
+    }),
+    cafeAccent: catalogRecord(1107, {
+      title: 'Café', language: 'en', publishedAt: '2024-01-01',
+      publications: [catalogPublication({ sourceId: 'simple-aws', title: 'Café', publishedAt: '2024-01-01', url: null, emailOnly: true })]
+    }),
+    delta: catalogRecord(1108, {
+      title: 'Delta', language: 'en', publishedAt: '2024-02-15',
+      publications: [catalogPublication({ sourceId: 'dev-community', title: 'Delta', publishedAt: '2024-02-15' })]
+    }),
+    echo: catalogRecord(1109, {
+      title: 'Echo', language: 'en', publishedAt: null,
+      publications: [catalogPublication({ sourceId: 'hackernoon', title: 'Echo', publishedAt: null })]
+    }),
+    zulu: catalogRecord(1110, {
+      title: 'Zulu', language: 'es', publishedAt: null,
+      publications: [catalogPublication({ sourceId: 'simple-aws', title: 'Zulu', publishedAt: null, url: null, emailOnly: true })]
+    })
+  };
+}
+
+function setCatalogQuery(page, value) {
+  page.catalog.query.value = value;
+  const caret = Math.floor(value.length / 2);
+  page.catalog.query.setSelectionRange(caret, caret);
+  page.catalog.query.focus();
+  page.catalog.query.dispatch('input');
+  return { selectionStart: caret, selectionEnd: caret };
 }
 
 function mutateArticleCatalog(data, mutate) {
@@ -4831,5 +5055,844 @@ test('Articles v2 rejects a publication fraction later than the collection times
   assertCatalogUnavailable(page);
   assert.equal(page.cards.articles.count.textContent, '');
   assert.equal(page.cards.talks.count.textContent, '6');
+  assert.equal(page.fetchCount, 1);
+});
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} catalog enables the labeled search and six native sort choices only after valid Articles v2`, async () => {
+    let release;
+    const fetchGate = new Promise((resolve) => { release = resolve; });
+    const records = [catalogRecord(1301, { title: 'Searchable article', language: 'en' })];
+    const page = createPage({
+      locale,
+      data: articleCatalogSnapshot({ records }),
+      includeCatalog: true,
+      includeStats: false,
+      fetchGate,
+      url: `https://guilleojeda.com/${locale === 'es' ? 'es/' : ''}articles/?utm=one&utm=two#view`
+    });
+
+    assert.equal(page.catalog.query.tagName, 'INPUT');
+    assert.equal(page.catalog.query.getAttribute('type'), 'search');
+    assert.ok(page.catalog.query.id, 'the native search input has a label target');
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.tagName, 'SELECT');
+    assert.deepEqual(page.catalog.sort.children.map((option) => option.getAttribute('value')),
+      ['date-desc', 'date-asc', 'title-asc', 'title-desc', 'source-asc', 'source-desc']);
+    assert.equal(page.catalog.sort.value, 'date-desc');
+    assert.equal(page.catalog.sort.disabled, true);
+    assert.equal(page.catalog.status.getAttribute('role'), 'status');
+    assert.equal(page.catalog.status.getAttribute('aria-live'), 'polite');
+
+    release();
+    await page.settle();
+    assert.equal(page.catalog.query.disabled, false);
+    assert.equal(page.catalog.sort.disabled, false);
+    assert.equal(page.catalog.query.value, '');
+    assert.equal(page.catalog.sort.value, 'date-desc');
+    assert.equal(page.catalog.fallback.hidden, true);
+    assert.deepEqual(page.fetchCalls.map(({ url }) => url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+    assert.deepEqual(page.historyCalls, [], 'an already-default URL is not rewritten');
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  const unavailableCases = [
+    ['network failure', { fetchError: new Error('catalog network unavailable') }],
+    ['HTTP failure', { responseOk: false }],
+    ['invalid JSON', { jsonError: new Error('catalog JSON invalid') }],
+    ['legacy Articles v1', { data: snapshot({ sources: [caylent, builderCenter] }) }],
+    ['invalid Articles v2', {
+      data: mutateArticleCatalog(articleCatalogSnapshot({ records: [catalogRecord(1302)] }), (group) => {
+        group.records[0].publications[0].title = 'Mismatched title';
+      })
+    }]
+  ];
+
+  for (const [description, options] of unavailableCases) {
+    test(`${locale} catalog clears and disables search and sort after ${description}`, async () => {
+      const catalogPath = locale === 'es' ? '/es/articles/' : '/articles/';
+      const url = `https://guilleojeda.com${catalogPath}?q=retained&lang=es&sort=title-desc&size=20&page=2&keep=a&keep=b#retain`;
+      const page = createPage({ locale, includeCatalog: true, includeStats: false, url, ...options });
+      page.catalog.query.value = 'stale search';
+      page.catalog.sort.value = 'source-desc';
+      await page.settle();
+      assertCatalogUnavailable(page);
+      assert.equal(page.catalog.query.value, '');
+      assert.equal(page.catalog.query.disabled, true);
+      assert.equal(page.catalog.sort.value, 'date-desc');
+      assert.equal(page.catalog.sort.disabled, true);
+      assert.equal(page.catalog.fallback.hidden, false);
+      const retainedUrl = new URL(page.location.href);
+      assert.equal(retainedUrl.pathname, catalogPath);
+      assert.equal(retainedUrl.searchParams.get('q'), 'retained');
+      assert.equal(retainedUrl.searchParams.get('lang'), 'es');
+      assert.equal(retainedUrl.searchParams.get('sort'), 'title-desc');
+      assert.equal(retainedUrl.searchParams.get('size'), '20');
+      assert.equal(retainedUrl.searchParams.get('page'), '2');
+      assert.deepEqual(retainedUrl.searchParams.getAll('keep'), ['a', 'b']);
+      assert.equal(retainedUrl.hash, '#retain');
+      assert.deepEqual(page.historyCalls, [], 'unavailable catalog data does not rewrite URL state');
+      assert.equal(page.fetchCount, 1);
+    });
+  }
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} search matches Unicode words across row titles and attached source labels`, async () => {
+    const records = catalogSearchRecords();
+    const page = createPage({
+      locale,
+      data: articleCatalogSnapshot({ records }),
+      includeCatalog: true,
+      url: `https://guilleojeda.com/${locale === 'es' ? 'es/' : ''}articles/?utm=one&utm=two#part`
+    });
+    await page.settle();
+    const allCount = page.cards.articles.count.textContent;
+    const overview = page.overviewValues.articles.textContent;
+    const typedQuery = '  CAFE\u0301\u00a0DEV\u0085COMMUNITY  ';
+
+    const selection = setCatalogQuery(page, typedQuery);
+    assert.deepEqual(catalogRecordIds(page), [records[0].id],
+      'accent-insensitive AND terms may match the title and a second publication source');
+    assert.equal(page.catalog.query.value, typedQuery, 'typing preserves spaces and caret text');
+    assert.equal(page.catalog.query.selectionStart, selection.selectionStart);
+    assert.equal(page.catalog.query.selectionEnd, selection.selectionEnd);
+    assert.equal(page.document.activeElement, page.catalog.query, 'search keeps keyboard focus');
+    assert.equal(page.catalog.range.getAttribute('role'), 'status');
+    assert.equal(page.catalog.range.getAttribute('aria-live'), 'polite');
+    assert.equal(page.cards.articles.count.textContent, allCount);
+    assert.equal(page.overviewValues.articles.textContent, overview);
+    const updatedUrl = new URL(page.location.href);
+    assert.equal(updatedUrl.searchParams.get('q'), 'CAFE\u0301\u00a0DEV\u0085COMMUNITY');
+    assert.deepEqual(updatedUrl.searchParams.getAll('utm'), ['one', 'two']);
+    assert.equal(updatedUrl.hash, '#part');
+    assert.equal(page.historyCalls.at(-1)?.method, 'replaceState');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+test('catalog search includes only sources attached to matching rows, not global coverage, URLs, IDs or dates', async () => {
+  const records = catalogSearchRecords();
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+
+  setCatalogQuery(page, 'LinkedIn');
+  assert.deepEqual(catalogRecordIds(page), [records[1].id], 'the source label matches its publication row');
+  for (const query of [
+    'AWS for Engineers',
+    'url-secret-token',
+    records[0].id,
+    '2024-05-01',
+    'full body phrase not collected'
+  ]) {
+    setCatalogQuery(page, query);
+    assert.deepEqual(catalogRecordIds(page), [], `search does not include ${query}`);
+  }
+  assert.equal(page.fetchCount, 1);
+});
+
+test('catalog search treats punctuation literally and keeps matching markup-like titles as text', async () => {
+  const records = catalogSearchRecords();
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+
+  setCatalogQuery(page, '[');
+  assert.deepEqual(catalogRecordIds(page), [records[3].id], 'a regex metacharacter is searched literally');
+  setCatalogQuery(page, '<img');
+  assert.deepEqual(catalogRecordIds(page), [records[5].id]);
+  assert.equal(page.catalog.list.querySelector('img'), null, 'source titles remain text, not parsed markup');
+  assert.match(semanticText(page.catalog.list.children[0]), /<img src=x onerror=alert\(1\)>/);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('accent-insensitive search leaves distinct accented article identities and counts intact', async () => {
+  const records = catalogSearchRecords();
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+  const allCount = page.cards.articles.count.textContent;
+  const overview = page.overviewValues.articles.textContent;
+
+  setCatalogQuery(page, 'cafe');
+  assert.deepEqual(catalogRecordIds(page), [records[0].id, records[1].id, records[2].id]);
+  assert.equal(page.cards.articles.count.textContent, allCount);
+  assert.equal(page.overviewValues.articles.textContent, overview);
+  assert.equal(page.fetchCount, 1);
+});
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} no-match search has its own empty state and clamps to page one`, async () => {
+    const records = [catalogRecord(1310, { title: 'A listed article', language: 'en' })];
+    const page = createPage({
+      locale,
+      data: articleCatalogSnapshot({ records }),
+      includeCatalog: true,
+      url: `https://guilleojeda.com/${locale === 'es' ? 'es/' : ''}articles/?q=no+matching+article&page=99#search`
+    });
+    await page.settle();
+    const overview = page.overviewValues.articles.textContent;
+
+    assert.equal(page.catalog.query.value, 'no matching article');
+    assert.equal(page.catalog.list.children.length, 0);
+    assert.equal(page.catalog.empty.hidden, false);
+    assert.match(page.catalog.empty.textContent, locale === 'en' ? /search/i : /b[uú]squeda/i);
+    assert.match(page.catalog.range.textContent, /0/);
+    assert.equal(page.document.activeElement, null, 'restoring URL view state does not move focus');
+    assert.equal(page.overviewValues.articles.textContent, overview);
+    assert.equal(new URL(page.location.href).searchParams.has('page'), false, 'zero matches always use page one');
+    assert.equal(page.catalog.previous.disabled, true);
+    assert.equal(page.catalog.next.disabled, true);
+  });
+
+  test(`${locale} truly empty Articles v2 keeps a distinct valid zero state`, async () => {
+    const emptyPage = createPage({ locale, data: articleCatalogSnapshot({ records: [] }), includeCatalog: true });
+    await emptyPage.settle();
+    assert.equal(emptyPage.catalog.results.hidden, false);
+    assert.equal(emptyPage.catalog.empty.hidden, false);
+    assert.notEqual(emptyPage.catalog.empty.textContent, '');
+    assert.doesNotMatch(emptyPage.catalog.empty.textContent, locale === 'en' ? /search/i : /b[uú]squeda/i);
+    assert.equal(emptyPage.catalog.query.disabled, false);
+    assert.equal(emptyPage.catalog.sort.disabled, false);
+    assert.equal(emptyPage.cards.articles.count.textContent, '0');
+    assert.equal(emptyPage.catalog.previous.disabled, true);
+    assert.equal(emptyPage.catalog.next.disabled, true);
+    assert.deepEqual(emptyPage.historyCalls, []);
+  });
+}
+
+const catalogSortOrders = [
+  ['date-desc', ['alphaEs', 'accentedAlpha', 'alphaEn', 'delta', 'beta', 'betaEs', 'cafe', 'cafeAccent', 'echo', 'zulu']],
+  ['date-asc', ['cafe', 'cafeAccent', 'beta', 'betaEs', 'delta', 'alphaEn', 'alphaEs', 'accentedAlpha', 'echo', 'zulu']],
+  ['title-asc', ['alphaEn', 'alphaEs', 'accentedAlpha', 'beta', 'betaEs', 'cafe', 'cafeAccent', 'delta', 'echo', 'zulu']],
+  ['title-desc', ['zulu', 'echo', 'delta', 'cafe', 'cafeAccent', 'beta', 'betaEs', 'alphaEn', 'alphaEs', 'accentedAlpha']],
+  ['source-asc', ['beta', 'accentedAlpha', 'alphaEn', 'alphaEs', 'delta', 'echo', 'cafe', 'betaEs', 'cafeAccent', 'zulu']],
+  ['source-desc', ['betaEs', 'cafeAccent', 'zulu', 'cafe', 'echo', 'delta', 'alphaEs', 'alphaEn', 'beta', 'accentedAlpha']]
+];
+
+for (const [sort, order] of catalogSortOrders) {
+  test(`catalog ${sort} order honors exact dates, collation, minimum source and stable ties`, async () => {
+    const records = catalogSortRecords();
+    const page = createPage({ data: articleCatalogSnapshot({ records: Object.values(records) }), includeCatalog: true });
+    await page.settle();
+    page.catalog.sort.value = sort;
+    page.catalog.sort.dispatch('change');
+    assert.deepEqual(catalogRecordIds(page), order.map((key) => records[key].id));
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} catalog uses the same fixed Spanish base collation for Ñ`, async () => {
+    const nube = catalogRecord(1151, {
+      title: 'Nube', language: 'en', publishedAt: '2024-01-01',
+      publications: [catalogPublication({ sourceId: 'caylent', title: 'Nube', publishedAt: '2024-01-01' })]
+    });
+    const ene = catalogRecord(1152, {
+      title: 'Ñandú', language: 'en', publishedAt: '2024-02-01',
+      publications: [catalogPublication({ sourceId: 'caylent', title: 'Ñandú', publishedAt: '2024-02-01' })]
+    });
+    const page = createPage({ locale, data: articleCatalogSnapshot({ records: [nube, ene] }), includeCatalog: true });
+    await page.settle();
+    page.catalog.sort.value = 'title-asc';
+    page.catalog.sort.dispatch('change');
+    assert.deepEqual(catalogRecordIds(page), [nube.id, ene.id], 'Spanish collation keeps Ñ after N in either interface locale');
+  });
+}
+
+test('catalog ordering is unchanged when records and their publications arrive in reverse order', async () => {
+  const recordsByKey = catalogSortRecords();
+  const sourceRecords = Object.values(recordsByKey);
+  const reorderedRecords = sourceRecords.slice().reverse().map((record) => ({
+    ...record,
+    publications: record.publications.slice().reverse()
+  }));
+  const sourceSnapshot = articleCatalogSnapshot({ records: sourceRecords });
+  const reorderedSnapshot = articleCatalogSnapshot({ records: reorderedRecords });
+  const originalSourceSnapshot = structuredClone(sourceSnapshot);
+  const originalReorderedSnapshot = structuredClone(reorderedSnapshot);
+  let dateDescendingPage;
+  let reversedDateDescendingPage;
+
+  for (const [sort, order] of catalogSortOrders) {
+    const page = createPage({ data: sourceSnapshot, includeCatalog: true });
+    await page.settle();
+    page.catalog.sort.value = sort;
+    page.catalog.sort.dispatch('change');
+    const expectedIds = order.map((key) => recordsByKey[key].id);
+    const orderedIds = catalogRecordIds(page);
+    assert.deepEqual(orderedIds, expectedIds, `${sort} uses its approved stable comparison`);
+
+    const reversedPage = createPage({ data: reorderedSnapshot, includeCatalog: true });
+    await reversedPage.settle();
+    reversedPage.catalog.sort.value = sort;
+    reversedPage.catalog.sort.dispatch('change');
+    assert.deepEqual(catalogRecordIds(reversedPage), orderedIds,
+      `${sort} does not depend on input order of records or copies`);
+    assert.equal(page.fetchCount, 1);
+    assert.equal(reversedPage.fetchCount, 1);
+    if (sort === 'date-desc') {
+      dateDescendingPage = page;
+      reversedDateDescendingPage = reversedPage;
+    }
+  }
+
+  for (const page of [dateDescendingPage, reversedDateDescendingPage]) {
+    page.catalog.sort.value = 'title-asc';
+    page.catalog.sort.dispatch('change');
+    page.catalog.sort.value = 'date-desc';
+    page.catalog.sort.dispatch('change');
+    assert.deepEqual(catalogRecordIds(page), catalogSortOrders[0][1].map((key) => recordsByKey[key].id),
+      'returning to date-desc restores the stable date order');
+    assert.equal(page.fetchCount, 1);
+  }
+
+  assert.deepEqual(sourceSnapshot, originalSourceSnapshot, 'sorting never mutates the received snapshot');
+  assert.deepEqual(reorderedSnapshot, originalReorderedSnapshot, 'sorting never mutates reordered records or copies');
+});
+
+test('search and sort compose with content-language and page size before paging and reset to page one', async () => {
+  const records = Array.from({ length: 25 }, (_, index) => {
+    const title = index === 24 ? 'Needle unique guide' : `Common guide ${String(index).padStart(2, '0')}`;
+    return catalogRecord(1400 + index, {
+      title,
+      language: index === 24 ? 'en' : index % 2 === 0 ? 'en' : 'es',
+      publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+    });
+  });
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+  await page.settle();
+  const allCount = page.cards.articles.count.textContent;
+  const overview = page.overviewValues.articles.textContent;
+  assert.equal(page.catalog.list.children.length, 10);
+  page.catalog.next.click();
+  assert.match(page.catalog.range.textContent, /11/);
+  assert.equal(page.catalog.previous.disabled, false);
+
+  setCatalogQuery(page, 'Needle');
+  assert.deepEqual(catalogRecordIds(page), [records[24].id], 'search covers records beyond the current page');
+  assert.match(page.catalog.range.textContent, /1/);
+  assert.equal(page.catalog.previous.disabled, true, 'search resets to page one');
+  assert.equal(page.catalog.next.disabled, true);
+  assert.equal(page.document.activeElement, page.catalog.query);
+  assert.equal(page.cards.articles.count.textContent, allCount);
+  assert.equal(page.overviewValues.articles.textContent, overview);
+
+  setCatalogQuery(page, '');
+  assert.equal(page.catalog.list.children.length, 10);
+  page.catalog.next.click();
+  page.catalog.language.value = 'en';
+  page.catalog.language.dispatch('change');
+  assert.equal(page.catalog.previous.disabled, true, 'content-language changes reset the page');
+  assert.match(page.catalog.range.textContent, /^Showing 1–|^Mostrando 1–/);
+  page.catalog.next.click();
+  page.catalog.sort.value = 'title-asc';
+  page.catalog.sort.dispatch('change');
+  assert.equal(page.catalog.previous.disabled, true, 'sort changes reset the page');
+  page.catalog.next.click();
+  page.catalog.size.value = '20';
+  page.catalog.size.dispatch('change');
+  assert.equal(page.catalog.previous.disabled, true, 'page-size changes reset the page');
+  const selectedOverview = page.overviewValues.articles.textContent;
+  const selectedCount = page.cards.articles.count.textContent;
+  const selectedFields = {
+    language: page.catalog.language.value,
+    sort: page.catalog.sort.value,
+    size: page.catalog.size.value
+  };
+  const historyLength = page.history.length;
+
+  setCatalogQuery(page, 'no matching catalog article');
+  assert.equal(page.catalog.list.children.length, 0);
+  assert.equal(page.catalog.empty.hidden, false);
+  assert.match(page.catalog.empty.textContent, /search/i);
+  assert.match(page.catalog.range.textContent, /0/);
+  assert.equal(page.catalog.previous.disabled, true);
+  assert.equal(page.catalog.next.disabled, true);
+  assert.equal(page.catalog.language.value, selectedFields.language);
+  assert.equal(page.catalog.sort.value, selectedFields.sort);
+  assert.equal(page.catalog.size.value, selectedFields.size);
+  assert.equal(page.cards.articles.count.textContent, selectedCount);
+  assert.equal(page.overviewValues.articles.textContent, selectedOverview);
+  assert.equal(page.history.length, historyLength, 'search replaces the current entry instead of adding one');
+  assert.equal(page.fetchCount, 1);
+
+  const whitespaceOnly = ' \t\u00a0\u0085  ';
+  setCatalogQuery(page, whitespaceOnly);
+  assert.equal(page.catalog.query.value, whitespaceOnly, 'clearing by whitespace preserves the visible input');
+  assert.equal(page.catalog.empty.hidden, true);
+  assert.equal(page.catalog.list.children.length, 13, 'clearing search restores the first page under existing filters');
+  assert.match(page.catalog.range.textContent, /^Showing 1–13 of 13 articles$/);
+  assert.equal(page.catalog.language.value, selectedFields.language);
+  assert.equal(page.catalog.sort.value, selectedFields.sort);
+  assert.equal(page.catalog.size.value, selectedFields.size);
+  assert.equal(new URL(page.location.href).searchParams.has('q'), false, 'Unicode whitespace canonicalizes to the empty query');
+  assert.equal(page.cards.articles.count.textContent, selectedCount);
+  assert.equal(page.overviewValues.articles.textContent, selectedOverview);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('catalog deep links use first duplicate values, clamp pages and preserve unknown parameters and fragments', async () => {
+  const records = Array.from({ length: 21 }, (_, index) => catalogRecord(1500 + index, {
+    title: `Spanish article ${String(index).padStart(2, '0')}`,
+    language: 'es',
+    publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+  }));
+  const url = 'https://guilleojeda.com/articles/?q=Spanish&q=ignored&lang=es&lang=en&sort=title-desc&sort=date-asc&size=20&size=10&page=99&page=1&utm=one&utm=two#section';
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true, url });
+  await page.settle();
+
+  assert.equal(page.catalog.query.value, 'Spanish');
+  assert.equal(page.catalog.language.value, 'es');
+  assert.equal(page.catalog.sort.value, 'title-desc');
+  assert.equal(page.catalog.size.value, '20');
+  assert.deepEqual(catalogRecordIds(page), [records[0].id], 'the excessive page clamps after language, search and sort');
+  assert.match(page.catalog.range.textContent, /21/);
+  const canonical = new URL(page.location.href);
+  for (const [key, value] of [['q', 'Spanish'], ['lang', 'es'], ['sort', 'title-desc'], ['size', '20'], ['page', '2']]) {
+    assert.deepEqual(canonical.searchParams.getAll(key), [value], `${key} uses its first value and is canonicalized once`);
+  }
+  assert.deepEqual(canonical.searchParams.getAll('utm'), ['one', 'two']);
+  assert.equal(canonical.hash, '#section');
+  assert.equal(page.historyCalls.length, 1);
+  assert.equal(page.historyCalls[0].method, 'replaceState');
+  assert.equal(page.historyCalls[0].state, null);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('catalog invalid URL values fall back to defaults and remove only canonical view parameters', async () => {
+  const records = [catalogRecord(1601, { title: 'First article', language: 'en' })];
+  const url = 'https://guilleojeda.com/articles/?q=%C2%85%20&lang=invalid&lang=es&sort=unknown&sort=title-asc&size=15&size=50&page=0&page=2&keep=a&keep=b#leave-fragment';
+  const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true, url });
+  await page.settle();
+
+  assert.equal(page.catalog.query.value, '', 'Unicode whitespace trims to the empty default');
+  assert.equal(page.catalog.language.value, 'all');
+  assert.equal(page.catalog.sort.value, 'date-desc');
+  assert.equal(page.catalog.size.value, '10');
+  assert.deepEqual(catalogRecordIds(page), [records[0].id]);
+  const canonical = new URL(page.location.href);
+  for (const key of ['q', 'lang', 'sort', 'size', 'page']) assert.deepEqual(canonical.searchParams.getAll(key), []);
+  assert.deepEqual(canonical.searchParams.getAll('keep'), ['a', 'b']);
+  assert.equal(canonical.hash, '#leave-fragment');
+  assert.equal(page.historyCalls.length, 1);
+  assert.equal(page.historyCalls[0].method, 'replaceState');
+  assert.equal(page.historyCalls[0].state, null);
+  assert.equal(page.fetchCount, 1);
+});
+
+for (const invalidPage of ['-1', '0', '2.5', '1e1', '9007199254740992']) {
+  test(`catalog URL rejects page=${invalidPage} as not a positive safe base-10 integer`, async () => {
+    const records = Array.from({ length: 26 }, (_, index) => catalogRecord(1650 + index, {
+      title: `Page article ${String(index).padStart(2, '0')}`,
+      language: 'en',
+      publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+    }));
+    const page = createPage({
+      data: articleCatalogSnapshot({ records }),
+      includeCatalog: true,
+      url: `https://guilleojeda.com/articles/?page=${encodeURIComponent(invalidPage)}&keep=one#page`
+    });
+    await page.settle();
+    assert.deepEqual(catalogRecordIds(page), records.slice().reverse().slice(0, 10).map(({ id }) => id),
+      'invalid page values fall back to the first page rather than clamping/coercing');
+    assert.match(page.catalog.range.textContent, /^Showing 1–10 of 26 articles$/);
+    assert.equal(page.catalog.previous.disabled, true);
+    assert.equal(page.catalog.next.disabled, false);
+    assert.equal(new URL(page.location.href).searchParams.has('page'), false);
+    assert.deepEqual(new URL(page.location.href).searchParams.getAll('keep'), ['one']);
+    assert.equal(new URL(page.location.href).hash, '#page');
+    assert.equal(page.historyCalls.length, 1);
+    assert.equal(page.historyCalls[0].method, 'replaceState');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+test('catalog input replaces URL state while selects and pagination push only changed views', async () => {
+  const records = Array.from({ length: 25 }, (_, index) => catalogRecord(1700 + index, {
+    title: index === 24 ? 'Needle [C++] & 100% unique article' : `Research article ${String(index).padStart(2, '0')}`,
+    language: index % 2 === 0 ? 'en' : 'es',
+    publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+  }));
+  const page = createPage({
+    data: articleCatalogSnapshot({ records }),
+    includeCatalog: true,
+    url: 'https://guilleojeda.com/articles/?utm=one&utm=two#preserve'
+  });
+  await page.settle();
+  assert.deepEqual(page.historyCalls, [], 'the canonical initial URL does not create history entries');
+  page.catalog.language.value = 'all';
+  page.catalog.language.dispatch('change');
+  page.catalog.sort.value = 'date-desc';
+  page.catalog.sort.dispatch('change');
+  page.catalog.size.value = '10';
+  page.catalog.size.dispatch('change');
+  assert.deepEqual(page.historyCalls, [], 'selecting already-active values does not push duplicate views');
+
+  page.catalog.next.click();
+  assert.equal(new URL(page.location.href).searchParams.get('page'), '2');
+  assert.equal(page.historyCalls.at(-1)?.method, 'pushState');
+  const historyLengthAfterPage = page.history.length;
+  const typedQuery = '  Needle [C++] & 100%  ';
+  const selection = setCatalogQuery(page, typedQuery);
+  assert.equal(page.catalog.query.value, typedQuery);
+  assert.equal(page.catalog.query.selectionStart, selection.selectionStart);
+  assert.equal(page.catalog.query.selectionEnd, selection.selectionEnd);
+  assert.deepEqual(catalogRecordIds(page), [records[24].id]);
+  assert.equal(new URL(page.location.href).searchParams.get('q'), 'Needle [C++] & 100%');
+  assert.equal(new URL(page.location.href).searchParams.has('page'), false, 'query reset returns URL to page one');
+  assert.equal(page.history.length, historyLengthAfterPage, 'query input replaces the current history entry');
+  assert.equal(page.historyCalls.at(-1)?.method, 'replaceState');
+  assert.ok(page.historyCalls.every(({ state }) => state === null));
+
+  page.catalog.sort.value = 'title-desc';
+  page.catalog.sort.dispatch('change');
+  assert.equal(page.catalog.previous.disabled, true);
+  assert.equal(page.historyCalls.at(-1)?.method, 'pushState');
+  page.catalog.language.value = 'en';
+  page.catalog.language.dispatch('change');
+  assert.equal(page.historyCalls.at(-1)?.method, 'pushState');
+  page.catalog.size.value = '20';
+  page.catalog.size.dispatch('change');
+  assert.equal(page.historyCalls.at(-1)?.method, 'pushState');
+  assert.equal(new URL(page.location.href).searchParams.get('q'), 'Needle [C++] & 100%');
+  assert.deepEqual(new URL(page.location.href).searchParams.getAll('utm'), ['one', 'two']);
+  assert.equal(new URL(page.location.href).hash, '#preserve');
+  assert.equal(page.fetchCount, 1);
+});
+
+test('catalog popstate restores query, filters, order and page without refetching or adding history', async () => {
+  const records = Array.from({ length: 46 }, (_, index) => catalogRecord(1800 + index, {
+    title: `Research guide ${String(index).padStart(2, '0')}`,
+    language: index % 2 === 0 ? 'en' : 'es',
+    publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+  }));
+  const allDateDesc = records.slice().reverse().map(({ id }) => id);
+  const spanishDateDesc = records.filter(({ language }) => language === 'es').slice().reverse().map(({ id }) => id);
+  const spanishTitleAsc = records.filter(({ language }) => language === 'es').map(({ id }) => id);
+  const page = createPage({
+    data: articleCatalogSnapshot({ records }),
+    includeCatalog: true,
+    url: 'https://guilleojeda.com/articles/?q=Research&utm=preserved#history'
+  });
+  await page.settle();
+
+  const assertView = ({ query, language, sort, size, expectedIds, range }) => {
+    assert.equal(page.catalog.query.value, query);
+    assert.equal(page.catalog.language.value, language);
+    assert.equal(page.catalog.sort.value, sort);
+    assert.equal(page.catalog.size.value, String(size));
+    assert.deepEqual(catalogRecordIds(page), expectedIds);
+    assert.equal(page.catalog.range.textContent, range);
+  };
+  assertView({
+    query: 'Research', language: 'all', sort: 'date-desc', size: 10,
+    expectedIds: allDateDesc.slice(0, 10), range: 'Showing 1–10 of 46 articles'
+  });
+
+  page.catalog.language.value = 'es';
+  page.catalog.language.dispatch('change');
+  assertView({
+    query: 'Research', language: 'es', sort: 'date-desc', size: 10,
+    expectedIds: spanishDateDesc.slice(0, 10), range: 'Showing 1–10 of 23 articles'
+  });
+
+  page.catalog.sort.value = 'title-asc';
+  page.catalog.sort.dispatch('change');
+  assertView({
+    query: 'Research', language: 'es', sort: 'title-asc', size: 10,
+    expectedIds: spanishTitleAsc.slice(0, 10), range: 'Showing 1–10 of 23 articles'
+  });
+
+  page.catalog.size.value = '20';
+  page.catalog.size.dispatch('change');
+  assertView({
+    query: 'Research', language: 'es', sort: 'title-asc', size: 20,
+    expectedIds: spanishTitleAsc.slice(0, 20), range: 'Showing 1–20 of 23 articles'
+  });
+
+  const historyLengthBeforeQuery = page.history.length;
+  setCatalogQuery(page, 'Guide');
+  assert.equal(page.history.length, historyLengthBeforeQuery, 'editing query replaces the current entry');
+  assertView({
+    query: 'Guide', language: 'es', sort: 'title-asc', size: 20,
+    expectedIds: spanishTitleAsc.slice(0, 20), range: 'Showing 1–20 of 23 articles'
+  });
+  page.catalog.next.click();
+  assertView({
+    query: 'Guide', language: 'es', sort: 'title-asc', size: 20,
+    expectedIds: spanishTitleAsc.slice(20), range: 'Showing 21–23 of 23 articles'
+  });
+  assert.equal(page.catalog.previous.disabled, false);
+  assert.equal(page.catalog.next.disabled, true);
+  const historyLength = page.history.length;
+  const historyCallCount = page.historyCalls.length;
+
+  page.history.back();
+  await page.settle();
+  assertView({
+    query: 'Guide', language: 'es', sort: 'title-asc', size: 20,
+    expectedIds: spanishTitleAsc.slice(0, 20), range: 'Showing 1–20 of 23 articles'
+  });
+  assert.equal(page.catalog.previous.disabled, true);
+  assert.equal(page.catalog.next.disabled, false);
+
+  page.history.back();
+  await page.settle();
+  assertView({
+    query: 'Research', language: 'es', sort: 'title-asc', size: 10,
+    expectedIds: spanishTitleAsc.slice(0, 10), range: 'Showing 1–10 of 23 articles'
+  });
+
+  page.history.back();
+  await page.settle();
+  assertView({
+    query: 'Research', language: 'es', sort: 'date-desc', size: 10,
+    expectedIds: spanishDateDesc.slice(0, 10), range: 'Showing 1–10 of 23 articles'
+  });
+
+  page.history.back();
+  await page.settle();
+  assertView({
+    query: 'Research', language: 'all', sort: 'date-desc', size: 10,
+    expectedIds: allDateDesc.slice(0, 10), range: 'Showing 1–10 of 46 articles'
+  });
+
+  for (const state of [
+    { query: 'Research', language: 'es', sort: 'date-desc', size: 10, expectedIds: spanishDateDesc.slice(0, 10), range: 'Showing 1–10 of 23 articles' },
+    { query: 'Research', language: 'es', sort: 'title-asc', size: 10, expectedIds: spanishTitleAsc.slice(0, 10), range: 'Showing 1–10 of 23 articles' },
+    { query: 'Guide', language: 'es', sort: 'title-asc', size: 20, expectedIds: spanishTitleAsc.slice(0, 20), range: 'Showing 1–20 of 23 articles' },
+    { query: 'Guide', language: 'es', sort: 'title-asc', size: 20, expectedIds: spanishTitleAsc.slice(20), range: 'Showing 21–23 of 23 articles' }
+  ]) {
+    page.history.forward();
+    await page.settle();
+    assertView(state);
+  }
+
+  assert.equal(page.history.length, historyLength, 'back/forward does not create history entries');
+  assert.equal(page.historyCalls.length, historyCallCount, 'popstate restoration does not push or replace history');
+  assert.equal(page.fetchCount, 1);
+  assert.ok(page.history.entries.every(({ state }) => state === null));
+});
+
+test('catalog reads the current URL when its one snapshot request resolves', async () => {
+  let release;
+  const fetchGate = new Promise((resolve) => { release = resolve; });
+  const records = [
+    catalogRecord(1901, { title: 'Initial query result', language: 'en' }),
+    catalogRecord(1902, { title: 'Late query result', language: 'es' })
+  ];
+  const page = createPage({
+    data: articleCatalogSnapshot({ records }),
+    includeCatalog: true,
+    includeStats: false,
+    fetchGate,
+    url: 'https://guilleojeda.com/articles/?utm=preserved#loading'
+  });
+  await page.settle();
+  assert.equal(page.catalog.query.disabled, true);
+  assert.equal(page.catalog.query.value, '');
+  page.history.pushState(null, '', '?q=Late&lang=es&sort=title-asc&size=20&page=1&utm=preserved#resolved');
+  release();
+  await page.settle();
+
+  assert.equal(page.catalog.query.value, 'Late');
+  assert.equal(page.catalog.language.value, 'es');
+  assert.equal(page.catalog.sort.value, 'title-asc');
+  assert.equal(page.catalog.size.value, '20');
+  assert.deepEqual(catalogRecordIds(page), [records[1].id]);
+  assert.deepEqual(page.fetchCalls.map(({ url }) => url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+  assert.equal(page.fetchCount, 1);
+});
+
+test('catalog canonicalizes default URL fields only after a valid snapshot and requests the fixed endpoint', async () => {
+  let release;
+  const fetchGate = new Promise((resolve) => { release = resolve; });
+  const page = createPage({
+    data: articleCatalogSnapshot({ records: [catalogRecord(1951, { title: 'Canonical defaults', language: 'en' })] }),
+    includeCatalog: true,
+    includeStats: false,
+    fetchGate,
+    url: 'https://guilleojeda.com/articles/?q=%C2%85+&lang=all&sort=date-desc&size=10&page=1&keep=a&keep=b#defaults'
+  });
+  assert.deepEqual(page.historyCalls, [], 'loading does not rewrite URL state');
+  assert.equal(page.catalog.query.value, '');
+  assert.deepEqual(page.fetchCalls.map(({ url }) => url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+
+  release();
+  await page.settle();
+  const canonical = new URL(page.location.href);
+  for (const key of ['q', 'lang', 'sort', 'size', 'page']) assert.deepEqual(canonical.searchParams.getAll(key), []);
+  assert.deepEqual(canonical.searchParams.getAll('keep'), ['a', 'b']);
+  assert.equal(canonical.hash, '#defaults');
+  assert.equal(page.historyCalls.length, 1);
+  assert.equal(page.historyCalls[0].method, 'replaceState');
+  assert.equal(page.historyCalls[0].state, null);
+  assert.equal(page.fetchCount, 1);
+});
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} catalog language switch carries the current search, filters, sort, unknown parameters and fragment`, async () => {
+    const initialPath = locale === 'es' ? '/es/articles/' : '/articles/';
+    const alternatePath = locale === 'es' ? '/articles/' : '/es/articles/';
+    const records = Array.from({ length: 46 }, (_, index) => catalogRecord(2001 + index, {
+      title: `Searchable work article ${String(index).padStart(2, '0')}`,
+      language: 'en',
+      publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+    }));
+    const data = articleCatalogSnapshot({ records });
+    const page = createPage({
+      locale,
+      data,
+      includeCatalog: true,
+      url: `https://guilleojeda.com${initialPath}?utm=one&utm=two#catalog`
+    });
+    await page.settle();
+    setCatalogQuery(page, 'work');
+    page.catalog.language.value = 'en';
+    page.catalog.language.dispatch('change');
+    page.catalog.sort.value = 'source-asc';
+    page.catalog.sort.dispatch('change');
+    page.catalog.size.value = '20';
+    page.catalog.size.dispatch('change');
+    page.catalog.next.click();
+    const pageTwoIds = catalogRecordIds(page);
+    const switchedLocale = locale === 'es' ? 'en' : 'es';
+    const expectedRange = locale === 'es' ? 'Mostrando 21–40 de 46 artículos' : 'Showing 21–40 of 46 articles';
+    const switchedExpectedRange = switchedLocale === 'es' ? 'Mostrando 21–40 de 46 artículos' : 'Showing 21–40 of 46 articles';
+    assert.equal(page.catalog.range.textContent, expectedRange);
+    const alternate = new URL(page.langToggle.href, page.location.href);
+    assert.equal(alternate.pathname, alternatePath);
+    assert.deepEqual(alternate.searchParams.getAll('utm'), new URL(page.location.href).searchParams.getAll('utm'));
+    assert.deepEqual(alternate.searchParams.getAll('utm'), ['one', 'two']);
+    assert.equal(alternate.searchParams.get('q'), 'work');
+    assert.equal(alternate.searchParams.get('lang'), 'en');
+    assert.equal(alternate.searchParams.get('sort'), 'source-asc');
+    assert.equal(alternate.searchParams.get('size'), '20');
+    assert.equal(alternate.searchParams.get('page'), '2');
+    assert.equal(alternate.hash, '#catalog');
+
+    const switchedPage = createPage({
+      locale: switchedLocale,
+      data: structuredClone(data),
+      includeCatalog: true,
+      url: alternate.href
+    });
+    await switchedPage.settle();
+    assert.equal(switchedPage.catalog.query.value, 'work');
+    assert.equal(switchedPage.catalog.language.value, 'en');
+    assert.equal(switchedPage.catalog.sort.value, 'source-asc');
+    assert.equal(switchedPage.catalog.size.value, '20');
+    assert.deepEqual(catalogRecordIds(switchedPage), pageTwoIds);
+    assert.equal(switchedPage.catalog.range.textContent, switchedExpectedRange);
+    assert.equal(page.fetchCount, 1);
+    assert.equal(switchedPage.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} homepage ignores catalog URL parameters and keeps its language link unchanged`, async () => {
+    const homepageUrl = 'https://guilleojeda.com/?q=homepage&lang=es&sort=title-desc&size=50&page=4&keep=a&keep=b#home';
+    const homepage = createPage({ locale, includeCatalog: false, url: homepageUrl });
+    await homepage.settle();
+    assert.equal(homepage.location.href, homepageUrl);
+    assert.deepEqual(homepage.historyCalls, []);
+    assert.equal(homepage.langToggle.getAttribute('href'), locale === 'es' ? '/' : '/es/');
+    assert.deepEqual(homepage.fetchCalls.map(({ url }) => url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+    assert.equal(homepage.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} catalog language link follows the live URL during loading and popstate`, async () => {
+    let release;
+    const fetchGate = new Promise((resolve) => { release = resolve; });
+    const catalogPath = locale === 'es' ? '/es/articles/' : '/articles/';
+    const alternatePath = locale === 'es' ? '/articles/' : '/es/articles/';
+    const initialUrl = `https://guilleojeda.com${catalogPath}?q=retained&lang=es&sort=title-desc&size=20&page=2&keep=a&keep=b#retain`;
+    const page = createPage({
+      locale,
+      data: articleCatalogSnapshot({ records: [] }),
+      includeCatalog: true,
+      includeStats: false,
+      fetchGate,
+      url: initialUrl
+    });
+    const assertLanguageLinkMatchesLocation = () => {
+      const current = new URL(page.location.href);
+      const alternate = new URL(page.langToggle.href, page.location.href);
+      assert.equal(alternate.pathname, alternatePath);
+      assert.deepEqual([...alternate.searchParams], [...current.searchParams]);
+      assert.equal(alternate.hash, current.hash);
+    };
+
+    assertLanguageLinkMatchesLocation();
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.disabled, true);
+    assert.equal(page.location.href, initialUrl);
+    assert.deepEqual(page.historyCalls, []);
+
+    page.history.pushState(null, '', '?q=changed&lang=en&sort=date-asc&size=50&page=3&keep=x&keep=y#changed');
+    const historyCallCount = page.historyCalls.length;
+    page.history.back();
+    assert.equal(page.location.href, initialUrl);
+    assertLanguageLinkMatchesLocation();
+    page.history.forward();
+    assert.equal(page.location.search, '?q=changed&lang=en&sort=date-asc&size=50&page=3&keep=x&keep=y');
+    assert.equal(page.location.hash, '#changed');
+    assertLanguageLinkMatchesLocation();
+    assert.equal(page.historyCalls.length, historyCallCount, 'updating the language link does not write history');
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.disabled, true);
+
+    release();
+    await page.settle();
+  });
+
+  test(`${locale} catalog language link keeps the failed request URL`, async () => {
+    const catalogPath = locale === 'es' ? '/es/articles/' : '/articles/';
+    const alternatePath = locale === 'es' ? '/articles/' : '/es/articles/';
+    const initialUrl = `https://guilleojeda.com${catalogPath}?q=retained&lang=es&sort=title-desc&size=20&page=2&keep=a&keep=b#retain`;
+    const page = createPage({
+      locale,
+      includeCatalog: true,
+      includeStats: false,
+      fetchError: new Error('snapshot request failed'),
+      url: initialUrl
+    });
+    await page.settle();
+
+    const alternate = new URL(page.langToggle.href, page.location.href);
+    assert.equal(alternate.pathname, alternatePath);
+    assert.deepEqual([...alternate.searchParams], [...new URL(initialUrl).searchParams]);
+    assert.equal(alternate.hash, '#retain');
+    assert.equal(page.location.href, initialUrl);
+    assert.deepEqual(page.historyCalls, []);
+    assert.equal(page.catalog.query.disabled, true);
+    assert.equal(page.catalog.sort.disabled, true);
+  });
+}
+
+test('catalog sorting preserves URL queries that a native search input displays with line breaks as spaces', async () => {
+  const records = Array.from({ length: 61 }, (_, index) => catalogRecord(2200 + index, {
+    title: `AWS Lambda guide ${String(index).padStart(2, '0')}`,
+    language: 'en',
+    publishedAt: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10)
+  }));
+  const page = createPage({
+    data: articleCatalogSnapshot({ records }),
+    includeCatalog: true,
+    url: 'https://guilleojeda.com/articles/?q=AWS%0ALambda&utm=one&utm=two#newline'
+  });
+  await page.settle();
+
+  assert.equal(page.catalog.query.value, 'AWS Lambda', 'restoring a URL query gives the native search control a visible word separator');
+  assert.equal(page.catalog.range.textContent, 'Showing 1–10 of 61 articles');
+  page.catalog.sort.value = 'title-asc';
+  page.catalog.sort.dispatch('change');
+
+  assert.equal(page.catalog.range.textContent, 'Showing 1–10 of 61 articles');
+  assert.equal(new URL(page.location.href).searchParams.get('q'), 'AWS\nLambda');
+  assert.deepEqual(new URL(page.location.href).searchParams.getAll('utm'), ['one', 'two']);
+  assert.equal(new URL(page.location.href).hash, '#newline');
   assert.equal(page.fetchCount, 1);
 });

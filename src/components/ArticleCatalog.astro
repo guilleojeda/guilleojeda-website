@@ -21,6 +21,7 @@ const copy = locale === 'en'
       legacyUnavailable: 'The full article list is unavailable. Browse the registered sources below.',
       empty: 'No articles are currently listed.',
       noResults: 'No articles match this content language.',
+      noSearchResults: 'No articles match your search and content language.',
       unknownDate: 'Date unknown',
       onlyByEmail: 'Only by email',
       linkUnavailable: 'Link unavailable',
@@ -49,6 +50,7 @@ const copy = locale === 'en'
       legacyUnavailable: 'No se puede mostrar la lista completa de artículos. Consulta las fuentes registradas abajo.',
       empty: 'No hay artículos para mostrar por ahora.',
       noResults: 'No hay artículos que coincidan con este idioma de contenido.',
+      noSearchResults: 'No hay artículos que coincidan con la búsqueda y el idioma de contenido.',
       unknownDate: 'Fecha desconocida',
       onlyByEmail: 'Sólo por email',
       linkUnavailable: 'Enlace no disponible',
@@ -77,6 +79,7 @@ const copy = locale === 'en'
   data-catalog-legacy-unavailable={copy.legacyUnavailable}
   data-catalog-empty={copy.empty}
   data-catalog-no-results={copy.noResults}
+  data-catalog-no-search-results={copy.noSearchResults}
   data-catalog-date-unknown={copy.unknownDate}
   data-catalog-only-by-email={copy.onlyByEmail}
   data-catalog-link-unavailable={copy.linkUnavailable}
@@ -98,6 +101,21 @@ const copy = locale === 'en'
     </p>
 
     <div class="article-catalog-controls">
+      <div class="article-catalog-control article-catalog-control--search">
+        <label for="article-catalog-query">{locale === 'en' ? 'Search by title or source' : 'Buscar por título o fuente'}</label>
+        <input id="article-catalog-query" type="search" data-catalog-query value="" disabled />
+      </div>
+      <div class="article-catalog-control">
+        <label for="article-catalog-sort">{locale === 'en' ? 'Sort articles' : 'Ordenar artículos'}</label>
+        <select id="article-catalog-sort" data-catalog-sort disabled>
+          <option value="date-desc" selected>{locale === 'en' ? 'Most recent' : 'Más recientes'}</option>
+          <option value="date-asc">{locale === 'en' ? 'Oldest first' : 'Más antiguos'}</option>
+          <option value="title-asc">{locale === 'en' ? 'Title A–Z' : 'Título A–Z'}</option>
+          <option value="title-desc">{locale === 'en' ? 'Title Z–A' : 'Título Z–A'}</option>
+          <option value="source-asc">{locale === 'en' ? 'Source A–Z' : 'Fuente A–Z'}</option>
+          <option value="source-desc">{locale === 'en' ? 'Source Z–A' : 'Fuente Z–A'}</option>
+        </select>
+      </div>
       <div class="article-catalog-control">
         <label for="article-catalog-language">{copy.languageLabel}</label>
         <select id="article-catalog-language" data-catalog-language disabled>
