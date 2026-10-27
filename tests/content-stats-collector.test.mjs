@@ -30,6 +30,8 @@ const googleSearchTimeZone = "America/Los_Angeles";
 const directoryGooglePropertyId = "424203315";
 const directoryHostname = "dondeaprendoaws.com";
 const directoryTimeZone = "America/Buenos_Aires";
+const dondeAprendoOrigin = "https://dondeaprendoaws.com";
+const dondeAprendoIndexUrl = `${dondeAprendoOrigin}/article-index.json`;
 const googleResponseCanary = "synthetic-google-private-response-canary";
 const privateAuthorId = "synthetic-author-id";
 const builderAuthorId = "251f1678-ab8f-4f22-afb9-1ee13511c7ee";
@@ -135,6 +137,10 @@ function phaseSevenInput({ sources, ...options } = {}) {
 
 function cloudyThingsSource({ authorName = "Guillermo Ojeda", language = "en" } = {}) {
   return { id: "cloudy-things", authorName, language };
+}
+
+function dondeAprendoAwsSource() {
+  return { id: "donde-aprendo-aws" };
 }
 
 function phaseEightInput({ sources, ...options } = {}) {
@@ -595,6 +601,82 @@ function phaseEightApiFetch({
     reportResponder,
     searchResponder
   });
+}
+
+function dondeAprendoArticle({
+  title,
+  slug,
+  publishedAt = "2025-03-07",
+  authorName = "Guille Ojeda",
+  authorUrl = "https://guilleojeda.com/es/",
+  url = `${dondeAprendoOrigin}/blog/${slug}/`
+}) {
+  return {
+    title,
+    language: "es",
+    publishedAt,
+    url,
+    author: { name: authorName, url: authorUrl }
+  };
+}
+
+function dondeAprendoIndex(articles, { schemaVersion = 1, sourceId = "donde-aprendo-aws" } = {}) {
+  return {
+    schemaVersion,
+    source: { id: sourceId, label: "Dónde Aprendo AWS" },
+    articles
+  };
+}
+
+function dondeAprendoApiFetch({ requestLog = [], responder, response, ...apiOptions } = {}) {
+  const fallback = phaseEightApiFetch({ requestLog, ...apiOptions });
+  let attempt = 0;
+  return async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.href !== dondeAprendoIndexUrl) return fallback(input, init);
+
+    attempt += 1;
+    const request = {
+      kind: "donde-aprendo-index",
+      url: url.href,
+      method: init.method,
+      headers: init.headers ?? {},
+      redirect: init.redirect,
+      signal: init.signal,
+      attempt
+    };
+    requestLog.push(request);
+    let value = typeof responder === "function"
+      ? await responder({ request, attempt })
+      : response;
+    if (typeof value === "function") value = await value({ request, attempt });
+    if (value instanceof Response || (value && typeof value.text === "function" && typeof value.status === "number")) {
+      return value;
+    }
+    return jsonResponse(value ?? dondeAprendoIndex([]));
+  };
+}
+
+function assertDondeAprendoRequest(request, harness) {
+  const url = new URL(request.url);
+  assert.equal(url.href, dondeAprendoIndexUrl, "the collector uses the fixed public index endpoint");
+  assert.equal(request.method === undefined ? "GET" : request.method, "GET");
+  const headers = new Headers(request.headers);
+  assert.equal(headers.has("authorization"), false, "the public feed request has no authorization header");
+  assert.equal(headers.has("cookie"), false, "the public feed request has no cookie");
+  assert.ok(request.signal, "the source request is bounded by an abort signal");
+  const timeout = harness.abortSignalRecords.find(({ signal }) => signal === request.signal);
+  assert.ok(timeout, "the request uses the collector's bounded fetch harness");
+  assert.equal(timeout.milliseconds, 10_000, "each source attempt has the established 10-second deadline");
+}
+
+function assertNoDondeAprendoCanaries(harness, ...values) {
+  const published = harness.putCalls.map((call) => bodyText(call.Body)).join("\n");
+  const logs = harness.logs.join("\n");
+  for (const value of values) {
+    assert.equal(published.includes(value), false, `public aggregates must omit ${value}`);
+    assert.equal(logs.includes(value), false, `collector logs must omit ${value}`);
+  }
 }
 
 function assertNoCloudyCanaries(harness, ...values) {
@@ -5078,6 +5160,324 @@ test("Cloudy Things uses JSON-LD headlines and the shared title-language rule fo
   assert.deepEqual(group.sources.map(({ id }) => id), ["caylent", "builder-center", "simple-aws", "cloudy-things"]);
   assert.equal(requestLog.filter(({ kind }) => kind === "cloudy-archive").length, 1);
   assertNoCloudyCanaries(harness, ...rows.flatMap(({ id, slug, url, title, domTitle }) => [id, slug, url, title, domTitle]));
+});
+
+test("Dónde Aprendo AWS contributes eligible Spanish identities to the mixed-source aggregate", async () => {
+  const sharedTitle = "Café AWS: Guía!";
+  const rows = [
+    dondeAprendoArticle({ title: "  Café   AWS:   Guía!  ", slug: "shared-spanish-copy", publishedAt: "2024-01-23" }),
+    dondeAprendoArticle({ title: "CAFE\u0301 AWS: GUÍA!", slug: "normalized-spanish-copy", publishedAt: "2024-02-01" }),
+    dondeAprendoArticle({ title: "Cafe AWS: Guía!", slug: "unaccented-title", publishedAt: "2024-02-02" }),
+    dondeAprendoArticle({ title: "Café AWS Guía!", slug: "punctuation-title", publishedAt: "2024-02-03" }),
+    dondeAprendoArticle({ title: "Future Spanish identity", slug: "future", publishedAt: "2026-10-17" }),
+    dondeAprendoArticle({
+      title: "Another author's publication",
+      slug: "other-author",
+      publishedAt: "2024-02-04",
+      authorName: "Synthetic unaffiliated author",
+      authorUrl: null
+    })
+  ];
+  const requestLog = [];
+  const sources = [...phaseEightInput().sources, dondeAprendoAwsSource()];
+  let sourceAttempts = 0;
+  const harness = createHarness({
+    input: phaseEightInput({ sources }),
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: dondeAprendoApiFetch({
+      requestLog,
+      responder: () => {
+        sourceAttempts += 1;
+        if (sourceAttempts === 1) throw new Error("synthetic transient Dónde network interruption");
+        return dondeAprendoIndex(rows);
+      },
+      caylentPages: new Map([[0, { results: [article({ id: "english-title", title: sharedTitle })] }]]),
+      builderPages: new Map([["", {
+        articles: [builderArticle({ id: "spanish-title", title: sharedTitle, locale: "es" })],
+        resultsSize: 1
+      }]]),
+      postsResponder: () => jsonResponse(beehiivPostsEnvelope([
+        beehiivPost({ id: "simple-shared-title", title: sharedTitle })
+      ])),
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({
+        rows: [cloudyArticle({ id: "cloudy-shared-title", title: sharedTitle })],
+        totalPosts: 1
+      })]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  const group = output.groups.articles;
+  assert.deepEqual(group.counts, { all: 4, en: 1, es: 3 },
+    "the same title in English and Spanish counts separately; NFC/case/space copies collapse, accents and punctuation remain significant");
+  assert.equal(group.collectedAt, "2026-10-16T12:00:00.000Z", "the aggregate reports its collection time, not a publication date");
+  assert.ok(group.sources.some(({ id, label }) => id === "donde-aprendo-aws" && label === "Dónde Aprendo AWS"),
+    "public source coverage identifies Dónde Aprendo AWS");
+  assert.deepEqual(group.sources.map(({ id }) => id).sort(), sources.map(({ id }) => id).sort(),
+    "the new source does not displace existing selected sources");
+  const sourceRequests = requestLog.filter(({ kind }) => kind === "donde-aprendo-index");
+  assert.equal(sourceRequests.length, 2, "one transient network failure is retried once");
+  assert.deepEqual(sourceRequests.map(({ attempt }) => attempt), [1, 2], "the retry follows the failed first attempt");
+  for (const request of sourceRequests) assertDondeAprendoRequest(request, harness);
+  assertNoDondeAprendoCanaries(harness, "Synthetic unaffiliated author");
+});
+
+test("a valid empty Dónde Aprendo AWS index contributes an explicit zero", async () => {
+  const requestLog = [];
+  const sources = [sourceInput().source, builderCenterSource(), dondeAprendoAwsSource()];
+  const harness = createHarness({
+    input: phaseTwoInput({ sources }),
+    secretArn: null,
+    fetchFn: dondeAprendoApiFetch({
+      requestLog,
+      response: dondeAprendoIndex([]),
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const group = (await readPut(harness.putCalls[0])).groups.articles;
+  assert.deepEqual(group.counts, { all: 0, en: 0, es: 0 });
+  assert.ok(group.sources.some(({ id }) => id === "donde-aprendo-aws"), "the empty source remains part of measured coverage");
+  assert.deepEqual(harness.secretCalls, [], "the new public index adds no credential requirement");
+  assertDondeAprendoRequest(requestLog.find(({ kind }) => kind === "donde-aprendo-index"), harness);
+});
+
+test("an invalid or incomplete Dónde Aprendo AWS index retains the whole prior Articles family", async () => {
+  const goodRow = dondeAprendoArticle({ title: "Last complete Dónde identity", slug: "last-complete" });
+  const oversizedBody = JSON.stringify(dondeAprendoIndex([
+    goodRow,
+    dondeAprendoArticle({ title: `Oversized valid identity ${"x".repeat(2_200_000)}`, slug: "oversized-valid" })
+  ]));
+  assert.ok(Buffer.byteLength(oversizedBody, "utf8") > 1024 * 1024, "the source response exceeds the shared 1 MiB decoded-body ceiling");
+  const oversizedChunks = Array.from({ length: Math.ceil(oversizedBody.length / (64 * 1024)) }, (_, index) =>
+    oversizedBody.slice(index * 64 * 1024, (index + 1) * 64 * 1024));
+  const oversizedStream = cloudyStreamingResponse(oversizedChunks, { contentType: "application/json; charset=utf-8" });
+  const contradictoryCopy = dondeAprendoArticle({
+    title: "Contradictory metadata for the same URL",
+    slug: "conflict",
+    url: `${dondeAprendoOrigin}/blog/last-complete/`
+  });
+  const failureCases = [
+    ["wrong source identity", () => dondeAprendoIndex([goodRow], { sourceId: "another-source" })],
+    ["unsupported schema version", () => dondeAprendoIndex([goodRow], { schemaVersion: 2 })],
+    ["malformed eligible record after a valid row", () => dondeAprendoIndex([goodRow, { ...goodRow, title: "   ", url: `${dondeAprendoOrigin}/blog/malformed/` }])],
+    ["invalid publication date after a valid row", () => dondeAprendoIndex([goodRow, { ...goodRow, title: "Invalid publication date", url: `${dondeAprendoOrigin}/blog/invalid-date/`, publishedAt: "2025-02-30" }])],
+    ["non-canonical article destination after a valid row", () => dondeAprendoIndex([goodRow, { ...goodRow, title: "External destination", url: "https://attacker.example/blog/external/" }])],
+    ["contradictory duplicate URL metadata", () => dondeAprendoIndex([goodRow, contradictoryCopy])],
+    ["truncated JSON", () => new Response('{"schemaVersion":1,"source":', { headers: { "content-type": "application/json" } })],
+    ["oversized valid JSON feed", () => oversizedStream.response, oversizedStream],
+    ["failed HTTP response", () => new Response("synthetic-donde-error-body-canary", { status: 503 })],
+    ["incomplete response body", () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "application/json" }),
+      async json() { throw new Error("synthetic-donde-body-read-canary"); },
+      async text() { throw new Error("synthetic-donde-body-read-canary"); }
+    })]
+  ];
+
+  for (const [description, makeFailureResponse, stream] of failureCases) {
+    let currentFeed = dondeAprendoIndex([goodRow]);
+    let subscribers = 17;
+    const requestLog = [];
+    const sources = [...phaseEightInput().sources, dondeAprendoAwsSource()];
+    const harness = createHarness({
+      input: phaseEightInput({ sources }),
+      fetchFn: dondeAprendoApiFetch({
+        requestLog,
+        responder: () => currentFeed,
+        newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
+        caylentPages: new Map([[0, { results: [] }]]),
+        builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+        cloudyPages: new Map([[1, cloudyArchiveMarkup({
+          rows: [cloudyArticle({ id: "failure-cloudy-copy", title: goodRow.title })],
+          totalPosts: 1
+        })]])
+      })
+    });
+
+    await harness.handler({}, {});
+    const previous = (await readPut(harness.putCalls.at(-1))).groups.articles;
+    assert.deepEqual(previous.counts, { all: 2, en: 1, es: 1 }, `${description} begins with a complete five-source aggregate`);
+
+    currentFeed = makeFailureResponse();
+    subscribers = 18;
+    harness.clock.set("2026-10-17T12:00:00.000Z");
+    await harness.handler({}, {});
+
+    const refreshed = await readPut(harness.putCalls.at(-1));
+    assert.deepEqual(refreshed.groups.articles, previous, `${description} preserves counts, source coverage, scope and collection time together`);
+    assert.equal(refreshed.groups.newsletter.subscribers, 18, `${description} still refreshes a healthy sibling family`);
+    const sourceRequests = requestLog.filter(({ kind }) => kind === "donde-aprendo-index");
+    assert.ok(sourceRequests.length >= 2, `${description} reaches the Dónde feed on both invocations`);
+    for (const request of sourceRequests) assertDondeAprendoRequest(request, harness);
+    if (stream !== undefined) {
+      const stats = stream.stats();
+      assert.ok(stats.chunksRead < stats.totalChunks, "the decoded-body ceiling stops the oversized stream before its end");
+      assert.equal(stats.cancelled, true, "the oversized source body is cancelled after crossing the limit");
+    }
+    assertNoDondeAprendoCanaries(harness, "synthetic-donde-error-body-canary", "synthetic-donde-body-read-canary");
+  }
+});
+
+test("a first Dónde Aprendo AWS failure leaves Articles unavailable instead of publishing zero", async () => {
+  const requestLog = [];
+  const sources = [...phaseEightInput().sources, dondeAprendoAwsSource()];
+  const harness = createHarness({
+    input: phaseEightInput({ sources }),
+    fetchFn: dondeAprendoApiFetch({
+      requestLog,
+      response: new Response("synthetic-donde-error-body-canary", { status: 503 }),
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({
+        rows: [cloudyArticle({ id: "first-failure-cloudy-row" })],
+        totalPosts: 1
+      })]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(Object.hasOwn(output.groups, "articles"), false, "there is no prior valid Articles family to retain");
+  assert.equal(Object.hasOwn(output.groups, "talks"), true, "healthy curated families still publish");
+  assert.equal(Object.hasOwn(output.groups, "books"), true, "healthy book data still publishes");
+  assertDondeAprendoRequest(requestLog.find(({ kind }) => kind === "donde-aprendo-index"), harness);
+  assertNoDondeAprendoCanaries(harness, "synthetic-donde-error-body-canary");
+});
+
+test("Dónde Aprendo AWS recovery recomputes the full aggregate after retaining a prior snapshot", async () => {
+  const sharedTitle = "Shared title across languages";
+  let sourceResponse = dondeAprendoIndex([
+    dondeAprendoArticle({ title: "Old Dónde identity", slug: "old-identity" })
+  ]);
+  let caylentRows = [article({ id: "recovery-en", title: sharedTitle })];
+  let subscribers = 17;
+  const requestLog = [];
+  const sources = [...phaseEightInput().sources, dondeAprendoAwsSource()];
+  const harness = createHarness({
+    input: phaseEightInput({ sources }),
+    fetchFn: dondeAprendoApiFetch({
+      requestLog,
+      responder: () => sourceResponse,
+      newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
+      caylentPages: new Map([[0, () => ({ results: caylentRows })]]),
+      builderPages: new Map([["", {
+        articles: [builderArticle({ id: "recovery-es", title: sharedTitle, locale: "es" })],
+        resultsSize: 1
+      }]]),
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({
+        rows: [cloudyArticle({ id: "recovery-cloudy-en", title: sharedTitle })],
+        totalPosts: 1
+      })]])
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(first.groups.articles.counts, { all: 3, en: 1, es: 2 });
+
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  sourceResponse = new Response("synthetic-donde-recovery-error-canary", { status: 503 });
+  caylentRows = [
+    article({ id: "recovery-en", title: sharedTitle }),
+    article({ id: "recovery-new-en", title: "New English article during source outage" })
+  ];
+  subscribers = 18;
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(retained.groups.articles, first.groups.articles, "a new healthy source row cannot partially refresh Articles");
+  assert.equal(retained.groups.newsletter.subscribers, 18, "healthy sibling statistics continue to refresh");
+
+  harness.clock.set("2026-10-18T12:00:00.000Z");
+  sourceResponse = dondeAprendoIndex([
+    dondeAprendoArticle({ title: "Recovered Dónde identity", slug: "recovered-identity" })
+  ]);
+  subscribers = 19;
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(recovered.groups.articles.counts, { all: 4, en: 2, es: 2 },
+    "recovery recomputes from the current complete source records, including the title-language collision");
+  assert.equal(recovered.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z");
+  assert.equal(recovered.groups.articles.scopeId, first.groups.articles.scopeId, "content changes do not change source-selection scope");
+  assert.equal(recovered.groups.newsletter.subscribers, 19);
+
+  await harness.handler({}, {});
+  const repeated = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(repeated.groups.articles.counts, recovered.groups.articles.counts,
+    "a repeated invocation recomputes the same current count instead of incrementing the published total");
+  assert.equal(repeated.groups.articles.scopeId, recovered.groups.articles.scopeId);
+  assertNoDondeAprendoCanaries(harness, "synthetic-donde-recovery-error-canary");
+});
+
+test("a failed Dónde source activation retains the pre-activation family before recovery changes its scope", async () => {
+  let failDondeSource = false;
+  let subscribers = 17;
+  const requestLog = [];
+  const priorSources = phaseEightInput().sources;
+  assert.equal(priorSources.length, 4, "activation starts from the actual four-source configuration");
+  const harness = createHarness({
+    input: phaseEightInput({ sources: priorSources }),
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: dondeAprendoApiFetch({
+      requestLog,
+      responder: () => failDondeSource
+        ? new Response("synthetic-donde-activation-error-canary", { status: 503 })
+        : dondeAprendoIndex([dondeAprendoArticle({ title: "New Dónde Spanish article", slug: "activation-article" })]),
+      newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
+      caylentPages: new Map([[0, { results: [article({ id: "activation-en", title: "Existing English article" })] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]]),
+      cloudyPages: new Map([[1, cloudyArchiveMarkup({
+        rows: [cloudyArticle({ id: "activation-cloudy-en", title: "Existing English article" })],
+        totalPosts: 1
+      })]])
+    })
+  });
+
+  await harness.handler({}, {});
+  const beforeActivation = await readPut(harness.putCalls.at(-1));
+  const priorArticleGroup = beforeActivation.groups.articles;
+  assert.ok(priorArticleGroup, `the old selector should produce a valid Articles family; groups=${Object.keys(beforeActivation.groups).join(",")}, logs=${harness.logs.join("|")}`);
+  assert.deepEqual(priorArticleGroup.sources.map(({ id }) => id), priorSources.map(({ id }) => id));
+  const independentScopes = (output) => ({
+    newsletter: output.groups.newsletter.scopeId,
+    articleViews: output.groups.articleViews.records["12m"].scopeId,
+    articleSearch: output.groups.articleSearchClicks.records["12m"].scopeId
+  });
+  const originalIndependentScopes = independentScopes(beforeActivation);
+
+  harness.setInput(phaseEightInput({ sources: [...priorSources, dondeAprendoAwsSource()] }));
+  failDondeSource = true;
+  subscribers = 18;
+  harness.clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const failedActivation = await readPut(harness.putCalls.at(-1));
+  assert.deepEqual(failedActivation.groups.articles, priorArticleGroup,
+    "a newly selected source failure retains the exact old coverage, scope, counts, and date");
+  assert.equal(failedActivation.groups.newsletter.subscribers, 18, "healthy sibling families refresh during activation failure");
+  assert.deepEqual(independentScopes(failedActivation), originalIndependentScopes,
+    "the new article source does not change newsletter, views, or Search scopes");
+
+  failDondeSource = false;
+  subscribers = 19;
+  harness.clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls.at(-1));
+  assert.ok(recovered.groups.articles.sources.some(({ id, label }) => id === "donde-aprendo-aws" && label === "Dónde Aprendo AWS"),
+    "recovery publishes the newly selected source coverage");
+  assert.equal(recovered.groups.articles.scopeId === priorArticleGroup.scopeId, false,
+    "source activation changes the Articles selection scope");
+  assert.deepEqual(recovered.groups.articles.counts, { all: 2, en: 1, es: 1 });
+  assert.equal(recovered.groups.articles.collectedAt, "2026-10-18T12:00:00.000Z");
+  assert.deepEqual(independentScopes(recovered), originalIndependentScopes,
+    "successful article source activation leaves independent metric scopes unchanged");
+  assertNoDondeAprendoCanaries(harness, "synthetic-donde-activation-error-canary");
 });
 
 test("Cloudy Things is supported with source-array inputs 2 through 6 and adds no credential requirement", async () => {

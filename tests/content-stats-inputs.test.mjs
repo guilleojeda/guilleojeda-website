@@ -910,6 +910,50 @@ function cloudyThingsSelection() {
   return { id: 'cloudy-things', authorName: 'Guillermo Ojeda', language: 'en' };
 }
 
+test('Dónde Aprendo AWS projects as a fixed source selector without changing the protected input version', async () => {
+  const build = await inputBuilder();
+  const selector = { id: 'donde-aprendo-aws' };
+  const source = fixture();
+  const before = build(source);
+  source.articleConfig.sources.push(selector);
+  freeze(source);
+  const after = build(source);
+
+  assert.equal(after.schemaVersion, before.schemaVersion, 'an additional source does not require a new protected-input schema');
+  assert.deepEqual(after.sources, [...before.sources, selector]);
+  assert.deepEqual(Object.keys(after.sources.at(-1)), ['id'], 'the maintained selector exposes no endpoint or credential fields');
+  assert.notEqual(after.sources, source.articleConfig.sources, 'the projected source list is copied');
+  assert.notEqual(after.sources.at(-1), source.articleConfig.sources.at(-1), 'the projected selector is copied');
+
+  const afterWithoutSource = { ...after, sources: after.sources.slice(0, -1) };
+  assert.deepEqual(afterWithoutSource, before, 'adding source coverage preserves every other generated fact');
+  assert.equal(Object.hasOwn(after, 'counts'), false, 'the build projection does not add computed counts');
+});
+
+test('Dónde Aprendo AWS rejects configurable endpoint, author, language, and credential selectors', async () => {
+  const build = await inputBuilder();
+  const invalidSelectors = [
+    { id: 'donde-aprendo-aws', endpoint: 'https://another.example/feed.json' },
+    { id: 'donde-aprendo-aws', language: 'en' },
+    { id: 'donde-aprendo-aws', authorName: 'Different Author' },
+    { id: 'donde-aprendo-aws', apiKey: 'synthetic-private-key' }
+  ];
+
+  for (const selector of invalidSelectors) {
+    const source = fixture();
+    source.articleConfig.sources.push(selector);
+    assert.throws(
+      () => build(source),
+      /donde|source|selector|credential|input/i,
+      `invalid Dónde Aprendo AWS selector ${JSON.stringify(selector)}`
+    );
+  }
+
+  const duplicate = fixture();
+  duplicate.articleConfig.sources.push({ id: 'donde-aprendo-aws' }, { id: 'donde-aprendo-aws' });
+  assert.throws(() => build(duplicate), /donde|source|duplicate|input/i, 'a source can be selected only once');
+});
+
 test('Cloudy Things can generate input3 without newsletter access or a Simple AWS source', async () => {
   const build = await inputBuilder();
   const source = fixture();
