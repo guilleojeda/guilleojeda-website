@@ -48,6 +48,25 @@ test("statistics privacy routes resolve only their published directory pages", (
   assert.equal(route(collectorOutput), collectorOutput.request);
 });
 
+test("article catalog routes serve both locales and preserve queries on canonical redirects", () => {
+  for (const path of ["/articles/", "/es/articles/"]) {
+    assert.equal(route(request(path)).uri, `${path}index.html`);
+    const redirect = route(request(path.slice(0, -1), "flag&topic=AI%20agents&empty="));
+    assert.equal(redirect.statusCode, 301);
+    assert.equal(redirect.headers.location.value, `${path}?flag&topic=AI%20agents&empty=`);
+    const www = route(request(path, "from=writing", "www.guilleojeda.com"));
+    assert.equal(www.headers.location.value, `https://guilleojeda.com${path}?from=writing`);
+  }
+});
+
+test("article catalog routing does not rewrite unknown pages or create another data endpoint", () => {
+  for (const path of ["/articles/missing/", "/es/articles/missing/", "/articles/catalog.json", "/content-stats/v1/current.json"]) {
+    const event = request(path);
+    assert.equal(route(event), event.request);
+    assert.equal(event.request.uri, path);
+  }
+});
+
 test("www requests redirect to the apex while preserving the complete path", () => {
   const root = route(request("/", undefined, "www.guilleojeda.com"));
   const spanish = route(request("/es/", undefined, "www.guilleojeda.com"));
