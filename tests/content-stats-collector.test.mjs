@@ -11039,3 +11039,81 @@ test("implementation regression: automatic-source failure diagnostics expose onl
   assert.deepEqual((await readPut(harness.putCalls[0])).groups.talks.counts, { all: 0, en: 0, es: 0 });
   assert.ok(requestLog.some(({ kind }) => kind === "caylent-list"));
 });
+
+test("implementation regression: Cloudy archive identifies itself and logs only bounded HTTP challenge facts", async () => {
+  const article = cloudyArticle({
+    id: "cloudy-diagnostic-page-one",
+    slug: "cloudy-diagnostic-page-one",
+    title: "Valid first page before provider failure"
+  });
+  const privateBody = "synthetic-private-cloudy-forbidden-body-canary";
+  const cases = [
+    { challengeHeader: "challenge", expectedChallenge: true },
+    { challengeHeader: "challenge-private-header-canary", expectedChallenge: false }
+  ];
+
+  for (const { challengeHeader, expectedChallenge } of cases) {
+    const requestLog = [];
+    const pages = new Map([
+      [1, cloudyArchiveMarkup({
+        page: 1,
+        currentPage: 1,
+        totalPages: 2,
+        totalPosts: 2,
+        rows: [article],
+        nextHref: "/archive?page=2"
+      })],
+      [2, () => cloudyHtmlResponse(privateBody, {
+        status: 403,
+        headers: { "x-vercel-mitigated": challengeHeader }
+      })]
+    ]);
+    const harness = createHarness({
+      input: phaseFourInput({
+        sources: [sourceInput().source, builderCenterSource(), cloudyThingsSource()],
+        curated: { talks: [], books: [] }
+      }),
+      fetchFn: phaseEightApiFetch({ requestLog, cloudyPages: pages })
+    });
+
+    await harness.handler({}, {});
+
+    const archiveRequests = requestLog.filter(({ kind }) => kind === "cloudy-archive");
+    assert.deepEqual(archiveRequests.map(({ page }) => page), [1, 2],
+      "the failure is observed after one complete earlier page");
+    for (const request of archiveRequests) {
+      const userAgent = Object.entries(request.headers)
+        .find(([name]) => name.toLowerCase() === "user-agent")?.[1];
+      assert.equal(userAgent, "GuilleOjedaContentStats/1.0 (+https://guilleojeda.com)");
+    }
+
+    const cloudyFailureLine = harness.logs.find((line) => line.includes('"event":"content_stats_cloudy_http_failure"'));
+    assert.ok(cloudyFailureLine, "a permanent Cloudy HTTP failure has a focused diagnostic");
+    const cloudyFailure = JSON.parse(cloudyFailureLine);
+    assert.deepEqual(cloudyFailure, {
+      event: "content_stats_cloudy_http_failure",
+      sourceId: "cloudy-things",
+      page: 2,
+      status: 403,
+      vercelChallenge: expectedChallenge
+    }, "the event contains only the bounded page, integer status and exact challenge boolean");
+    assert.equal(cloudyFailure.page >= 1 && cloudyFailure.page <= 10, true);
+    assert.equal(JSON.stringify(cloudyFailure).includes(challengeHeader), false);
+    assert.equal(JSON.stringify(cloudyFailure).includes(privateBody), false);
+    const sourceFailureLine = harness.logs.find((line) => line.includes('"event":"content_stats_source_collection_failed"'));
+    assert.deepEqual(JSON.parse(sourceFailureLine), {
+      event: "content_stats_source_collection_failed",
+      sourceId: "cloudy-things",
+      code: "SOURCE_HTTP_403"
+    }, "the established three-field source failure diagnostic remains unchanged");
+    const successLine = JSON.parse(harness.logs.find((line) => line.includes('"event":"content_stats_collection_succeeded"')));
+    assert.equal(successLine.familyFailures.articles, "SOURCE_HTTP_403");
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), false,
+      "the valid page-one row is not published as a partial Article family");
+    assert.ok(output.groups.talks && output.groups.books,
+      "healthy sibling groups still publish after the Cloudy source failure");
+    assert.equal(harness.logs.join("\n").includes(privateBody), false);
+    assert.equal(harness.logs.join("\n").includes(challengeHeader), false);
+  }
+});
