@@ -5367,7 +5367,7 @@ test("Dónde Aprendo AWS recovery recomputes the full aggregate after retaining 
       requestLog,
       responder: () => sourceResponse,
       newsletterResponder: () => jsonResponse({ data: { id: beehiivPublicationId, stats: { active_subscriptions: subscribers } } }),
-      caylentPages: new Map([[0, () => ({ results: caylentRows })]]),
+      caylentPages: new Map([[0, () => jsonResponse({ results: caylentRows })]]),
       builderPages: new Map([["", {
         articles: [builderArticle({ id: "recovery-es", title: sharedTitle, locale: "es" })],
         resultsSize: 1
