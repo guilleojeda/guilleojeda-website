@@ -5648,7 +5648,7 @@ test("invalid, incomplete, or oversized AWS for Engineers feeds retain the whole
 test("a first AWS for Engineers failure leaves Articles unavailable instead of publishing zero or partial counts", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: phaseTwoInput({ sources: [sourceInput().source, builderCenterSource(), awsForEngineersSource()] }),
+    input: phaseThreeInput({ sources: [sourceInput().source, builderCenterSource(), awsForEngineersSource()] }),
     secretArn: null,
     fetchFn: awsForEngineersApiFetch({
       requestLog,
