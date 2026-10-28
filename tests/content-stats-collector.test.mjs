@@ -12098,6 +12098,131 @@ test("implementation regression: invalid timestamps and DEV routes are discarded
   }
 });
 
+test("collector rejects Forem route collisions from current and compatible prior Articles groups", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const sources = [sourceInput().source, builderCenterSource()];
+  const baseInput = phaseThreeInput({ sources });
+  const inputFor = (articleInventory) => phaseTwelveArticleInventoryInput({ baseInput, articleInventory });
+  const invalidPaths = [
+    "/ahoy/open", "/api/articles", "/api/instance", "/admin/content_manager", "/locale/es", "/magic_links/new",
+    "/users/1", "/users/123",
+    "/follows/123", "/agent_sessions/123", "/trending/aws", "/trends/aws", "/twilio_tokens/123",
+    "/poll_votes/123", "/survey/example", "/user_blocks/123", "/sidebars/123", "/profile_preview_cards/123",
+    "/notifications/comments", "/internal/anything", "/billboards/sidebar", "/bb/sidebar", "/display_ads/sidebar",
+    "/page/example", "/mod/aws", "/settings/extensions", "/dashboard/analytics", "/leadership/weekly",
+    "/curation/weekly", "/embed/example", "/new/template", "/feed/guille", "/tag/aws", "/t/aws", "/top/week",
+    "/r/mobile", "/stories/feed", "/co_author_invitations/candidates", "/tags/suggest", "/tags/bulk",
+    "/stripe_subscriptions/new", "/videos/new", "/subforems/new", "/credits/new", "/credits/purchase",
+    "/podcasts/new", "/user_subscriptions/subscribed", "/search/tags", "/search/usernames",
+    "/search/feed_content", "/search/reactions", "/followings/users", "/followings/tags",
+    "/followings/organizations", "/followings/podcasts", "/onboarding/tags", "/onboarding/users_and_organizations",
+    "/onboarding/newsletter", "/email_subscriptions/unsubscribe", "/async_info/base_data",
+    "/async_info/navigation_links", "/auth_pass/iframe", "/appeal/success", "/lead_submissions/check",
+    "/p/welcome", "/p/editor_guide", "/p/publishing_from_rss_guide", "/p/markdown_basics",
+    "/readinglist/archive", "/following/latest", "/following/latest_less_filtered",
+    "/guilleojeda/members", "/guilleojeda/settings", "/guilleojeda/series", "/guilleojeda/comments",
+    "/guilleojeda/moderate", "/guilleojeda/admin", "/a/123ab",
+    "/%61hoy/open", "/a%70i/articles", "/videos/n%65w", "/guille/%73ettings", "/followings/%75sers",
+    "/p/editor%5Fguide", "/guille/%", "/guille/%FF", "/guille/slug%2Fextra", "/guille/slug%5Cextra",
+    "/guille/slug%252Fextra", "/guille/UPPER", "/guille/article/edit", "/guille/article/manage",
+    "/guille/article/stats", "/guille/comment/123"
+  ];
+  const validInventory = {
+    publications: [manualArticlePublication(
+      "dev-community", "Prior public article", "en", "2025-01-01", "https://dev.to/guille/prior-public-article"
+    )],
+    exclusions: []
+  };
+
+  for (const [index, pathname] of invalidPaths.entries()) {
+    const invalidInput = inputFor({
+      publications: [manualArticlePublication(
+        "dev-community", `Current invalid route ${index}`, "en", "2025-01-01", `https://dev.to${pathname}`
+      )],
+      exclusions: []
+    });
+    const currentHarness = createHarness({ input: invalidInput, clock, fetchFn: builderApiFetch() });
+    await currentHarness.handler({}, {});
+    const current = await readPut(currentHarness.putCalls[0]);
+    assert.equal(Object.hasOwn(current.groups, "articles"), false,
+      `current ${pathname} must not create an Articles group`);
+    assert.ok(current.groups.talks && current.groups.books,
+      `current ${pathname} rejection remains local to Articles`);
+  }
+
+  const publicPaths = [
+    "/guilleojeda/aws_guide", "/GuilleOjeda/custom-slug", "/guilleojeda/new", "/guilleojeda/edit",
+    "/guilleojeda/preview", "/guilleojeda/manage", "/guilleojeda/stats", "/events/custom-event",
+    "/surveys/custom-survey", "/stories/custom-story", "/credits/custom-credit", "/response_templates/new",
+    "/videos/custom-video", "/search/custom-search", "/guilleojeda/slug_without_id", "/guilleojeda/aws%5Fguide",
+    "/API/articles"
+  ];
+  const publicInventory = {
+    publications: publicPaths.map((path, index) => manualArticlePublication(
+      "dev-community", `Public DEV shape ${index}`, "en", "2025-01-01", `https://dev.to${path}`
+    )),
+    exclusions: []
+  };
+  const publicHarness = createHarness({ input: inputFor(publicInventory), clock, fetchFn: builderApiFetch() });
+  await publicHarness.handler({}, {});
+  const publicGroup = (await readPut(publicHarness.putCalls[0])).groups.articles;
+  const publicUrls = publicGroup.records.flatMap(({ publications }) => publications)
+    .filter(({ sourceId }) => sourceId === "dev-community").map(({ url }) => url).sort();
+  assert.deepEqual(publicUrls, publicInventory.publications.map(({ url }) => url).sort(),
+    "valid custom slugs, author case, resource-like candidates, and original URL spelling remain accepted");
+
+  const maintained = JSON.parse(readFileSync(new URL("../src/content/articles.json", import.meta.url), "utf8"));
+  const maintainedDevUrls = maintained.publications.filter(({ sourceId }) => sourceId === "dev-community")
+    .map(({ url }) => url).sort();
+  assert.equal(maintained.publications.length, 88);
+  assert.equal(maintainedDevUrls.length, 69);
+  const maintainedInventory = {
+    publications: maintained.publications,
+    exclusions: maintained.exclusions.map(({ sourceId, url }) => ({ sourceId, url }))
+  };
+  const maintainedHarness = createHarness({ input: inputFor(maintainedInventory), clock, fetchFn: builderApiFetch() });
+  await maintainedHarness.handler({}, {});
+  const maintainedGroup = (await readPut(maintainedHarness.putCalls[0])).groups.articles;
+  const publishedMaintainedDevUrls = maintainedGroup.records.flatMap(({ publications }) => publications)
+    .filter(({ sourceId }) => sourceId === "dev-community").map(({ url }) => url).sort();
+  assert.deepEqual(publishedMaintainedDevUrls, maintainedDevUrls,
+    "the collector preserves all 69 maintained DEV destinations from the 88-publication inventory");
+
+  const validInput = inputFor(validInventory);
+  const seed = createHarness({ input: validInput, clock, fetchFn: builderApiFetch() });
+  await seed.handler({}, {});
+  const validPrior = JSON.parse(seed.objects.get(outputKey));
+  assert.ok(validPrior.groups.articles, "the route checks start with a valid prior Articles group");
+
+  const invalidPriorPaths = [
+    "/api/articles", "/videos/new", "/guilleojeda/settings", "/followings/users", "/a/123ab",
+    "/search/tags", "/guille/%73ettings"
+  ];
+  for (const [index, pathname] of invalidPriorPaths.entries()) {
+    const stored = structuredClone(validPrior);
+    const devRecord = stored.groups.articles.records.find(({ publications }) =>
+      publications.some(({ sourceId }) => sourceId === "dev-community"));
+    const devPublication = devRecord?.publications.find(({ sourceId }) => sourceId === "dev-community");
+    assert.ok(devPublication, "the compatible prior catalog contains its maintained DEV publication");
+    devPublication.url = `https://dev.to${pathname}`;
+    const priorHarness = createHarness({
+      input: validInput,
+      clock,
+      fetchFn: builderApiFetch({
+        caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic prior route validation outage" }, 503)]]),
+        builderPages: new Map([["", () => jsonResponse({ error: "synthetic prior route validation outage" }, 503)]])
+      })
+    });
+    priorHarness.objects.set(outputKey, JSON.stringify(stored));
+    await priorHarness.handler({}, {});
+    const prior = await readPut(priorHarness.putCalls[0]);
+    assert.equal(Object.hasOwn(prior.groups, "articles"), false,
+      `scope-compatible prior ${pathname} must not be retained after the current sources fail`);
+    assert.ok(prior.groups.talks && prior.groups.books,
+      `prior ${pathname} rejection remains local to Articles`);
+  }
+});
+
 test("implementation regression: uncertain S3 Put results resolve only when readback matches the complete intended bytes", async () => {
   const input = phaseThreeInput();
   const fetchFn = builderApiFetch();

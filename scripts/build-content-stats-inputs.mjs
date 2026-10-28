@@ -35,8 +35,23 @@ const EXCLUSION_SOURCE_HOSTS = Object.freeze({
   medium: ['medium.com']
 });
 // These Forem routes precede the generic public username/slug article route.
-const DEV_RESERVED_USERNAMES = new Set(['admin', 'curation', 'dashboard', 'feed', 'internal', 'leadership', 'new', 'notifications', 'search', 'settings', 'tag', 't', 'top', 'trending', 'survey']);
+const DEV_RESERVED_ROUTE_ROOTS = new Set([
+  'ahoy', 'api', 'admin', 'locale', 'magic_links', 'users', 'follows', 'agent_sessions', 'trending', 'trends',
+  'twilio_tokens', 'poll_votes', 'survey', 'user_blocks', 'sidebars', 'profile_preview_cards', 'notifications',
+  'internal', 'billboards', 'bb', 'display_ads', 'page', 'mod', 'settings', 'dashboard', 'leadership', 'curation',
+  'embed', 'new', 'feed', 'tag', 't', 'top'
+]);
 const DEV_RESERVED_ARTICLE_SLUGS = new Set(['admin', 'comments', 'members', 'moderate', 'series', 'settings']);
+const DEV_RESERVED_ROUTE_PAIRS = new Set([
+  'r/mobile', 'stories/feed', 'co_author_invitations/candidates', 'tags/suggest', 'tags/bulk',
+  'stripe_subscriptions/new', 'videos/new', 'subforems/new', 'credits/new', 'credits/purchase', 'podcasts/new',
+  'user_subscriptions/subscribed', 'search/tags', 'search/usernames', 'search/feed_content', 'search/reactions',
+  'followings/users', 'followings/tags', 'followings/organizations',
+  'followings/podcasts', 'onboarding/tags', 'onboarding/users_and_organizations', 'onboarding/newsletter',
+  'email_subscriptions/unsubscribe', 'async_info/base_data', 'async_info/navigation_links', 'auth_pass/iframe',
+  'appeal/success', 'lead_submissions/check', 'p/welcome', 'p/editor_guide', 'p/publishing_from_rss_guide',
+  'p/markdown_basics', 'readinglist/archive', 'following/latest', 'following/latest_less_filtered'
+]);
 
 function invalid(message) {
   throw new Error(`Invalid content statistics input: ${message}`);
@@ -82,6 +97,25 @@ function articlePublicationInstant(value, label) {
   return instant;
 }
 
+function isDevPublicArticlePath(pathname) {
+  const match = pathname.match(/^\/([^/]+)\/([^/]+)$/);
+  if (!match) return false;
+  let username;
+  let slug;
+  try {
+    username = decodeURIComponent(match[1]);
+    slug = decodeURIComponent(match[2]);
+  } catch {
+    return false;
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(username) || !/^[a-z0-9_-]+$/.test(slug) ||
+      DEV_RESERVED_ROUTE_ROOTS.has(username) || DEV_RESERVED_ARTICLE_SLUGS.has(slug) ||
+      DEV_RESERVED_ROUTE_PAIRS.has(`${username}/${slug}`)) {
+    return false;
+  }
+  return !(username === 'a' && /^[0-9a-pA-P]+$/.test(slug));
+}
+
 function isArticleDestinationPath(sourceId, pathname) {
   if (sourceId === 'caylent') return /^\/blog\/.+/.test(pathname);
   if (sourceId === 'builder-center') return /^\/content\/[^/]+\/.+/.test(pathname);
@@ -92,21 +126,7 @@ function isArticleDestinationPath(sourceId, pathname) {
   if (sourceId === 'donde-aprendo-aws' || sourceId === 'aws-for-engineers') {
     return /^\/blog\/[^/]+$/.test(pathname);
   }
-  if (sourceId === 'dev-community') {
-    const match = pathname.match(/^\/([^/]+)\/([^/]+)$/);
-    if (!match) return false;
-    let username;
-    let slug;
-    try {
-      username = decodeURIComponent(match[1]);
-      slug = decodeURIComponent(match[2]);
-    } catch {
-      return false;
-    }
-    return !DEV_RESERVED_USERNAMES.has(username)
-      && !DEV_RESERVED_ARTICLE_SLUGS.has(slug)
-      && !(username === 'following' && ['latest', 'latest_less_filtered'].includes(slug));
-  }
+  if (sourceId === 'dev-community') return isDevPublicArticlePath(pathname);
   if (sourceId === 'linkedin-articles') return /^\/pulse\/.+/.test(pathname);
   if (sourceId === 'spainclouds') return /^\/blog\/.+/.test(pathname);
   if (sourceId === 'hackernoon' || sourceId === 'medium') return /^\/.+/.test(pathname);
