@@ -58,8 +58,23 @@ const supportedArticleSourceHosts = new Map([
   ['hackernoon', ['hackernoon.com']]
 ]);
 // Keep Forem's reserved route collisions aligned with the build and collector validators.
-const devReservedUsernames = new Set(['admin', 'curation', 'dashboard', 'feed', 'internal', 'leadership', 'new', 'notifications', 'search', 'settings', 'tag', 't', 'top', 'trending', 'survey']);
+const devReservedRouteRoots = new Set([
+  'ahoy', 'api', 'admin', 'locale', 'magic_links', 'users', 'follows', 'agent_sessions', 'trending', 'trends',
+  'twilio_tokens', 'poll_votes', 'survey', 'user_blocks', 'sidebars', 'profile_preview_cards', 'notifications',
+  'internal', 'billboards', 'bb', 'display_ads', 'page', 'mod', 'settings', 'dashboard', 'leadership', 'curation',
+  'embed', 'new', 'feed', 'tag', 't', 'top'
+]);
 const devReservedArticleSlugs = new Set(['admin', 'comments', 'members', 'moderate', 'series', 'settings']);
+const devReservedRoutePairs = new Set([
+  'r/mobile', 'stories/feed', 'co_author_invitations/candidates', 'tags/suggest', 'tags/bulk',
+  'stripe_subscriptions/new', 'videos/new', 'subforems/new', 'credits/new', 'credits/purchase', 'podcasts/new',
+  'user_subscriptions/subscribed', 'search/tags', 'search/usernames', 'search/feed_content', 'search/reactions',
+  'followings/users', 'followings/tags', 'followings/organizations',
+  'followings/podcasts', 'onboarding/tags', 'onboarding/users_and_organizations', 'onboarding/newsletter',
+  'email_subscriptions/unsubscribe', 'async_info/base_data', 'async_info/navigation_links', 'auth_pass/iframe',
+  'appeal/success', 'lead_submissions/check', 'p/welcome', 'p/editor_guide', 'p/publishing_from_rss_guide',
+  'p/markdown_basics', 'readinglist/archive', 'following/latest', 'following/latest_less_filtered'
+]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
@@ -218,9 +233,12 @@ function isPublicArticlePath(sourceId, pathname) {
     } catch {
       return false;
     }
-    return !devReservedUsernames.has(username)
-      && !devReservedArticleSlugs.has(slug)
-      && !(username === 'following' && ['latest', 'latest_less_filtered'].includes(slug));
+    if (!/^[A-Za-z0-9_-]+$/.test(username) || !/^[a-z0-9_-]+$/.test(slug) ||
+        devReservedRouteRoots.has(username) || devReservedArticleSlugs.has(slug) ||
+        devReservedRoutePairs.has(`${username}/${slug}`)) {
+      return false;
+    }
+    return !(username === 'a' && /^[0-9a-pA-P]+$/.test(slug));
   }
   if (sourceId === 'linkedin-articles') return /^\/pulse\/.+/.test(pathname);
   if (sourceId === 'spainclouds') return /^\/blog\/.+/.test(pathname);

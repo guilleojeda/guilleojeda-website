@@ -1710,3 +1710,68 @@ test('implementation regression: DEV accepts only public article routes across r
       `${pathname} is a Forem editor, feed, administration, or reserved route`);
   }
 });
+
+test('build rejects Forem route collisions and accepts public DEV article shapes', async () => {
+  const build = await inputBuilder();
+  const invalidPaths = [
+    '/ahoy/open', '/api/articles', '/api/instance', '/admin/content_manager', '/locale/es', '/magic_links/new',
+    '/users/1', '/users/123',
+    '/follows/123', '/agent_sessions/123', '/trending/aws', '/trends/aws', '/twilio_tokens/123',
+    '/poll_votes/123', '/survey/example', '/user_blocks/123', '/sidebars/123', '/profile_preview_cards/123',
+    '/notifications/comments', '/internal/anything', '/billboards/sidebar', '/bb/sidebar', '/display_ads/sidebar',
+    '/page/example', '/mod/aws', '/settings/extensions', '/dashboard/analytics', '/leadership/weekly',
+    '/curation/weekly', '/embed/example', '/new/template', '/feed/guille', '/tag/aws', '/t/aws', '/top/week',
+    '/r/mobile', '/stories/feed', '/co_author_invitations/candidates', '/tags/suggest', '/tags/bulk',
+    '/stripe_subscriptions/new', '/videos/new', '/subforems/new', '/credits/new', '/credits/purchase',
+    '/podcasts/new', '/user_subscriptions/subscribed', '/search/tags', '/search/usernames',
+    '/search/feed_content', '/search/reactions', '/followings/users', '/followings/tags',
+    '/followings/organizations', '/followings/podcasts', '/onboarding/tags', '/onboarding/users_and_organizations',
+    '/onboarding/newsletter', '/email_subscriptions/unsubscribe', '/async_info/base_data',
+    '/async_info/navigation_links', '/auth_pass/iframe', '/appeal/success', '/lead_submissions/check',
+    '/p/welcome', '/p/editor_guide', '/p/publishing_from_rss_guide', '/p/markdown_basics',
+    '/readinglist/archive', '/following/latest', '/following/latest_less_filtered',
+    '/guilleojeda/members', '/guilleojeda/settings', '/guilleojeda/series', '/guilleojeda/comments',
+    '/guilleojeda/moderate', '/guilleojeda/admin', '/a/123ab',
+    '/%61hoy/open', '/a%70i/articles', '/videos/n%65w', '/guille/%73ettings', '/followings/%75sers',
+    '/p/editor%5Fguide', '/guille/%', '/guille/%FF', '/guille/slug%2Fextra', '/guille/slug%5Cextra',
+    '/guille/slug%252Fextra', '/guille/UPPER', '/guille/article/edit', '/guille/article/manage',
+    '/guille/article/stats', '/guille/comment/123'
+  ];
+  for (const [index, pathname] of invalidPaths.entries()) {
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    source.articles.publications.push({
+      sourceId: 'dev-community',
+      title: `Invalid DEV resource route ${index}`,
+      language: 'en',
+      publishedAt: '2025-01-17',
+      url: `https://dev.to${pathname}`
+    });
+    assert.throws(() => build(source), /article|path|url|invalid/i,
+      `${pathname} is a Forem route collision or not an upstream article slug`);
+  }
+
+  const publicPaths = [
+    '/guilleojeda/aws_guide', '/GuilleOjeda/custom-slug', '/guilleojeda/new', '/guilleojeda/edit',
+    '/guilleojeda/preview', '/guilleojeda/manage', '/guilleojeda/stats', '/events/custom-event',
+    '/surveys/custom-survey', '/stories/custom-story', '/credits/custom-credit', '/response_templates/new',
+    '/videos/custom-video', '/search/custom-search', '/guilleojeda/slug_without_id', '/guilleojeda/aws%5Fguide',
+    '/API/articles'
+  ];
+  const futurePublications = publicPaths.map((url, index) => ({
+    sourceId: 'dev-community',
+    title: `Future public DEV shape ${index}`,
+    language: 'en',
+    publishedAt: '2025-01-17',
+    url: `https://dev.to${url}`
+  }));
+  const future = build({ ...fixture(), articles: { publications: futurePublications, exclusions: [] } });
+  assert.deepEqual(future.articleInventory.publications, futurePublications,
+    'upstream-valid custom slugs, author case, and non-collision resources retain original metadata and URL spelling');
+
+  const maintained = JSON.parse(readFileSync(new URL('../src/content/articles.json', import.meta.url), 'utf8'));
+  const maintainedResult = build({ ...fixture(), articles: maintained });
+  assert.equal(maintained.publications.length, 88);
+  assert.equal(maintained.publications.filter(({ sourceId }) => sourceId === 'dev-community').length, 69);
+  assert.deepEqual(maintainedResult.articleInventory.publications, maintained.publications,
+    'all currently maintained destinations remain unchanged in the protected input');
+});
