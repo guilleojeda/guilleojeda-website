@@ -6265,3 +6265,74 @@ for (const locale of ['en', 'es']) {
     }
   });
 }
+
+test('implementation regression: client accepts supported Articles dates and rejects producer-invalid timestamps', async () => {
+  const dateValues = [
+    '2025-01-01',
+    '2025-01-01T00:00:00.123456789-14:00',
+    '2025-01-01T00:00:00+14:00',
+    null
+  ];
+  const validRecords = dateValues.map((publishedAt, index) => {
+    const title = `Date contract ${index}`;
+    return catalogRecord(1401 + index, {
+      title,
+      language: 'en',
+      publishedAt,
+      publications: [catalogPublication({
+        sourceId: 'dev-community',
+        title,
+        publishedAt,
+        url: `https://dev.to/guille/date-contract-${index}`
+      })]
+    });
+  });
+  const validPage = createPage({ data: articleCatalogSnapshot({ records: validRecords }), includeCatalog: true });
+  await validPage.settle();
+  assert.equal(validPage.cards.articles.count.textContent, '4');
+  assert.equal(validPage.catalog.list.children.length, 4);
+
+  const invalidTimestamps = ['2025-01-01T24:00:00Z', '2025-01-01T00:00:00+15:00', '2025-01-01T00:00:00+14:01'];
+  for (const publishedAt of invalidTimestamps) {
+    const records = twoCatalogRecords();
+    records[0].publishedAt = publishedAt;
+    records[0].publications[0].publishedAt = publishedAt;
+    const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+    await page.settle();
+    assert.equal(page.cards.articles.count.textContent, '', `${publishedAt} invalidates counts and catalog together`);
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assertCatalogUnavailable(page);
+  }
+});
+
+test('implementation regression: client rejects DEV editor and reserved route destinations', async () => {
+  const invalidPaths = [
+    '/guille/a-post/edit',
+    '/admin/preview',
+    '/new/template',
+    '/t/aws',
+    '/t%61g/aws',
+    '/tag/aws',
+    '/top/week',
+    '/feed/guille',
+    '/leadership/weekly',
+    '/curation/weekly',
+    '/trending/aws',
+    '/survey/example',
+    '/guille/series',
+    '/guille/comments',
+    '/guille/admin',
+    '/guille/settings',
+    '/guille/members',
+    '/following/latest'
+  ];
+  for (const pathname of invalidPaths) {
+    const records = twoCatalogRecords();
+    records[0].publications[0].url = `https://dev.to${pathname}`;
+    const page = createPage({ data: articleCatalogSnapshot({ records }), includeCatalog: true });
+    await page.settle();
+    assert.equal(page.cards.articles.count.textContent, '', `${pathname} invalidates the entire Articles family`);
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assertCatalogUnavailable(page);
+  }
+});
