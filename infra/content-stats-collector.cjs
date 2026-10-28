@@ -115,6 +115,9 @@ const SOURCE_LABELS = Object.freeze({
   spainclouds: "SpainClouds",
   hackernoon: "HackerNoon"
 });
+// Forem maps these route roots and article suffixes to feeds, editors, or administration first.
+const DEV_RESERVED_USERNAMES = new Set(["admin", "curation", "dashboard", "feed", "internal", "leadership", "new", "notifications", "search", "settings", "tag", "t", "top", "trending", "survey"]);
+const DEV_RESERVED_ARTICLE_SLUGS = new Set(["admin", "comments", "members", "moderate", "series", "settings"]);
 
 class CollectorError extends Error {
   constructor(code) {
@@ -254,8 +257,16 @@ function isRealIsoDate(value) {
 function articleInventoryInstant(value) {
   if (isRealIsoDate(value)) return Date.parse(`${value}T00:00:00.000Z`);
   if (typeof value !== "string") return null;
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/);
   if (!match || !isRealIsoDate(match[1])) return null;
+  const [, , hours, minutes, seconds, zone] = match;
+  if (Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) return null;
+  if (zone !== "Z") {
+    const offset = zone.match(/^[+-](\d{2}):(\d{2})$/);
+    const offsetHours = Number(offset[1]);
+    const offsetMinutes = Number(offset[2]);
+    if (offsetHours > 14 || offsetMinutes > 59 || (offsetHours === 14 && offsetMinutes !== 0)) return null;
+  }
   const instant = Date.parse(value);
   return Number.isFinite(instant) ? instant : null;
 }
@@ -268,6 +279,22 @@ function publicArticleDate(value, parsedTimestamp) {
     return value;
   }
   return new Date(parsedTimestamp).toISOString();
+}
+
+function isDevPublicArticlePath(pathname) {
+  const match = pathname.match(/^\/([^/]+)\/([^/]+)$/);
+  if (!match) return false;
+  let username;
+  let slug;
+  try {
+    username = decodeURIComponent(match[1]);
+    slug = decodeURIComponent(match[2]);
+  } catch {
+    return false;
+  }
+  return !DEV_RESERVED_USERNAMES.has(username)
+    && !DEV_RESERVED_ARTICLE_SLUGS.has(slug)
+    && !(username === "following" && ["latest", "latest_less_filtered"].includes(slug));
 }
 
 function normalizedArticleDestination(sourceId, value) {
@@ -296,7 +323,7 @@ function normalizedArticleDestination(sourceId, value) {
         : sourceId === "cloudy-things" ? /^\/[^/]+$/.test(pathname) && !["/archive", "/rss.xml", "/sitemap.xml", "/recommendations"].includes(pathname)
           : sourceId === "donde-aprendo-aws" || sourceId === "aws-for-engineers"
             ? /^\/blog\/[^/]+$/.test(pathname)
-            : sourceId === "dev-community" ? /^\/[^/]+\/.+/.test(pathname)
+            : sourceId === "dev-community" ? isDevPublicArticlePath(pathname)
               : sourceId === "linkedin-articles" ? /^\/pulse\/.+/.test(pathname)
                 : sourceId === "spainclouds" ? /^\/blog\/.+/.test(pathname)
                   : sourceId === "hackernoon" || sourceId === "medium" ? /^\/.+/.test(pathname)
@@ -3521,15 +3548,22 @@ async function readPreviousAggregate(bucket, key, invalidFamilies = []) {
 }
 
 async function putOutput(bucket, key, output) {
+  const intendedBody = JSON.stringify(output);
   try {
     await s3.send(new PutObjectCommand({
       Bucket: bucket,
       Key: key,
-      Body: JSON.stringify(output),
+      Body: intendedBody,
       ContentType: "application/json",
       CacheControl: OUTPUT_CACHE_CONTROL
     }));
   } catch {
+    try {
+      const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      if (await bodyToString(response && response.Body) === intendedBody) return;
+    } catch {
+      // The write remains uncertain unless the complete intended object is readable.
+    }
     throw fail("OUTPUT_WRITE_FAILED");
   }
 }

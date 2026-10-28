@@ -828,6 +828,9 @@ function createHarness({
   },
   parameterFailures = new Map(),
   putFailure,
+  putFailureAfterCommit,
+  outputReadbackMode = "stored",
+  outputReadbackFailure,
   createHashFaultAfter = null,
   createHashFault = new Error("synthetic createHash fault")
 } = {}) {
@@ -870,6 +873,21 @@ function createHarness({
     async send(command) {
       if (command instanceof GetObjectCommand) {
         getCalls.push(JSON.parse(JSON.stringify(command.input)));
+        if (command.input.Key === outputKey && putCalls.length > 0) {
+          if (outputReadbackFailure) throw outputReadbackFailure;
+          if (outputReadbackMode === "absent") {
+            const error = new Error("Synthetic output object is absent");
+            error.name = "NoSuchKey";
+            error.Code = "NoSuchKey";
+            throw error;
+          }
+          if (outputReadbackMode === "different" || outputReadbackMode === "malformed") {
+            const value = outputReadbackMode === "different"
+              ? '{"schemaVersion":1,"groups":{"talks":{"different":"bytes"}}}'
+              : "{malformed readback bytes";
+            return { Body: { transformToString: async () => value } };
+          }
+        }
         if (getFailures.has(command.input.Key)) throw getFailures.get(command.input.Key);
         const value = objects.get(command.input.Key);
         if (value === undefined) {
@@ -884,6 +902,7 @@ function createHarness({
         putCalls.push(command.input);
         if (putFailure) throw putFailure;
         objects.set(command.input.Key, bodyText(command.input.Body));
+        if (putFailureAfterCommit) throw putFailureAfterCommit;
         return { ETag: '"synthetic-etag"' };
       }
       throw new Error(`Unexpected S3 command: ${command?.constructor?.name}`);
@@ -11971,4 +11990,164 @@ test("implementation regression: invalid v2 source metadata stays within Article
   assert.equal(recoveredAgain.records[0].title, "Caylent metadata recovered cleanly");
   assert.equal(recoveredAgain.scopeId, originalV2.scopeId,
     "provider result changes do not alter the maintained selector/inventory scope");
+});
+
+test("implementation regression: input12 producer preserves valid date forms and rejects dates or DEV routes the client cannot publish", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const sources = [sourceInput().source, builderCenterSource()];
+  const baseInput = phaseThreeInput({ sources });
+  const inputFor = (articleInventory) => phaseTwelveArticleInventoryInput({ baseInput, articleInventory });
+  const validPublications = [
+    manualArticlePublication("dev-community", "Date-only producer control", "en", "2025-01-01", "https://dev.to/guille/date-only"),
+    manualArticlePublication("dev-community", "Fraction and offset producer control", "en", "2025-01-01T00:00:00.123456789-14:00", "https://dev.to/guille/date-fraction"),
+    manualArticlePublication("dev-community", "Maximum offset producer control", "en", "2025-01-01T00:00:00+14:00", "https://dev.to/guille/date-offset"),
+    manualArticlePublication("dev-community", "Unknown producer date control", "en", null, "https://dev.to/guille/date-unknown")
+  ];
+  const validHarness = createHarness({
+    input: inputFor({ publications: validPublications, exclusions: [] }),
+    clock,
+    fetchFn: builderApiFetch()
+  });
+  await validHarness.handler({}, {});
+  const validGroup = (await readPut(validHarness.putCalls[0])).groups.articles;
+  assert.equal(validGroup.definitionVersion, 2);
+  assert.deepEqual(validGroup.records.map(({ publications }) => publications[0].publishedAt).sort(),
+    validPublications.map(({ publishedAt }) => publishedAt).sort(),
+    "the producer keeps date-only values, offsets, fractional precision, and unknown dates unchanged");
+
+  const invalidCases = [
+    ["24:00 timestamp", (publications) => { publications[0].publishedAt = "2025-01-01T24:00:00Z"; }],
+    ["15-hour offset", (publications) => { publications[0].publishedAt = "2025-01-01T00:00:00+15:00"; }],
+    ["14:01 offset", (publications) => { publications[0].publishedAt = "2025-01-01T00:00:00+14:01"; }],
+    ["editor route", (publications) => { publications[0].url = "https://dev.to/guille/a-post/edit"; }],
+    ["tag route", (publications) => { publications[0].url = "https://dev.to/t/aws"; }],
+    ["encoded tag route", (publications) => { publications[0].url = "https://dev.to/t%61g/aws"; }],
+    ["feed route", (publications) => { publications[0].url = "https://dev.to/feed/guille"; }],
+    ["reserved user series route", (publications) => { publications[0].url = "https://dev.to/guille/series"; }],
+    ["reserved user settings route", (publications) => { publications[0].url = "https://dev.to/guille/settings"; }],
+    ["preview route", (publications) => { publications[0].url = "https://dev.to/admin/preview"; }]
+  ];
+  for (const [description, mutate] of invalidCases) {
+    const publications = [manualArticlePublication(
+      "dev-community", `Invalid ${description}`, "en", "2025-01-01", "https://dev.to/guille/invalid-control"
+    )];
+    mutate(publications);
+    const harness = createHarness({
+      input: inputFor({ publications, exclusions: [] }),
+      clock,
+      fetchFn: builderApiFetch()
+    });
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), false,
+      `${description}: an invalid manual inventory does not replace the Articles family`);
+    assert.ok(output.groups.talks && output.groups.books, `${description}: independent curated families publish`);
+  }
+});
+
+test("implementation regression: invalid timestamps and DEV routes are discarded from a prior Articles group", async () => {
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const sources = [sourceInput().source, builderCenterSource()];
+  const inventory = {
+    publications: [manualArticlePublication(
+      "dev-community", "Prior contract article", "en", "2025-01-01T12:00:00.123456Z", "https://dev.to/guille/prior-contract"
+    )],
+    exclusions: []
+  };
+  const baseInput = phaseThreeInput({ sources });
+  const input = phaseTwelveArticleInventoryInput({ baseInput, articleInventory: inventory });
+  const seed = createHarness({ input, clock, fetchFn: builderApiFetch() });
+  await seed.handler({}, {});
+  const previous = JSON.parse(seed.objects.get(outputKey));
+  assert.ok(previous.groups.articles, "the fixture starts from a complete handler-produced v2 group");
+
+  const invalidPriorCases = [
+    ["24:00 timestamp", (group) => {
+      group.records[0].publishedAt = "2025-01-01T24:00:00Z";
+      group.records[0].publications[0].publishedAt = "2025-01-01T24:00:00Z";
+    }],
+    ["15-hour offset", (group) => {
+      group.records[0].publishedAt = "2025-01-01T00:00:00+15:00";
+      group.records[0].publications[0].publishedAt = "2025-01-01T00:00:00+15:00";
+    }],
+    ["editor route", (group) => { group.records[0].publications[0].url = "https://dev.to/guille/a-post/edit"; }],
+    ["reserved tag route", (group) => { group.records[0].publications[0].url = "https://dev.to/t/aws"; }],
+    ["encoded reserved tag route", (group) => { group.records[0].publications[0].url = "https://dev.to/t%61g/aws"; }],
+    ["feed route", (group) => { group.records[0].publications[0].url = "https://dev.to/feed/guille"; }],
+    ["reserved user settings route", (group) => { group.records[0].publications[0].url = "https://dev.to/guille/settings"; }],
+    ["preview route", (group) => { group.records[0].publications[0].url = "https://dev.to/admin/preview"; }]
+  ];
+  for (const [description, mutate] of invalidPriorCases) {
+    const stored = structuredClone(previous);
+    mutate(stored.groups.articles);
+    const harness = createHarness({
+      input,
+      clock,
+      fetchFn: builderApiFetch({
+        caylentPages: new Map([[0, () => jsonResponse({ error: "synthetic prior validation outage" }, 503)]]),
+        builderPages: new Map([["", () => jsonResponse({ error: "synthetic prior validation outage" }, 503)]])
+      })
+    });
+    harness.objects.set(outputKey, JSON.stringify(stored));
+    await harness.handler({}, {});
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(Object.hasOwn(output.groups, "articles"), false,
+      `${description}: invalid prior Article records are not retained`);
+    assert.ok(output.groups.talks && output.groups.books,
+      `${description}: invalid prior data remains isolated from healthy siblings`);
+  }
+});
+
+test("implementation regression: uncertain S3 Put results resolve only when readback matches the complete intended bytes", async () => {
+  const input = phaseThreeInput();
+  const fetchFn = builderApiFetch();
+  const healthy = createHarness({ input, fetchFn });
+  const healthyResult = await healthy.handler({}, {});
+  assert.equal(healthyResult.status, "published");
+  assert.equal(healthy.putCalls.length, 1);
+  assert.equal(healthy.getCalls.filter(({ Key }) => Key === outputKey).length, 1,
+    "the healthy path performs only the existing prior-snapshot read");
+
+  const lostResponse = new Error("synthetic connection lost after commit");
+  const committed = createHarness({ input, fetchFn, putFailureAfterCommit: lostResponse });
+  const committedResult = await committed.handler({}, {});
+  assert.equal(committedResult.status, "published", "matching bytes prove the write committed despite the lost response");
+  assert.equal(committed.putCalls.length, 1, "resolving uncertainty does not issue another write");
+  assert.equal(committed.getCalls.filter(({ Key }) => Key === outputKey).length, 2,
+    "one readback follows the existing prior-snapshot read");
+  assert.equal(committed.objects.get(outputKey), bodyText(committed.putCalls[0].Body));
+  assert.equal(committed.logs.join("\n").includes(lostResponse.message), false,
+    "the SDK error detail is not logged");
+
+  const previousBytes = '{"schemaVersion":1,"groups":{"talks":{"previous":"bytes"}}}';
+  const precommit = createHarness({ input, fetchFn, putFailure: new Error("synthetic precommit failure") });
+  precommit.objects.set(outputKey, previousBytes);
+  await assert.rejects(() => precommit.handler({}, {}), (error) => error.code === "OUTPUT_WRITE_FAILED");
+  assert.equal(precommit.objects.get(outputKey), previousBytes, "a precommit failure preserves the prior bytes");
+  assert.equal(precommit.getCalls.filter(({ Key }) => Key === outputKey).length, 2,
+    "the prior snapshot is read once and the uncertain Put is read back once");
+  assert.equal(precommit.putCalls.length, 1);
+
+  for (const mode of ["different", "malformed", "absent", "read-error"]) {
+    const privateFailure = new Error("synthetic private readback detail");
+    const harness = createHarness({
+      input,
+      fetchFn,
+      putFailureAfterCommit: new Error("synthetic lost Put response"),
+      ...(mode === "read-error"
+        ? { outputReadbackFailure: privateFailure }
+        : { outputReadbackMode: mode })
+    });
+    harness.objects.set(outputKey, previousBytes);
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      assert.equal(error.code, "OUTPUT_WRITE_FAILED", `${mode}: the public error stays sanitized`);
+      assert.equal(error.message.includes("synthetic"), false, `${mode}: storage details do not escape`);
+      return true;
+    });
+    assert.equal(harness.putCalls.length, 1, `${mode}: uncertainty is resolved without a retry write`);
+    assert.equal(harness.getCalls.filter(({ Key }) => Key === outputKey).length, 2,
+      `${mode}: only one readback follows the existing prior-snapshot read`);
+    assert.equal(harness.logs.join("\n").includes("synthetic"), false,
+      `${mode}: storage details are not logged`);
+  }
 });

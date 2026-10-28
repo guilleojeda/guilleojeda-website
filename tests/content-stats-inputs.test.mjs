@@ -1644,3 +1644,69 @@ test('implementation regression: build accepts article paths and rejects platfor
   assert.throws(() => build(whitespaceTitle), /article|title|invalid/i,
     'the build rejects Unicode whitespace that the runtime identity normalizer removes');
 });
+
+test('implementation regression: build preserves client-valid article date forms and rejects unrenderable dates', async () => {
+  const build = await inputBuilder();
+  const publications = [
+    { sourceId: 'dev-community', title: 'Date only control', language: 'en', publishedAt: '2025-01-01', url: 'https://dev.to/guille/date-only' },
+    { sourceId: 'dev-community', title: 'Fraction and negative offset control', language: 'en', publishedAt: '2025-01-01T00:00:00.123456789-14:00', url: 'https://dev.to/guille/date-fraction' },
+    { sourceId: 'dev-community', title: 'Maximum positive offset control', language: 'en', publishedAt: '2025-01-01T00:00:00+14:00', url: 'https://dev.to/guille/date-offset' },
+    { sourceId: 'dev-community', title: 'Unknown date control', language: 'en', publishedAt: null, url: 'https://dev.to/guille/date-unknown' }
+  ];
+  const source = { ...fixture(), articles: { publications, exclusions: [] } };
+  const result = build(source);
+  assert.deepEqual(result.articleInventory.publications, publications,
+    'valid source strings, their offset and fractional precision, and unknown dates stay unchanged');
+
+  for (const publishedAt of [
+    '2025-01-01T24:00:00Z',
+    '2025-01-01T00:00:00+15:00',
+    '2025-01-01T00:00:00+14:01',
+    '2025-01-01T12:60:00Z',
+    '2025-01-01T12:00:60Z'
+  ]) {
+    const invalidSource = { ...fixture(), articles: {
+      publications: [{ ...publications[0], publishedAt }],
+      exclusions: []
+    } };
+    assert.throws(() => build(invalidSource), /article|date|timestamp|invalid/i,
+      `${publishedAt} cannot be published as a date the shared client rejects`);
+  }
+});
+
+test('implementation regression: DEV accepts only public article routes across reserved platform paths', async () => {
+  const build = await inputBuilder();
+  const invalidPaths = [
+    '/guilleojeda/a-post/edit',
+    '/guilleojeda/a-post/manage',
+    '/admin/preview',
+    '/new/template',
+    '/t/aws',
+    '/t%61g/aws',
+    '/tag/aws',
+    '/top/week',
+    '/feed/guille',
+    '/leadership/weekly',
+    '/curation/weekly',
+    '/trending/aws',
+    '/survey/example',
+    '/guilleojeda/series',
+    '/guilleojeda/comments',
+    '/guilleojeda/admin',
+    '/guilleojeda/settings',
+    '/guilleojeda/members',
+    '/following/latest'
+  ];
+  for (const [index, pathname] of invalidPaths.entries()) {
+    const source = { ...fixture(), articles: individualArticleFacts() };
+    source.articles.publications.push({
+      sourceId: 'dev-community',
+      title: `Invalid DEV route ${index}`,
+      language: 'en',
+      publishedAt: '2025-01-17',
+      url: `https://dev.to${pathname}`
+    });
+    assert.throws(() => build(source), /article|path|url|invalid/i,
+      `${pathname} is a Forem editor, feed, administration, or reserved route`);
+  }
+});

@@ -34,6 +34,9 @@ const EXCLUSION_SOURCE_HOSTS = Object.freeze({
   hackernoon: ['hackernoon.com'],
   medium: ['medium.com']
 });
+// These Forem routes precede the generic public username/slug article route.
+const DEV_RESERVED_USERNAMES = new Set(['admin', 'curation', 'dashboard', 'feed', 'internal', 'leadership', 'new', 'notifications', 'search', 'settings', 'tag', 't', 'top', 'trending', 'survey']);
+const DEV_RESERVED_ARTICLE_SLUGS = new Set(['admin', 'comments', 'members', 'moderate', 'series', 'settings']);
 
 function invalid(message) {
   throw new Error(`Invalid content statistics input: ${message}`);
@@ -60,8 +63,20 @@ function isRealCalendarDate(value) {
 function articlePublicationInstant(value, label) {
   if (typeof value !== 'string') invalid(`${label} must be a real date, explicit-timezone timestamp, or null`);
   if (isRealCalendarDate(value)) return Date.parse(`${value}T00:00:00.000Z`);
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/);
   if (!match || !isRealCalendarDate(match[1])) invalid(`${label} must be a real date or explicit-timezone timestamp`);
+  const [, , hours, minutes, seconds, zone] = match;
+  if (Number(hours) > 23 || Number(minutes) > 59 || Number(seconds) > 59) {
+    invalid(`${label} must be a real date or explicit-timezone timestamp`);
+  }
+  if (zone !== 'Z') {
+    const offset = zone.match(/^[+-](\d{2}):(\d{2})$/);
+    const offsetHours = Number(offset[1]);
+    const offsetMinutes = Number(offset[2]);
+    if (offsetHours > 14 || offsetMinutes > 59 || (offsetHours === 14 && offsetMinutes !== 0)) {
+      invalid(`${label} must be a real date or explicit-timezone timestamp`);
+    }
+  }
   const instant = Date.parse(value);
   if (!Number.isFinite(instant)) invalid(`${label} must be a real date or explicit-timezone timestamp`);
   return instant;
@@ -77,7 +92,21 @@ function isArticleDestinationPath(sourceId, pathname) {
   if (sourceId === 'donde-aprendo-aws' || sourceId === 'aws-for-engineers') {
     return /^\/blog\/[^/]+$/.test(pathname);
   }
-  if (sourceId === 'dev-community') return /^\/[^/]+\/.+/.test(pathname);
+  if (sourceId === 'dev-community') {
+    const match = pathname.match(/^\/([^/]+)\/([^/]+)$/);
+    if (!match) return false;
+    let username;
+    let slug;
+    try {
+      username = decodeURIComponent(match[1]);
+      slug = decodeURIComponent(match[2]);
+    } catch {
+      return false;
+    }
+    return !DEV_RESERVED_USERNAMES.has(username)
+      && !DEV_RESERVED_ARTICLE_SLUGS.has(slug)
+      && !(username === 'following' && ['latest', 'latest_less_filtered'].includes(slug));
+  }
   if (sourceId === 'linkedin-articles') return /^\/pulse\/.+/.test(pathname);
   if (sourceId === 'spainclouds') return /^\/blog\/.+/.test(pathname);
   if (sourceId === 'hackernoon' || sourceId === 'medium') return /^\/.+/.test(pathname);

@@ -57,6 +57,9 @@ const supportedArticleSourceHosts = new Map([
   ['spainclouds', ['spainclouds.com', 'www.spainclouds.com']],
   ['hackernoon', ['hackernoon.com']]
 ]);
+// Keep Forem's reserved route collisions aligned with the build and collector validators.
+const devReservedUsernames = new Set(['admin', 'curation', 'dashboard', 'feed', 'internal', 'leadership', 'new', 'notifications', 'search', 'settings', 'tag', 't', 'top', 'trending', 'survey']);
+const devReservedArticleSlugs = new Set(['admin', 'comments', 'members', 'moderate', 'series', 'settings']);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
@@ -204,7 +207,21 @@ function isPublicArticlePath(sourceId, pathname) {
     return /^\/[^/]+$/.test(pathname) && !['/archive', '/rss.xml', '/sitemap.xml', '/recommendations'].includes(pathname);
   }
   if (sourceId === 'donde-aprendo-aws' || sourceId === 'aws-for-engineers') return /^\/blog\/[^/]+$/.test(pathname);
-  if (sourceId === 'dev-community') return /^\/[^/]+\/.+/.test(pathname);
+  if (sourceId === 'dev-community') {
+    const match = pathname.match(/^\/([^/]+)\/([^/]+)$/);
+    if (!match) return false;
+    let username;
+    let slug;
+    try {
+      username = decodeURIComponent(match[1]);
+      slug = decodeURIComponent(match[2]);
+    } catch {
+      return false;
+    }
+    return !devReservedUsernames.has(username)
+      && !devReservedArticleSlugs.has(slug)
+      && !(username === 'following' && ['latest', 'latest_less_filtered'].includes(slug));
+  }
   if (sourceId === 'linkedin-articles') return /^\/pulse\/.+/.test(pathname);
   if (sourceId === 'spainclouds') return /^\/blog\/.+/.test(pathname);
   if (sourceId === 'hackernoon') return /^\/.+/.test(pathname);
