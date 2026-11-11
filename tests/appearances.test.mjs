@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const moduleUrl = new URL('../src/content/appearances.mjs', import.meta.url);
@@ -91,7 +91,7 @@ test('appearance data resolves and produces the approved upcoming agenda', async
   const api = await import(moduleUrl.href);
   assert.equal(typeof api.resolveAppearances, 'function', 'export resolveAppearances(appearances, talks)');
   assert.equal(typeof api.upcomingAppearances, 'function', 'export upcomingAppearances(resolved, now)');
-  const { resolveAppearances, upcomingAppearances } = api;
+  const { formatOccurrenceDate, formatOccurrenceTime, resolveAppearances, upcomingAppearances } = api;
 
   await t.test('initial agenda has three groups and four upcoming occurrences on November 11', () => {
     const { appearances, talks } = initialData();
@@ -239,6 +239,45 @@ test('appearance data resolves and produces the approved upcoming agenda', async
     assert.deepEqual(groups.map((group) => group.id), ['alpha', 'zulu']);
   });
 
+  await t.test('standalone identities cannot merge into a speaking record with the same id', () => {
+    const talks = [talk('conference', 'Speaking event', 'Agent evaluation', [{ id: 'slot', status: 'scheduled' }])];
+    const appearances = [
+      { id: 'speaker-slot', talkId: 'conference', occurrenceId: 'slot', role: { en: 'Speaker', es: 'Expositor' }, when: { date: '2026-12-01', timeZone: 'UTC' } },
+      { id: 'conference', event: { en: 'Different event', es: 'Otro evento' }, role: { en: 'Organizer', es: 'Organizador' }, when: { date: '2026-12-02', timeZone: 'UTC' } }
+    ];
+    const groups = upcomingAppearances(resolveAppearances(appearances, talks), new Date('2026-11-30T00:00:00Z'));
+    assert.equal(groups.length, 2);
+    assert.deepEqual(groups.map((group) => group.event.en), ['Speaking event', 'Different event']);
+    assert.deepEqual(groups.map((group) => group.occurrences[0].role.en), ['Speaker', 'Organizer']);
+    assert.equal(groups.every((group) => group.occurrences.length === 1), true);
+  });
+
+  await t.test('interval scope survives serialization without implying a personal speaking slot', () => {
+    const { appearances, talks } = initialData();
+    appearances[0].when.scope = 'event';
+    const resolved = JSON.parse(JSON.stringify(resolveAppearances(appearances, talks)));
+    const breakfast = upcomingAppearances(resolved, new Date('2026-12-02T17:00:00Z'))[0].occurrences[0];
+    assert.equal(breakfast.when.scope, 'event');
+    assert.equal(breakfast.state, 'in-progress');
+    const standalone = resolveAppearances([{
+      id: 'attendee', event: { en: 'Conference', es: 'Conferencia' }, role: { en: 'Attendee', es: 'Asistente' },
+      when: { start: '2026-12-02T08:30:00-08:00', end: '2026-12-02T10:00:00-08:00', timeZone: 'America/Los_Angeles' }
+    }], [])[0];
+    assert.equal(standalone.when.scope, 'event');
+    assert.throws(() => resolveAppearances([{ ...appearances[0], when: { ...appearances[0].when, scope: 'unknown' } }], talks));
+  });
+
+  await t.test('confirmed multi-day intervals retain both local dates while unknown ends do not invent one', () => {
+    const base = { id: 'conference', event: { en: 'Conference', es: 'Conferencia' }, role: { en: 'Attendee', es: 'Asistente' } };
+    const when = { start: '2026-12-01T09:00:00-08:00', end: '2026-12-03T17:00:00-08:00', timeZone: 'America/Los_Angeles' };
+    const multi = resolveAppearances([{ ...base, when }], [])[0];
+    assert.match(`${formatOccurrenceDate(multi, 'en')} ${formatOccurrenceTime(multi, 'en')}`, /Dec\s+1,\s+2026.*Dec\s+3,\s+2026/);
+    assert.match(`${formatOccurrenceDate(multi, 'es')} ${formatOccurrenceTime(multi, 'es')}`, /1\s+dic\s+2026.*3\s+dic\s+2026/i);
+    const { end, ...unknownEnd } = when;
+    const unknown = resolveAppearances([{ ...base, when: unknownEnd }], [])[0];
+    assert.doesNotMatch(`${formatOccurrenceDate(unknown, 'en')} ${formatOccurrenceTime(unknown, 'en')}`, /Dec\s+[23]/);
+  });
+
   await t.test('resolved title always comes from the canonical talk record', () => {
     const { appearances, talks } = initialData();
     const appearance = appearances.find((item) => item.talkId === 'reinvent-agents');
@@ -288,5 +327,56 @@ test('appearance data resolves and produces the approved upcoming agenda', async
 
     assert.throws(() => resolveAppearances([badStandalone], []));
     assert.throws(() => resolveAppearances([badSpeaker], talks));
+  });
+
+  await t.test('the published inventory resolves four canonical scheduled occurrences without copying presentation facts', () => {
+    const appearances = JSON.parse(readFileSync(new URL('../src/content/appearances.json', import.meta.url), 'utf8'));
+    const talks = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
+    const sourceSnapshot = JSON.stringify({ appearances, talks });
+    const resolved = resolveAppearances(appearances, talks);
+    const groups = upcomingAppearances(resolved, new Date('2026-11-11T15:00:00.000Z'));
+
+    assert.equal(resolved.length, 4);
+    assert.equal(groups.length, 3);
+    assert.equal(groups.reduce((sum, group) => sum + group.occurrences.length, 0), 4);
+    assert.equal(JSON.stringify({ appearances, talks }), sourceSnapshot, 'resolving data does not mutate either source file');
+    assert.equal(appearances.every((row) => !Object.hasOwn(row, 'event') && !Object.hasOwn(row, 'title') && !Object.hasOwn(row, 'status')), true,
+      'talk event, title, and editorial status stay in talks.json');
+
+    const reinvent = talks.find((item) => item.id === 'reinvent-2026-agent-evaluations');
+    const utn = talks.find((item) => item.id === 'student-community-day-utn-2026');
+    const unc = talks.find((item) => item.id === 'student-community-day-unc-2026');
+    const opensearch = talks.find((item) => item.id === 'opensearch-partner-breakfast-2026');
+    assert.equal(reinvent.featured, true);
+    assert.equal(reinvent.title.en, 'Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations');
+    assert.ok(!utn.featured);
+    assert.ok(!unc.featured);
+    assert.equal(opensearch.occurrences[0].status, 'scheduled');
+    assert.equal(opensearch.occurrences[0].language, null);
+    assert.equal(opensearch.title.en, 'OpenSearch Partner Breakfast');
+    assert.equal(resolved.find((row) => row.id === 'opensearch-partner-breakfast-2026').title.en, opensearch.title.en);
+
+    const utnRow = resolved.find((row) => row.id === 'utn-2026');
+    const breakfast = resolved.find((row) => row.id === 'opensearch-partner-breakfast-2026');
+    assert.equal(utnRow.titleNote.es, 'Título por confirmar');
+    assert.equal(breakfast.timeNote.en, 'Breakfast hours');
+    assert.equal(breakfast.when.scope, 'event');
+    assert.equal(breakfast.accessNote.es, 'Exclusivo para partners · requiere inscripción');
+  });
+
+  await t.test('date and time formatters keep local dates, confirmed offsets, and unknown UTN time explicit', () => {
+    const appearances = JSON.parse(readFileSync(new URL('../src/content/appearances.json', import.meta.url), 'utf8'));
+    const talks = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
+    const resolved = resolveAppearances(appearances, talks);
+    const utn = resolved.find((row) => row.id === 'utn-2026');
+    const reinvent = resolved.find((row) => row.id === 'reinvent-com317-r1-2026');
+    const breakfast = resolved.find((row) => row.id === 'opensearch-partner-breakfast-2026');
+
+    assert.match(formatOccurrenceDate(utn, 'en'), /Nov\s+14,\s+2026/);
+    assert.match(formatOccurrenceDate(utn, 'es'), /14\s+nov\s+2026/i);
+    assert.equal(formatOccurrenceTime(utn, 'en'), 'Time to be confirmed');
+    assert.equal(formatOccurrenceTime(utn, 'es'), 'Horario por confirmar');
+    assert.match(formatOccurrenceTime(reinvent, 'en'), /1:00\s*PM–2:00\s*PM \(UTC−08:00\)/);
+    assert.match(formatOccurrenceTime(breakfast, 'es'), /08:30–10:00 \(UTC−08:00\)/);
   });
 });

@@ -493,6 +493,10 @@ function checkSpeakerResources(page, html) {
   for (const [index, talk] of featuredRecords.entries()) {
     mustContainText(cards[index][3], talk.title[lang], `${lang} featured talk ${talk.id}`);
     assert.equal(href(cards[index][2]), talk.href ?? '', `${lang} featured talk ${talk.id} keeps its destination`);
+    const scheduledCount = talk.occurrences.filter((occurrence) => occurrence.status === 'scheduled').length;
+    const scheduledLabels = normalizedText(cards[index][3]).match(lang === 'en' ? /scheduled/g : /programada/g) ?? [];
+    assert.equal(scheduledLabels.length, scheduledCount,
+      `${lang} featured talk ${talk.id} retains a dated status for each scheduled occurrence`);
   }
 
   const archive = extractElement(talksSection.html, 'details', 'class', 'talk-archive');

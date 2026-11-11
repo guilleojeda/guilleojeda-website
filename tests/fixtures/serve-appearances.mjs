@@ -8,7 +8,7 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const dist = resolve(root, 'dist');
 const host = '127.0.0.1';
 const defaultPort = 5188;
-const fixtureNames = new Set(['nov11', 'nov15', 'dec2', 'dec5', 'many', 'live', 'empty', 'invalid']);
+const fixtureNames = new Set(['nov11', 'nov15', 'dec2', 'dec5', 'many', 'live', 'empty', 'invalid', 'noscript']);
 const fixedClocks = {
   nov11: '2026-11-11T15:00:00.000Z', // Noon in Córdoba.
   nov15: '2026-11-15T03:00:00.000Z', // Midnight in Córdoba.
@@ -259,7 +259,8 @@ async function handleRequest(app, request, response) {
   const html = htmlForCase(app, locale, name, Date.now());
   response.writeHead(200, {
     'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html),
-    'cache-control': 'no-store', 'x-content-type-options': 'nosniff'
+    'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+    ...(name === 'noscript' ? { 'content-security-policy': "script-src 'none'" } : {})
   });
   if (request.method === 'HEAD') response.end();
   else response.end(html);

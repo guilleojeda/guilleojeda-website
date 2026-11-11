@@ -1,0 +1,90 @@
+[
+  {
+    "id": "utn-2026",
+    "talkId": "student-community-day-utn-2026",
+    "occurrenceId": "main",
+    "role": {
+      "en": "Workshop instructor",
+      "es": "Instructor del workshop"
+    },
+    "when": {
+      "date": "2026-11-14",
+      "timeZone": "America/Argentina/Cordoba"
+    },
+    "location": {
+      "en": "UTN Facultad Regional Córdoba · Córdoba",
+      "es": "UTN Facultad Regional Córdoba · Córdoba"
+    },
+    "href": "https://aws-sbg-utn-frc.com.ar/agenda",
+    "titleNote": {
+      "en": "Title to be confirmed",
+      "es": "Título por confirmar"
+    }
+  },
+  {
+    "id": "reinvent-com317-r1-2026",
+    "talkId": "reinvent-2026-agent-evaluations",
+    "occurrenceId": "com317-r1",
+    "role": {
+      "en": "Speaker",
+      "es": "Expositor"
+    },
+    "when": {
+      "start": "2026-12-01T13:00:00-08:00",
+      "end": "2026-12-01T14:00:00-08:00",
+      "timeZone": "America/Los_Angeles"
+    },
+    "location": {
+      "en": "Wynn/Encore · Las Vegas",
+      "es": "Wynn/Encore · Las Vegas"
+    },
+    "href": "https://builder.aws.com/content/3LhbkTXUkYpviyLMGu1u2PjJGuH/learn-from-the-builders-whove-done-it-the-reinvent-2026-community-track"
+  },
+  {
+    "id": "reinvent-com317-r-2026",
+    "talkId": "reinvent-2026-agent-evaluations",
+    "occurrenceId": "com317-r",
+    "role": {
+      "en": "Speaker",
+      "es": "Expositor"
+    },
+    "when": {
+      "start": "2026-12-03T12:00:00-08:00",
+      "end": "2026-12-03T13:00:00-08:00",
+      "timeZone": "America/Los_Angeles"
+    },
+    "location": {
+      "en": "Caesars Forum · Las Vegas",
+      "es": "Caesars Forum · Las Vegas"
+    },
+    "href": "https://builder.aws.com/content/3LhbkTXUkYpviyLMGu1u2PjJGuH/learn-from-the-builders-whove-done-it-the-reinvent-2026-community-track"
+  },
+  {
+    "id": "opensearch-partner-breakfast-2026",
+    "talkId": "opensearch-partner-breakfast-2026",
+    "occurrenceId": "main",
+    "role": {
+      "en": "Partner speaker · Caylent",
+      "es": "Expositor de Caylent"
+    },
+    "when": {
+      "start": "2026-12-02T08:30:00-08:00",
+      "end": "2026-12-02T10:00:00-08:00",
+      "timeZone": "America/Los_Angeles",
+      "scope": "event"
+    },
+    "location": {
+      "en": "The Stadium at The Palazzo · Las Vegas",
+      "es": "The Stadium at The Palazzo · Las Vegas"
+    },
+    "href": "https://aws-experience.com/amer/smb/e/0e267/powering-the-agentic-future---the-opensearch-opportunity-retrieval-memory--observabilit",
+    "timeNote": {
+      "en": "Breakfast hours",
+      "es": "Horario del desayuno"
+    },
+    "accessNote": {
+      "en": "Partners only · registration required",
+      "es": "Exclusivo para partners · requiere inscripción"
+    }
+  }
+]

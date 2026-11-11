@@ -97,6 +97,69 @@ export interface TalkRecord {
   featured?: boolean;
 }
 
+export type AppearanceWhen =
+  | { date: string; timeZone: string; scope?: 'event' | 'appearance' }
+  | { start: string; end?: string; timeZone: string; scope?: 'event' | 'appearance' };
+
+export interface AppearanceRecord {
+  id: string;
+  talkId?: string;
+  occurrenceId?: string;
+  event?: LocalizedText;
+  role: LocalizedText;
+  when: AppearanceWhen;
+  location?: LocalizedText;
+  href?: string;
+  titleNote?: LocalizedText;
+  timeNote?: LocalizedText;
+  accessNote?: LocalizedText;
+}
+
+export interface ResolvedAppearance extends AppearanceRecord {
+  event: LocalizedText;
+  title: LocalizedText;
+  status: TalkOccurrenceStatus;
+  startAt: number;
+  endAt: number;
+  date: string;
+  timeZone: string;
+}
+
+export type UpcomingAppearanceState = 'upcoming' | 'today' | 'in-progress';
+
+export interface UpcomingAppearanceOccurrence extends ResolvedAppearance {
+  state: UpcomingAppearanceState;
+}
+
+export interface UpcomingAppearanceGroup {
+  id: string;
+  talkId?: string;
+  event: LocalizedText;
+  title: LocalizedText;
+  occurrences: UpcomingAppearanceOccurrence[];
+  nextAt: number;
+}
+
+export type AppearanceCopy = Record<
+  | 'title'
+  | 'intro'
+  | 'contact'
+  | 'fallback'
+  | 'empty'
+  | 'eventLink'
+  | 'date'
+  | 'timeTbc'
+  | 'today'
+  | 'inProgress'
+  | 'eventInProgress'
+  | 'scheduled'
+  | 'delivered'
+  | 'unknownStatus'
+  | 'moreOne'
+  | 'moreMany',
+  LocalizedText
+>;
+
 export interface BookRecord {
   id: string;
   publication: BookPublication;
@@ -121,7 +184,8 @@ export interface SiteContent {
     title: LocalizedText;
     description: LocalizedText;
   };
-  nav: Record<'work' | 'talks' | 'about' | 'switchTo' | 'switchLabel', LocalizedText>;
+  nav: Record<'appearances' | 'work' | 'talks' | 'about' | 'switchTo' | 'switchLabel', LocalizedText>;
+  appearances: AppearanceCopy;
   hero: Record<'eyebrow' | 'title' | 'intro' | 'recognition' | 'primaryCta' | 'contactCta' | 'roleContext' | 'portraitNote', LocalizedText>;
   work: Record<'title' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterSubscribeCta' | 'newsletterReadCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
   workHighlights: WorkHighlight[];
@@ -130,6 +194,7 @@ export interface SiteContent {
   speakerResources: ResolvedSpeakerResources;
   talkItems: TalkRecord[];
   talkArchive: TalkRecord[];
+  appearanceEntries: ResolvedAppearance[];
   authorship: Record<'title' | 'intro' | 'courseTitle' | 'courseText' | 'courseMeta', LocalizedText>;
   books: BookRecord[];
   about: {

@@ -34,8 +34,11 @@ const canonical = new URL(canonicalPath, siteUrl).href;
 const portraitUrl = new URL('/images/guille-portrait.jpg', siteUrl).href;
 const title = pageTitle ?? text(content.site.title, locale);
 const description = pageDescription ?? text(content.site.description, locale);
-const skipHref = skipLinkHref ?? '#work';
-const resolvedSkipLabel = skipLinkLabel ?? (locale === 'en' ? 'Skip to selected work' : 'Ir al trabajo seleccionado');
+const isHomePage = canonicalPath === localePath;
+const skipHref = skipLinkHref ?? (isHomePage ? '#where-to-find-me' : '#work');
+const resolvedSkipLabel = skipLinkLabel ?? (isHomePage
+  ? (locale === 'en' ? 'Skip to upcoming events' : 'Ir a los próximos eventos')
+  : (locale === 'en' ? 'Skip to selected work' : 'Ir al trabajo seleccionado'));
 ---
 
 <!doctype html>
@@ -67,6 +70,7 @@ const resolvedSkipLabel = skipLinkLabel ?? (locale === 'en' ? 'Skip to selected 
       <div class="nav-shell">
         <a class="wordmark" href={localePath} aria-label={locale === 'en' ? 'Back to home' : 'Volver al inicio'}>{content.site.wordmark}</a>
         <nav class="desktop-nav" aria-label={locale === 'en' ? 'Primary navigation' : 'Navegación principal'}>
+          <a href={`${localePath}#where-to-find-me`}>{text(content.nav.appearances, locale)}</a>
           <a href={`${localePath}#work`}>{text(content.nav.work, locale)}</a>
           <a href={`${localePath}#talks`}>{text(content.nav.talks, locale)}</a>
           <a href={`${localePath}#about`}>{text(content.nav.about, locale)}</a>
@@ -76,6 +80,7 @@ const resolvedSkipLabel = skipLinkLabel ?? (locale === 'en' ? 'Skip to selected 
           <details class="mobile-nav">
             <summary>{locale === 'en' ? 'Menu' : 'Menú'}</summary>
             <nav aria-label={locale === 'en' ? 'Mobile navigation' : 'Navegación móvil'}>
+              <a href={`${localePath}#where-to-find-me`}>{text(content.nav.appearances, locale)}</a>
               <a href={`${localePath}#work`}>{text(content.nav.work, locale)}</a>
               <a href={`${localePath}#talks`}>{text(content.nav.talks, locale)}</a>
               <a href={`${localePath}#about`}>{text(content.nav.about, locale)}</a>

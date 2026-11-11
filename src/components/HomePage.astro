@@ -1,7 +1,9 @@
 ---
 import { content, text } from '../content';
+import { formatOccurrenceDate } from '../content/appearances.mjs';
 import type { Locale } from '../content/types';
 import ContentStats from './ContentStats.astro';
+import UpcomingAppearances from './UpcomingAppearances.astro';
 
 interface Props {
   locale: Locale;
@@ -16,6 +18,20 @@ const projectArchive = content.projects.filter((project) => !project.featured);
 const talkYears = [...new Set(content.talkArchive.map((talk) => talk.year))].sort((a, b) => b - a);
 const archiveFallbackCta = locale === 'en' ? 'Open source' : 'Abrir fuente';
 const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
+const appearanceByOccurrence = new Map(content.appearanceEntries
+  .filter((appearance) => appearance.talkId && appearance.occurrenceId)
+  .map((appearance) => [`${appearance.talkId}/${appearance.occurrenceId}`, appearance]));
+const talkOccurrenceStatuses = (talk: (typeof content.talkArchive)[number]) => talk.occurrences.flatMap((occurrence) => {
+  const appearance = appearanceByOccurrence.get(`${talk.id}/${occurrence.id}`);
+  if (!appearance) return [];
+
+  const label = occurrence.status === 'scheduled'
+    ? content.appearances.scheduled
+    : occurrence.status === 'delivered'
+      ? content.appearances.delivered
+      : content.appearances.unknownStatus;
+  return [`${text(label, locale)}: ${formatOccurrenceDate(appearance, locale)}`];
+});
 ---
 
 <section class="hero" aria-labelledby="hero-title">
@@ -44,6 +60,8 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
     </div>
   </div>
 </section>
+
+<UpcomingAppearances locale={locale} />
 
 <section class="section" id="work" aria-labelledby="work-title">
   <div class="section-shell">
@@ -130,6 +148,11 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
       {content.talkItems.map((talk) => talk.href ? (
         <a class="talk-card" href={talk.href} target="_blank" rel="noreferrer">
           <span class="talk-year">{talk.year} · {text(talk.event, locale)} · {text(talk.format, locale)}</span>
+          {talkOccurrenceStatuses(talk).length > 0 && (
+            <ul class="talk-occurrence-status">
+              {talkOccurrenceStatuses(talk).map((status) => <li>{status}</li>)}
+            </ul>
+          )}
           <h3>{text(talk.title, locale)}</h3>
           <p>{text(talk.text, locale)}</p>
           <span class="card-arrow">{talk.cta ? text(talk.cta, locale) : archiveFallbackCta} {arrow}</span>
@@ -137,6 +160,11 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
       ) : (
         <article class="talk-card">
           <span class="talk-year">{talk.year} · {text(talk.event, locale)} · {text(talk.format, locale)}</span>
+          {talkOccurrenceStatuses(talk).length > 0 && (
+            <ul class="talk-occurrence-status">
+              {talkOccurrenceStatuses(talk).map((status) => <li>{status}</li>)}
+            </ul>
+          )}
           <h3>{text(talk.title, locale)}</h3>
           <p>{text(talk.text, locale)}</p>
         </article>
@@ -158,6 +186,11 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
                       <span aria-hidden="true">·</span>
                       <span>{text(talk.format, locale)}</span>
                     </div>
+                    {talkOccurrenceStatuses(talk).length > 0 && (
+                      <ul class="talk-occurrence-status">
+                        {talkOccurrenceStatuses(talk).map((status) => <li>{status}</li>)}
+                      </ul>
+                    )}
                     <h4>{text(talk.title, locale)}</h4>
                     <p>{text(talk.text, locale)}</p>
                   </div>
