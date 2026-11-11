@@ -25,6 +25,62 @@
     "featured": true
   },
   {
+    "id": "student-community-day-utn-2026",
+    "occurrences": [
+      { "id": "main", "kind": "workshop", "status": "scheduled", "language": "es" }
+    ],
+    "year": 2026,
+    "event": {
+      "en": "AWS Student Community Day UTN Córdoba",
+      "es": "AWS Student Community Day UTN Córdoba"
+    },
+    "format": {
+      "en": "Upcoming workshop",
+      "es": "Próximo workshop"
+    },
+    "title": {
+      "en": "Creación de agentes de IA con el SDK de Strands: desde simples bucles hasta enjambres de múltiples agentes",
+      "es": "Creación de agentes de IA con el SDK de Strands: desde simples bucles hasta enjambres de múltiples agentes"
+    },
+    "text": {
+      "en": "On November 14, 2026, I’ll lead a hands-on Strands workshop at UTN Facultad Regional Córdoba on building AI agents and multi-agent systems.",
+      "es": "El 14 de noviembre de 2026 voy a dar un workshop práctico de Strands en la UTN Facultad Regional Córdoba, para construir agentes de IA y sistemas multiagente."
+    },
+    "href": "https://aws-sbg-utn-frc.com.ar/",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
+  },
+  {
+    "id": "student-community-day-unc-2026",
+    "occurrences": [
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+    ],
+    "year": 2026,
+    "event": {
+      "en": "AWS Student Community Day UNC",
+      "es": "AWS Student Community Day UNC"
+    },
+    "format": {
+      "en": "Community talk",
+      "es": "Charla de comunidad"
+    },
+    "title": {
+      "en": "De coder a vibe coder: Cómo comer un sanguche con AWS",
+      "es": "De coder a vibe coder: Cómo comer un sanguche con AWS"
+    },
+    "text": {
+      "en": "On November 7, 2026, I spoke about vibe coding with AWS at FaMAF, Universidad Nacional de Córdoba.",
+      "es": "El 7 de noviembre de 2026 hablé sobre vibe coding con AWS en FaMAF, Universidad Nacional de Córdoba."
+    },
+    "href": "https://awstudentcommunitydaycba.com/",
+    "cta": {
+      "en": "View the event",
+      "es": "Ver el evento"
+    }
+  },
+  {
     "id": "cordoba-agent-economics-2026",
     "occurrences": [
       { "id": "talk", "kind": "talk", "status": "delivered", "language": "es" },
