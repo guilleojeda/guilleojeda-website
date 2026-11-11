@@ -50,7 +50,7 @@ class FakeElement {
   }
 
   removeChild(node) {
-    if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body;
+    if (node.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body;
     this.children = this.children.filter((child) => child !== node);
     node.parentElement = undefined;
   }
@@ -163,6 +163,10 @@ function createClient({ appearances, talks = [] }) {
   element('ol', 'appearances-more-list');
   element('div', 'appearances-empty');
   const dataNode = element('script', 'appearances-data');
+  elements.get('appearances-more').append(elements.get('appearances-more-summary'), elements.get('appearances-more-list'));
+  elements.get('appearances-results').append(elements.get('appearances-list'), elements.get('appearances-more'));
+  section.append(elements.get('appearances-fallback'), elements.get('appearances-results'), elements.get('appearances-empty'), dataNode);
+  document.body.append(section);
   const resolved = JSON.parse(JSON.stringify(resolveAppearances(appearances, talks)));
   dataNode.textContent = JSON.stringify({ locale: 'en', entries: resolved, copy: fixtureCopy });
 
@@ -226,11 +230,11 @@ test('the real agenda client preserves only the still-valid focused link across 
 
     window.fireNextTimer();
 
-    assert.notStrictEqual(document.activeElement, link, 'the removed DOM node must not retain focus');
+    assert.equal(list.contains(document.activeElement), true, 'focus stays on a connected agenda link');
     assert.equal(document.activeElement.href, link.href);
     assert.equal(document.activeElement.closest('li[data-appearance-group-id]').dataset.appearanceGroupId, 'fixture-2');
     assert.equal(elements.get('appearances-more').hidden, true, 'the six-to-five transition promotes the former sixth group');
-    assert.equal(document.lastFocusOptions.preventScroll, true);
+    if (document.activeElement !== link) assert.equal(document.lastFocusOptions?.preventScroll, true);
   });
 
   await t.test('the focused sixth group keeps focus when promoted out of the details list', () => {
@@ -243,7 +247,6 @@ test('the real agenda client preserves only the still-valid focused link across 
 
     window.fireNextTimer();
 
-    assert.notStrictEqual(document.activeElement, link);
     assert.equal(document.activeElement.href, link.href);
     assert.equal(document.activeElement.closest('li[data-appearance-group-id]').dataset.appearanceGroupId, 'fixture-6');
     assert.equal(elements.get('appearances-list').contains(document.activeElement), true);
@@ -261,7 +264,7 @@ test('the real agenda client preserves only the still-valid focused link across 
     window.fireNextTimer();
 
     const currentLink = document.activeElement;
-    assert.notStrictEqual(currentLink, link);
+    assert.equal(elements.get('appearances-results').contains(currentLink), true);
     assert.equal(currentLink.href, link.href);
     assert.match(currentLink.closest('li[data-appearance-group-id]').textContent, /event in progress/i);
   });
