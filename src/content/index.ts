@@ -3,7 +3,10 @@ import projects from './projects.json';
 import talks from './talks.json';
 import books from './books.json';
 import highlights from './highlights.json';
+import appearances from './appearances.json';
+import { resolveAppearances } from './appearances.mjs';
 import type {
+  AppearanceRecord,
   BookPublication,
   BookRecord,
   Locale,
@@ -11,12 +14,13 @@ import type {
   ResolvedSpeakerResources,
   SiteContent,
   SpeakerResources,
+  ResolvedAppearance,
   TalkOccurrence,
   TalkRecord,
   WorkHighlight
 } from './types';
 
-type ProfileContent = Omit<SiteContent, 'projects' | 'talkItems' | 'talkArchive' | 'books' | 'workHighlights' | 'speakerResources'> & {
+type ProfileContent = Omit<SiteContent, 'projects' | 'talkItems' | 'talkArchive' | 'books' | 'workHighlights' | 'speakerResources' | 'appearanceEntries'> & {
   speakerResources: SpeakerResources;
 };
 const profileContent: ProfileContent = profile;
@@ -34,6 +38,8 @@ const talkRecords: TalkRecord[] = talks.map(({ recording, ...talk }) => ({
     }
   } : {})
 }));
+// JSON's speaking/standalone union is narrowed by the runtime resolver before shared content uses it.
+const appearanceEntries: ResolvedAppearance[] = resolveAppearances(appearances as AppearanceRecord[], talkRecords);
 const bookRecords: BookRecord[] = books.map((book) => ({
   ...book,
   publication: book.publication as BookPublication
@@ -139,6 +145,7 @@ export const content = {
   projects: projectRecords,
   talkItems: talkRecords.filter((talk) => talk.featured),
   talkArchive: talkRecords,
+  appearanceEntries,
   books: bookRecords,
   workHighlights,
   speakerResources: resolveSpeakerResources(profileContent.speakerResources)

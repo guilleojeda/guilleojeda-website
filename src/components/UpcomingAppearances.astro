@@ -1,0 +1,63 @@
+---
+import { content, text } from '../content';
+import type { Locale } from '../content/types';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const copy = content.appearances;
+const payload = {
+  entries: content.appearanceEntries,
+  locale,
+  copy
+};
+const payloadJson = JSON.stringify(payload).replace(/[<>&\u2028\u2029]/g, (character) => ({
+  '<': '\\u003c',
+  '>': '\\u003e',
+  '&': '\\u0026',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029'
+})[character] ?? character);
+---
+
+<section class="section appearances-section" id="where-to-find-me" aria-labelledby="appearances-title">
+  <div class="section-shell appearances-shell">
+    <header class="appearances-heading">
+      <h2 id="appearances-title">{text(copy.title, locale)}</h2>
+      <p>{text(copy.intro, locale)}</p>
+      <a class="appearances-contact" href={content.site.linkedin} target="_blank" rel="noreferrer">
+        {text(copy.contact, locale)}
+      </a>
+    </header>
+
+    <div class="appearances-content">
+      <div class="appearances-fallback" id="appearances-fallback">
+        <p>{text(copy.fallback, locale)}</p>
+        <a href={content.site.linkedin} target="_blank" rel="noreferrer">
+          {text(copy.contact, locale)}
+        </a>
+      </div>
+
+      <div class="appearances-results" id="appearances-results" aria-live="polite" hidden>
+        <ol class="appearances-list" id="appearances-list" aria-label={text(copy.title, locale)}></ol>
+        <details class="appearances-more" id="appearances-more" hidden>
+          <summary id="appearances-more-summary"></summary>
+          <ol class="appearances-list appearances-list--more" id="appearances-more-list"></ol>
+        </details>
+        <div class="appearances-empty" id="appearances-empty" hidden>
+          <p>{text(copy.empty, locale)}</p>
+          <a href={content.site.linkedin} target="_blank" rel="noreferrer">
+            {text(copy.contact, locale)}
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script id="appearances-data" type="application/json" is:inline set:html={payloadJson}></script>
+  <script>
+    import '../scripts/appearances.js';
+  </script>
+</section>

@@ -11,16 +11,16 @@
       "es": "AWS re:Invent"
     },
     "format": {
-      "en": "Upcoming sessions · COM317-R and COM317-R1",
-      "es": "Próximas sesiones · COM317-R y COM317-R1"
+      "en": "Conference sessions · COM317-R and COM317-R1",
+      "es": "Sesiones de conferencia · COM317-R y COM317-R1"
     },
     "title": {
       "en": "Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations",
       "es": "Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations"
     },
     "text": {
-      "en": "An upcoming AWS re:Invent session on evaluating AI agents with Strands Evaluation and AgentCore Evaluations, offered in two time slots.",
-      "es": "Una próxima sesión en AWS re:Invent sobre cómo evaluar agentes de IA con Strands Evaluation y AgentCore Evaluations, que se presenta en dos horarios."
+      "en": "Two AWS re:Invent sessions on evaluating AI agents with Strands Evaluation and AgentCore Evaluations.",
+      "es": "Dos sesiones de AWS re:Invent sobre evaluación de agentes de IA con Strands Evaluation y AgentCore Evaluations."
     },
     "featured": true
   },
@@ -35,21 +35,49 @@
       "es": "AWS Student Community Day UTN Córdoba"
     },
     "format": {
-      "en": "Upcoming workshop",
-      "es": "Próximo workshop"
+      "en": "Workshop",
+      "es": "Workshop"
     },
     "title": {
       "en": "Creación de agentes de IA con el SDK de Strands: desde simples bucles hasta enjambres de múltiples agentes",
       "es": "Creación de agentes de IA con el SDK de Strands: desde simples bucles hasta enjambres de múltiples agentes"
     },
     "text": {
-      "en": "On November 14, 2026, I’ll lead a hands-on Strands workshop at UTN Facultad Regional Córdoba on building AI agents and multi-agent systems.",
-      "es": "El 14 de noviembre de 2026 voy a dar un workshop práctico de Strands en la UTN Facultad Regional Córdoba, para construir agentes de IA y sistemas multiagente."
+      "en": "A Strands Agents workshop at UTN Facultad Regional Córdoba.",
+      "es": "Workshop de Strands Agents en la UTN Facultad Regional Córdoba."
     },
     "href": "https://aws-sbg-utn-frc.com.ar/",
     "cta": {
       "en": "View the event",
       "es": "Ver el evento"
+    }
+  },
+  {
+    "id": "opensearch-partner-breakfast-2026",
+    "occurrences": [
+      { "id": "main", "kind": "session", "status": "scheduled", "language": null }
+    ],
+    "year": 2026,
+    "event": {
+      "en": "OpenSearch Partner Breakfast",
+      "es": "OpenSearch Partner Breakfast"
+    },
+    "format": {
+      "en": "Partner breakfast",
+      "es": "Desayuno para partners"
+    },
+    "title": {
+      "en": "OpenSearch Partner Breakfast",
+      "es": "OpenSearch Partner Breakfast"
+    },
+    "text": {
+      "en": "Partner breakfast at AWS re:Invent.",
+      "es": "Desayuno para partners en AWS re:Invent."
+    },
+    "href": "https://aws-experience.com/amer/smb/e/0e267/powering-the-agentic-future---the-opensearch-opportunity-retrieval-memory--observabilit",
+    "cta": {
+      "en": "View event",
+      "es": "Ver evento"
     }
   },
   {

@@ -22,6 +22,10 @@
     }
   },
   "nav": {
+    "appearances": {
+      "en": "Where to find me",
+      "es": "Dónde encontrarme"
+    },
     "work": {
       "en": "Work",
       "es": "Trabajo"
@@ -41,6 +45,72 @@
     "switchLabel": {
       "en": "Switch to Spanish",
       "es": "Cambiar a inglés"
+    }
+  },
+  "appearances": {
+    "title": {
+      "en": "Where to find me",
+      "es": "Dónde encontrarme"
+    },
+    "intro": {
+      "en": "Upcoming events I’ll be at",
+      "es": "Próximos eventos en los que voy a estar"
+    },
+    "contact": {
+      "en": "LinkedIn ↗",
+      "es": "LinkedIn ↗"
+    },
+    "fallback": {
+      "en": "Agenda unavailable.",
+      "es": "Agenda no disponible."
+    },
+    "empty": {
+      "en": "No upcoming events confirmed.",
+      "es": "Sin próximos eventos confirmados."
+    },
+    "eventLink": {
+      "en": "View event",
+      "es": "Ver evento"
+    },
+    "date": {
+      "en": "Date",
+      "es": "Fecha"
+    },
+    "timeTbc": {
+      "en": "Time to be confirmed",
+      "es": "Horario por confirmar"
+    },
+    "today": {
+      "en": "Today",
+      "es": "Hoy"
+    },
+    "inProgress": {
+      "en": "In progress",
+      "es": "En curso"
+    },
+    "eventInProgress": {
+      "en": "Event in progress",
+      "es": "Evento en curso"
+    },
+    "scheduled": {
+      "en": "Scheduled",
+      "es": "Programada"
+    },
+    "delivered": {
+      "en": "Delivered",
+      "es": "Realizada"
+    },
+    "unknownStatus": {
+      "en": "Delivery unconfirmed",
+      "es": "Realización sin confirmar"
+    },
+    "moreOne": {
+      "en": "more event",
+      "es": "evento más"
+    },
+    "moreMany": {
+      "en": "more events",
+      "es": "eventos más"
     }
   },
   "hero": {
