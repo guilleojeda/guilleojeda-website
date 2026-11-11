@@ -426,13 +426,13 @@ a:hover {
 
 .appearances-shell {
   display: grid;
-  grid-template-columns: minmax(210px, 0.65fr) minmax(0, 1.75fr);
+  grid-template-columns: minmax(340px, 0.65fr) minmax(0, 1.75fr);
   gap: 3rem;
   align-items: start;
 }
 
 .appearances-heading h2 {
-  max-width: 10ch;
+  max-width: none;
   margin: 0;
   color: var(--forest-deep);
   font-family: Georgia, "Times New Roman", serif;
@@ -440,7 +440,7 @@ a:hover {
   font-weight: 700;
   letter-spacing: -0.06em;
   line-height: 0.98;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 
 .appearances-heading p {
