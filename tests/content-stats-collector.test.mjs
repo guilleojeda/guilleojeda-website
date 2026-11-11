@@ -1992,12 +1992,12 @@ test("input 3 publishes independent article, delivered-session, and published-bo
   }
 });
 
-test("the real inventory counts delivered appearances without counting scheduled workshops or re:Invent slots", async () => {
+test("the real inventory counts delivered appearances without counting the agenda's scheduled presentations", async () => {
   const { buildContentStatsInputs } = await import('../scripts/build-content-stats-inputs.mjs');
   const talks = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
   const books = JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'));
   const input = buildContentStatsInputs({ articleConfig: phaseTwoInput(), talks, books });
-  assert.equal(talks.length, 39, 'the new events add two archive records while meetup appearances remain grouped');
+  assert.equal(talks.length, 40, 'OpenSearch adds one archive record while repeated sessions remain grouped');
   assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('cordoba-agent-economics-2026/')), [
     talkFact('cordoba-agent-economics-2026/talk', 'talk', 'delivered', 'es'),
     talkFact('cordoba-agent-economics-2026/certification-panel', 'panel', 'delivered', 'es')
@@ -2008,6 +2008,9 @@ test("the real inventory counts delivered appearances without counting scheduled
   ]);
   assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('student-community-day-utn-2026/')), [
     talkFact('student-community-day-utn-2026/main', 'workshop', 'scheduled', 'es')
+  ]);
+  assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('opensearch-partner-breakfast-2026/')), [
+    talkFact('opensearch-partner-breakfast-2026/main', 'session', 'scheduled', null)
   ]);
   const harness = createHarness({ input, fetchFn: builderApiFetch() });
   await harness.handler({}, {});

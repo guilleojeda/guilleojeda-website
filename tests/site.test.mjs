@@ -86,3 +86,16 @@ test('profile media is repository-owned and copy avoids forbidden product claims
     assert.ok(!serialized.includes(phrase), `content must not include ${phrase}`);
   }
 });
+
+test('the agenda has direct bilingual copy and navigation labels', () => {
+  assertLocalized(profile.nav.appearances, 'nav.appearances');
+  assert.equal(profile.nav.appearances.en, 'Where to find me');
+  assert.equal(profile.nav.appearances.es, 'Dónde encontrarme');
+  assert.ok(profile.appearances, 'profile owns the agenda copy');
+  for (const [field, value] of Object.entries(profile.appearances)) assertLocalized(value, `appearances.${field}`);
+  assert.equal(profile.appearances.title.en, 'Where to find me');
+  assert.equal(profile.appearances.title.es, 'Dónde encontrarme');
+  assert.equal(profile.appearances.intro.en.replace(/\.$/, ''), 'Upcoming events I’ll be at');
+  assert.equal(profile.appearances.intro.es.replace(/\.$/, ''), 'Próximos eventos en los que voy a estar');
+  assert.doesNotMatch(JSON.stringify(profile.appearances), /where I’ll teach, speak|en los que voy a enseñar/i);
+});

@@ -87,6 +87,84 @@ function normalizedText(value) {
   return value.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
+function checkAppearanceNavigation(locale, html) {
+  const homePath = locale === 'en' ? '/' : '/es/';
+  const label = locale === 'en' ? 'Where to find me' : 'Dónde encontrarme';
+  const desktop = extractElement(html, 'nav', 'class', 'desktop-nav');
+  const mobile = extractElement(html, 'details', 'class', 'mobile-nav');
+  for (const [kind, navigation] of [['desktop', desktop], ['mobile', mobile]]) {
+    assert.ok(navigation, `${locale} retains ${kind} navigation`);
+    const links = [...navigation.html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)];
+    assert.ok(links.length >= 4, `${locale} ${kind} navigation retains agenda, work, talks and about`);
+    const first = links[0][0];
+    assert.match(first, new RegExp(`href=["']${homePath}#where-to-find-me["']`),
+      `${locale} ${kind} first link reaches the homepage agenda`);
+    assert.equal(normalizedText(first), normalizedText(label), `${locale} ${kind} agenda link is localized`);
+    for (const id of ['work', 'talks', 'about']) {
+      mustContain(navigation.html, `href="${homePath}#${id}"`, `${locale} ${kind} retains ${id} link`);
+    }
+  }
+}
+
+function checkUpcomingAppearances(page, html) {
+  const locale = page.lang;
+  const agenda = extractElement(html, 'section', 'id', 'where-to-find-me');
+  assert.ok(agenda, `${locale} homepage has its own Where to find me section`);
+  assert.equal([...html.matchAll(/<section\b[^>]*\bid=["']where-to-find-me["']/gi)].length, 1,
+    `${locale} homepage has one agenda`);
+  const hero = extractElement(html, 'section', 'aria-labelledby', 'hero-title');
+  const work = extractElement(html, 'section', 'id', 'work');
+  const statistics = extractElement(html, 'section', 'id', 'content-stats');
+  assert.ok(hero && work && statistics, `${locale} retains introduction, work and statistics`);
+  assert.ok(hero.end <= agenda.start && agenda.end <= work.start && work.end <= statistics.start,
+    `${locale} journey is introduction, upcoming events, prior work and statistics`);
+
+  const headingId = agenda.html.match(/^<section\b[^>]*\baria-labelledby=["']([^"']+)["']/i)?.[1];
+  assert.ok(headingId, `${locale} agenda has an accessible heading`);
+  const heading = extractElement(agenda.html, 'h2', 'id', headingId);
+  assert.ok(heading, `${locale} agenda label identifies its h2`);
+  assert.equal(normalizedText(heading.html), normalizedText(locale === 'en' ? 'Where to find me' : 'Dónde encontrarme'));
+  mustContainText(agenda.html, locale === 'en' ? 'Upcoming events I’ll be at' : 'Próximos eventos en los que voy a estar',
+    `${locale} agenda introduction uses the chosen direct copy`);
+  mustNotContain(agenda.html, 'en los que voy a enseñar', `${locale} agenda avoids narrative introduction`);
+  mustNotContain(agenda.html, 'where I’ll teach, speak', `${locale} agenda avoids narrative introduction`);
+
+  // Inert facts may be templates or JSON; before client initialization, only
+  // the fallback is readable. Clock-driven cases exercise the real resolver.
+  const templates = [...agenda.html.matchAll(/<template\b[^>]*>[\s\S]*?<\/template>/gi)];
+  const jsonBlocks = [...agenda.html.matchAll(/<script\b[^>]*\btype=["']application\/json["'][^>]*>[\s\S]*?<\/script>/gi)];
+  assert.ok(templates.length + jsonBlocks.length > 0, `${locale} embeds inert agenda facts`);
+  const fallback = agenda.html.replace(/<template\b[^>]*>[\s\S]*?<\/template>/gi, '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  assert.doesNotMatch(fallback, /<h3\b/i, `${locale} uninitialized agenda does not announce stale event cards`);
+  mustContain(fallback, profile.site.linkedin, `${locale} fallback offers LinkedIn`);
+  assert.match(normalizedText(fallback), locale === 'en' ? /unavailable|enable javascript|javascript is required/
+    : /no disponible|no se pudo|activa[r]? javascript|habilita[r]? javascript/,
+  `${locale} fallback is understandable without a working script`);
+
+  for (const id of ['student-community-day-utn-2026', 'reinvent-2026-agent-evaluations', 'opensearch-partner-breakfast-2026']) {
+    const talk = talks.find((entry) => entry.id === id);
+    assert.ok(talk, `the maintained archive includes ${id}`);
+    mustContainText(agenda.html, talk.title[locale], `${locale} agenda resolves the canonical title of ${id}`);
+  }
+  mustContain(agenda.html, 'https://aws-sbg-utn-frc.com.ar/', `${locale} UTN public destination`);
+  mustContain(agenda.html, 'https://builder.aws.com/', `${locale} re:Invent public destination`);
+  mustContain(agenda.html, 'https://aws-experience.com/', `${locale} OpenSearch public destination`);
+  mustContainText(agenda.html, locale === 'en' ? 'Time to be confirmed' : 'Horario por confirmar', `${locale} UTN time is not invented`);
+  mustContainText(agenda.html, locale === 'en' ? 'Title to be confirmed' : 'Título por confirmar', `${locale} UTN title precision is explicit and brief`);
+  mustContainText(agenda.html, locale === 'en' ? 'Breakfast hours' : 'Horario del desayuno', `${locale} OpenSearch hours are the event interval`);
+  assert.match(normalizedText(agenda.html), /partner/, `${locale} OpenSearch access restriction stays visible`);
+  for (const forbidden of ['Stripe Hangout', 'Redis Welcome Party', 'Caylent & Partners LIVE!', 'mail.google.com', 'google.com/calendar/event', 'invite.ics']) {
+    mustNotContain(agenda.html, forbidden, `${locale} agenda excludes private sources and excluded registrations`);
+  }
+  for (const id of ['student-community-day-unc-2026', 'student-community-day-utn-2026']) {
+    assert.ok(!talks.find((talk) => talk.id === id)?.featured, `${id} is not featured`);
+  }
+  const skip = html.match(/<a\b[^>]*\bclass=["']skip-link["'][^>]*>/i)?.[0] ?? '';
+  assert.match(skip, /href=["']#where-to-find-me["']/, `${locale} homepage skip reaches the first section after the introduction`);
+  checkAppearanceNavigation(locale, html);
+}
+
 function checkHomeIntroduction(page, html) {
   const { lang } = page;
   const expectedByLocale = {
@@ -1230,9 +1308,9 @@ function checkContentStatsShell(page, html) {
     assert.ok(/no se pudo|no se pueden|no fue posible|no disponibles|no disponible/i.test(statsHtml), 'Spanish statistics need an unavailable state');
   }
 
-  const noScriptBlocks = [...html.matchAll(/<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gi)];
+  const noScriptBlocks = [...statsHtml.matchAll(/<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gi)];
   assert.equal(noScriptBlocks.length, 1, `${locale} needs one stats-only no-JavaScript message`);
-  const noScriptPosition = noScriptBlocks[0].index;
+  const noScriptPosition = sectionPosition + noScriptBlocks[0].index;
   assert.ok(noScriptPosition > sectionPosition && noScriptPosition < talksPosition, `${locale} no-JavaScript message must stay within the statistics section`);
   assert.ok(noScriptPosition - sectionPosition < reportDisclosure.start
     || noScriptPosition - sectionPosition >= reportDisclosure.end,
@@ -1244,12 +1322,17 @@ function checkContentStatsShell(page, html) {
     assert.ok(/activar JavaScript|activa JavaScript|habilita JavaScript|JavaScript es necesario/i.test(noScriptText), 'Spanish statistics need a localized no-JavaScript message');
   }
 
-  const scriptTags = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
-  assert.equal(scriptTags.length, 1, `${locale} may load one statistics module`);
-  assert.ok(/\btype=["']module["']/i.test(scriptTags[0]), `${locale} statistics script must be an external module`);
-  const scriptPath = scriptTags[0].match(/\bsrc=["']([^"']+)["']/i)?.[1];
-  assert.ok(scriptPath?.startsWith('/_astro/'), `${locale} statistics module must use a built asset`);
-  assert.ok(existsSync(join(dist, decodeURIComponent(scriptPath.slice(1)))), `${locale} statistics module asset must exist in the build output`);
+  const scriptTags = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0])
+    .filter((tag) => !/\btype=["']application\/json["']/i.test(tag));
+  assert.ok(scriptTags.length > 0, `${locale} homepage loads its client modules`);
+  const paths = scriptTags.map((tag) => {
+    assert.match(tag, /\btype=["']module["']/i, `${locale} client code uses external modules`);
+    const path = tag.match(/\bsrc=["']([^"']+)["']/i)?.[1];
+    assert.ok(path?.startsWith('/_astro/'), `${locale} client module uses a built asset`);
+    assert.ok(existsSync(join(dist, decodeURIComponent(path.slice(1)))), `${locale} client module exists in build output`);
+    return path;
+  });
+  assert.equal(new Set(paths).size, paths.length, `${locale} does not load a module twice`);
 }
 
 const pages = [
@@ -1295,6 +1378,7 @@ for (const page of pages) {
   checkAuthorshipAndAbout(page, html);
   checkSpeakerResources(page, html);
   checkOctoberMeetup(page, html);
+  checkUpcomingAppearances(page, html);
 }
 
 const notFound = read('404.html');
@@ -1302,6 +1386,13 @@ mustContain(notFound, '<meta name="robots" content="noindex">', '404 noindex met
 mustNotContain(notFound, '<link rel="canonical"', '404 canonical metadata');
 mustContain(notFound, 'href="/"', '404 English recovery link');
 mustContain(notFound, 'href="/es/"', '404 Spanish recovery link');
+
+for (const [locale, path] of [
+  ['en', 'articles/index.html'], ['es', 'es/articles/index.html'],
+  ['en', 'content-statistics/privacy/index.html'], ['es', 'es/content-statistics/privacy/index.html']
+]) {
+  checkAppearanceNavigation(locale, read(path));
+}
 
 const inputs = JSON.parse(read('_content-stats/inputs.json'));
 const sourceConfig = JSON.parse(readFileSync(join(root, 'public/_content-stats/inputs.json'), 'utf8'));
@@ -1582,7 +1673,7 @@ for (const page of policyPages) {
 
   const homeHtml = read(page.homePath === '/' ? 'index.html' : 'es/index.html');
   const homeSkipLink = homeHtml.match(/<a class="skip-link" href="([^"]+)">([^<]*)<\/a>/i);
-  assert.equal(homeSkipLink?.[1], '#work', `${page.lang} home keeps its original skip target`);
+  assert.equal(homeSkipLink?.[1], '#where-to-find-me', `${page.lang} home skips to the agenda`);
   const statsDetails = extractElement(homeHtml, 'details', 'class', 'content-stats-sources');
   assert.ok(statsDetails, `${page.lang} home retains the statistics disclosure`);
   mustContain(statsDetails.html, `href="${page.canonicalPath}"`, `${page.lang} statistics disclosure links to its privacy page`);
