@@ -136,7 +136,8 @@ const speakingIds = [
   'dynamodb-data-modeling', 'uruguay-dynamodb', 'testing-generative-ai',
   'cordoba-security-ci-cd', 'basta-bastion-host', 'cordoba-dynamodb',
   'practitioner-serverless', 'practitioner-billing', 'practitioner-databases',
-  'practitioner-kickoff', 'cordoba-low-cost', 'carameltalks-getting-started'
+  'practitioner-kickoff', 'cordoba-low-cost', 'carameltalks-getting-started',
+  'student-community-day-unc-2026'
 ].sort();
 const speakingLanguages = {
   'cordoba-agent-economics-2026': 'es',
@@ -167,7 +168,8 @@ const speakingLanguages = {
   'practitioner-databases': 'es',
   'practitioner-kickoff': 'es',
   'cordoba-low-cost': 'es',
-  'carameltalks-getting-started': 'en'
+  'carameltalks-getting-started': 'en',
+  'student-community-day-unc-2026': 'es'
 };
 const eligibleKinds = new Set(['talk', 'workshop', 'training', 'panel', 'session']);
 
@@ -203,7 +205,7 @@ test('real maintained speaking facts preserve the confirmed deliveries and separ
     }
   }
   assert.equal(confirmedLanguages.filter((language) => language === 'en').length, 9);
-  assert.equal(confirmedLanguages.filter((language) => language === 'es').length, 20);
+  assert.equal(confirmedLanguages.filter((language) => language === 'es').length, 21);
 
   const titleLanguageAnchors = [
     ['valkey-cache', 'Cache me if you can, Valkey edition', 'en'],
