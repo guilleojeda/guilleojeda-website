@@ -105,6 +105,7 @@ export interface AppearanceRecord {
   id: string;
   talkId?: string;
   occurrenceId?: string;
+  withdrawn?: boolean;
   event?: LocalizedText;
   role: LocalizedText;
   when: AppearanceWhen;

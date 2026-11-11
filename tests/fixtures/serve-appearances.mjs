@@ -107,7 +107,7 @@ async function loadApplication() {
   return { resolveAppearances: resolver.resolveAppearances, actualEntries, pages };
 }
 
-function localizedEntry(index, role, when) {
+function localizedEntry(index, role, when, href) {
   return {
     id: `fixture-${index}`,
     event: { en: `Fixture event ${index}`, es: `Evento de prueba ${index}` },
@@ -115,6 +115,7 @@ function localizedEntry(index, role, when) {
       ? { en: 'Attendee', es: 'Asistente' }
       : { en: 'Organizer', es: 'Organizador' },
     location: { en: `Room ${index}`, es: `Sala ${index}` },
+    ...(href ? { href } : {}),
     when
   };
 }
@@ -133,11 +134,13 @@ function syntheticEntries(name, resolveAppearances, requestTime) {
       start = requestTime - 5_000;
       end = requestTime + (offset === 0 ? 30_000 : 60_000);
     }
-    return localizedEntry(offset + 1, offset % 2 === 0 ? 'attendee' : 'organizer', {
+    const index = offset + 1;
+    const href = name === 'live' ? `https://example.test/appearance-${index}` : undefined;
+    return localizedEntry(index, offset % 2 === 0 ? 'attendee' : 'organizer', {
       start: new Date(start).toISOString(),
       end: new Date(end).toISOString(),
       timeZone: 'UTC'
-    });
+    }, href);
   });
   return resolveAppearances(entries, []);
 }

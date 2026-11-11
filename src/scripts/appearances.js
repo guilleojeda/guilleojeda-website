@@ -89,6 +89,9 @@ if (section && section.dataset.appearancesInitialized !== 'true') {
       }
 
       const item = document.createElement('li');
+      const groupType = group.talkId ? 'talk' : 'appearance';
+      item.dataset.appearanceGroupType = groupType;
+      item.dataset.appearanceGroupId = String(group.talkId ?? group.id);
       const card = document.createElement('article');
       card.className = 'appearance-card';
 
@@ -167,6 +170,22 @@ if (section && section.dataset.appearancesInitialized !== 'true') {
           return;
         }
 
+        const activeElement = document.activeElement;
+        const focusedLink = activeElement instanceof HTMLAnchorElement
+          && activeElement.classList.contains('appearance-link')
+          ? activeElement
+          : undefined;
+        const focusedItem = focusedLink?.closest('li[data-appearance-group-id]');
+        const focusedAgendaLink = focusedItem
+          && (list.contains(focusedItem) || moreList.contains(focusedItem))
+          ? {
+            groupType: focusedItem.dataset.appearanceGroupType,
+            groupId: focusedItem.dataset.appearanceGroupId,
+            href: focusedLink.href,
+            label: focusedLink.getAttribute('aria-label')
+          }
+          : undefined;
+
         const visibleGroups = groups.slice(0, 5).map(createCard);
         const remainingGroups = groups.slice(5).map(createCard);
         list.replaceChildren(...visibleGroups);
@@ -186,6 +205,22 @@ if (section && section.dataset.appearancesInitialized !== 'true') {
         results.hidden = false;
         fallback.hidden = true;
         lastRenderKey = renderKey;
+
+        if (focusedAgendaLink) {
+          const replacementItems = [...list.children, ...moreList.children];
+          const replacementItem = replacementItems.find(
+            (item) => item.dataset.appearanceGroupType === focusedAgendaLink.groupType
+              && item.dataset.appearanceGroupId === focusedAgendaLink.groupId
+          );
+          const replacementLink = replacementItem?.querySelector('a.appearance-link');
+          if (replacementLink
+            && replacementLink.href === focusedAgendaLink.href
+            && replacementLink.getAttribute('aria-label') === focusedAgendaLink.label) {
+            if (moreList.contains(replacementLink)) more.open = true;
+            replacementLink.focus({ preventScroll: true });
+          }
+        }
+
         scheduleNextUpdate(groups, now);
       } catch {
         clearTimer();

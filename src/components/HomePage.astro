@@ -1,6 +1,6 @@
 ---
 import { content, text } from '../content';
-import { formatOccurrenceDate } from '../content/appearances.mjs';
+import { formatTalkArchiveStatuses } from '../content/appearances.mjs';
 import type { Locale } from '../content/types';
 import ContentStats from './ContentStats.astro';
 import UpcomingAppearances from './UpcomingAppearances.astro';
@@ -21,17 +21,12 @@ const bookFallbackCta = locale === 'en' ? 'Open book' : 'Abrir libro';
 const appearanceByOccurrence = new Map(content.appearanceEntries
   .filter((appearance) => appearance.talkId && appearance.occurrenceId)
   .map((appearance) => [`${appearance.talkId}/${appearance.occurrenceId}`, appearance]));
-const talkOccurrenceStatuses = (talk: (typeof content.talkArchive)[number]) => talk.occurrences.flatMap((occurrence) => {
-  const appearance = appearanceByOccurrence.get(`${talk.id}/${occurrence.id}`);
-  if (!appearance) return [];
-
-  const label = occurrence.status === 'scheduled'
-    ? content.appearances.scheduled
-    : occurrence.status === 'delivered'
-      ? content.appearances.delivered
-      : content.appearances.unknownStatus;
-  return [`${text(label, locale)}: ${formatOccurrenceDate(appearance, locale)}`];
-});
+const archiveStatusLabels = {
+  scheduled: content.appearances.scheduled,
+  delivered: content.appearances.delivered,
+  unknown: content.appearances.unknownStatus
+};
+const talkOccurrenceStatuses = (talk: (typeof content.talkArchive)[number]) => formatTalkArchiveStatuses(talk, appearanceByOccurrence, archiveStatusLabels, locale);
 ---
 
 <section class="hero" aria-labelledby="hero-title">

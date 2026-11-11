@@ -91,7 +91,12 @@ test('appearance data resolves and produces the approved upcoming agenda', async
   const api = await import(moduleUrl.href);
   assert.equal(typeof api.resolveAppearances, 'function', 'export resolveAppearances(appearances, talks)');
   assert.equal(typeof api.upcomingAppearances, 'function', 'export upcomingAppearances(resolved, now)');
-  const { formatOccurrenceDate, formatOccurrenceTime, resolveAppearances, upcomingAppearances } = api;
+  const { formatOccurrenceDate, formatOccurrenceTime, formatTalkArchiveStatuses, resolveAppearances, upcomingAppearances } = api;
+  const archiveLabels = {
+    scheduled: { en: 'Scheduled', es: 'Programada' },
+    delivered: { en: 'Delivered', es: 'Realizada' },
+    unknown: { en: 'Delivery unconfirmed', es: 'Realización sin confirmar' }
+  };
 
   await t.test('initial agenda has three groups and four upcoming occurrences on November 11', () => {
     const { appearances, talks } = initialData();
@@ -131,6 +136,44 @@ test('appearance data resolves and produces the approved upcoming agenda', async
     assert.equal(atLocalMidnight.some((group) => group.talkId === 'utn-workshop'), false);
     assert.equal(talks.find((item) => item.id === 'utn-workshop').occurrences[0].status, 'scheduled',
       'passing the visibility cutoff does not change editorial delivery status');
+  });
+
+  await t.test('withdrawing a dated scheduled occurrence hides only upcoming agenda while keeping archive and counter source intact', () => {
+    const { appearances, talks } = initialData();
+    const counterSourceBefore = JSON.stringify(talks);
+    const withdrawn = appearances.find((item) => item.id === 'reinvent-dec-1');
+    withdrawn.withdrawn = true;
+
+    const resolved = resolveAppearances(appearances, talks);
+    const upcoming = upcomingAppearances(resolved, new Date('2026-11-11T15:00:00.000Z'));
+    const reinvent = upcoming.find((group) => group.talkId === 'reinvent-agents');
+    assert.deepEqual(visibleOccurrenceIds(reinvent), ['com317-r']);
+
+    const canonicalTalk = talks.find((item) => item.id === 'reinvent-agents');
+    const archiveRows = formatTalkArchiveStatuses(canonicalTalk, new Map(resolved
+      .filter((appearance) => appearance.talkId && appearance.occurrenceId)
+      .map((appearance) => [`${appearance.talkId}/${appearance.occurrenceId}`, appearance])), archiveLabels, 'en');
+    assert.deepEqual(archiveRows, [
+      'Scheduled: Dec 3, 2026',
+      'Scheduled: Dec 1, 2026'
+    ]);
+    assert.equal(JSON.stringify(talks), counterSourceBefore, 'withdrawing an agenda row does not change canonical counter input');
+    assert.equal(withdrawn.withdrawn, true, 'the dated source row remains available for archive resolution');
+  });
+
+  await t.test('scheduled canonical occurrences keep a status without a calendar date; undated historical statuses stay hidden', () => {
+    const { talks } = initialData();
+    const talkWithSchedule = talks.find((item) => item.id === 'reinvent-agents');
+    assert.deepEqual(formatTalkArchiveStatuses(talkWithSchedule, new Map(), archiveLabels, 'es'), [
+      'Programada',
+      'Programada'
+    ]);
+
+    const deliveredTalk = talk('past-talk', 'Past event', 'Past talk', [
+      { id: 'main', status: 'delivered' }
+    ]);
+    assert.deepEqual(formatTalkArchiveStatuses(deliveredTalk, new Map(), archiveLabels, 'es'), [],
+      'missing historical calendar references do not expand the migration');
   });
 
   await t.test('during the December 2 breakfast, it precedes the remaining December 3 re:Invent session', () => {
@@ -301,6 +344,16 @@ test('appearance data resolves and produces the approved upcoming agenda', async
       { ...appearances[2], id: 'duplicate-occurrence' },
       { ...appearances[2], id: 'duplicate-occurrence-2' }
     ], talks));
+  });
+
+  await t.test('withdrawn must be a boolean and false preserves upcoming visibility', () => {
+    const { appearances, talks } = initialData();
+    const row = appearances.find((item) => item.id === 'reinvent-dec-1');
+    row.withdrawn = false;
+    assert.deepEqual(visibleOccurrenceIds(upcomingAppearances(resolveAppearances(appearances, talks), new Date('2026-11-11T15:00:00.000Z'))
+      .find((group) => group.talkId === 'reinvent-agents')), ['com317-r1', 'com317-r']);
+    row.withdrawn = 'yes';
+    assert.throws(() => resolveAppearances(appearances, talks), /withdrawn must be a boolean/);
   });
 
   await t.test('invalid dates, zones, offsets, and interval bounds fail validation', () => {

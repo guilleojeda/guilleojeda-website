@@ -262,6 +262,9 @@ export function resolveAppearances(rows, talks) {
     const id = requiredText(row?.id, 'id');
     if (appearanceIds.has(id)) throw new Error(`Duplicate appearance identity: ${id}.`);
     appearanceIds.add(id);
+    if (Object.hasOwn(row, 'withdrawn') && typeof row.withdrawn !== 'boolean') {
+      throw new Error(`Appearance ${id}.withdrawn must be a boolean.`);
+    }
 
     const hasTalkId = row.talkId !== undefined;
     const hasOccurrenceId = row.occurrenceId !== undefined;
@@ -323,6 +326,7 @@ export function resolveAppearances(rows, talks) {
       title,
       role,
       status,
+      ...(Object.hasOwn(row, 'withdrawn') ? { withdrawn: row.withdrawn } : {}),
       when: calendar.when,
       ...(location ? { location } : {}),
       ...(href ? { href } : {}),
@@ -351,7 +355,7 @@ export function upcomingAppearances(resolved, nowDate) {
   /** @type {Map<string, UpcomingAppearanceGroup>} */
   const groups = new Map();
   for (const appearance of resolved) {
-    if (appearance.status !== 'scheduled' || now >= appearance.endAt) continue;
+    if (appearance.withdrawn === true || appearance.status !== 'scheduled' || now >= appearance.endAt) continue;
     /** @type {import('./types').UpcomingAppearanceState} */
     const state = now < appearance.startAt
       ? 'upcoming'
@@ -384,6 +388,24 @@ export function upcomingAppearances(resolved, nowDate) {
   }
   output.sort(([leftKey, left], [rightKey, right]) => left.nextAt - right.nextAt || (leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0));
   return output.map(([, group]) => group);
+}
+
+/**
+ * Format archive labels from canonical occurrence statuses and any retained
+ * agenda dates. Scheduled occurrences without a calendar reference keep their
+ * status without a fabricated date; other undated statuses stay hidden.
+ * @param {import('./types').TalkRecord} talk
+ * @param {Map<string, ResolvedAppearance>} appearanceByOccurrence
+ * @param {Record<import('./types').TalkOccurrenceStatus, import('./types').LocalizedText>} labels
+ * @param {Locale} locale
+ */
+export function formatTalkArchiveStatuses(talk, appearanceByOccurrence, labels, locale) {
+  return talk.occurrences.flatMap((occurrence) => {
+    const appearance = appearanceByOccurrence.get(`${talk.id}/${occurrence.id}`);
+    if (!appearance && occurrence.status !== 'scheduled') return [];
+    const label = labels[occurrence.status][locale];
+    return [`${label}${appearance ? `: ${formatOccurrenceDate(appearance, locale)}` : ''}`];
+  });
 }
 
 /** @param {number} epochMs @param {string} timeZone @param {Locale} locale */
