@@ -12,7 +12,7 @@ const fixtureCopy = {
   timeTbc: 'Time to be confirmed', eventLink: 'Event link', moreOne: 'more event', moreMany: 'more events'
 };
 
-// Removing the focused subtree moves focus to BODY as in the browser. This fixture does not model native Tab order or <details> rendering; CUA covers those.
+// Model subtree-removal focus loss and focus's basic viewport scrolling. This fixture does not model native layout or Tab order; CUA covers those.
 class FakeElement {
   constructor(tagName, ownerDocument) {
     this.tagName = tagName.toUpperCase();
@@ -40,6 +40,15 @@ class FakeElement {
 
   get href() { return this._href; }
   set href(value) { this._href = new URL(value, 'https://site.example/').href; }
+
+  getBoundingClientRect() {
+    const groupId = this.closest('li[data-appearance-group-id]')?.dataset.appearanceGroupId;
+    const rect = this.boundingRect
+      ?? this.ownerDocument.defaultView.layout.get(groupId)
+      ?? { top: 100, bottom: 122 };
+    const { scrollY } = this.ownerDocument.defaultView;
+    return { top: rect.top - scrollY, bottom: rect.bottom - scrollY };
+  }
 
   append(...nodes) {
     for (const node of nodes) {
@@ -89,6 +98,12 @@ class FakeElement {
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   focus(options) {
+    if (!options?.preventScroll) {
+      const rect = this.getBoundingClientRect();
+      const view = this.ownerDocument.defaultView;
+      if (rect.top < 0) view.scrollY += rect.top;
+      else if (rect.bottom > view.innerHeight) view.scrollY += rect.bottom - view.innerHeight;
+    }
     this.ownerDocument.activeElement = this;
     this.ownerDocument.lastFocusOptions = options;
   }
@@ -191,6 +206,10 @@ function createClient({ appearances, talks = [] }) {
       timer.callback();
     }
   };
+  window.innerHeight = 720;
+  window.scrollY = 0;
+  window.layout = new Map();
+  document.defaultView = window;
   class FixtureDate extends Date {
     constructor(...args) { super(...(args.length ? args : [now])); }
     static now() { return now; }
@@ -226,7 +245,10 @@ test('the real agenda client preserves only the still-valid focused link across 
     const { document, elements, window } = client;
     const list = elements.get('appearances-list');
     const link = linkFor(list, 'https://example.test/event-2');
+    link.boundingRect = { top: 692.46875, bottom: 714.125 };
+    window.layout.set('fixture-2', { top: 713.40625, bottom: 735.0625 });
     link.focus();
+    assert.ok(link.getBoundingClientRect().top >= 0 && link.getBoundingClientRect().bottom <= window.innerHeight);
 
     window.fireNextTimer();
 
@@ -234,7 +256,28 @@ test('the real agenda client preserves only the still-valid focused link across 
     assert.equal(document.activeElement.href, link.href);
     assert.equal(document.activeElement.closest('li[data-appearance-group-id]').dataset.appearanceGroupId, 'fixture-2');
     assert.equal(elements.get('appearances-more').hidden, true, 'the six-to-five transition promotes the former sixth group');
-    if (document.activeElement !== link) assert.equal(document.lastFocusOptions?.preventScroll, true);
+    assert.ok(document.activeElement.getBoundingClientRect().top >= 0);
+    assert.ok(document.activeElement.getBoundingClientRect().bottom <= window.innerHeight);
+    assert.ok(window.scrollY > 0, 'native focus scrolls the updated link back into view');
+  });
+
+  await t.test('an intentionally scrolled-away focused link does not move the viewport', () => {
+    const client = createClient({ appearances: sixUpcoming() });
+    const { document, elements, window } = client;
+    const link = linkFor(elements.get('appearances-list'), 'https://example.test/event-2');
+    link.boundingRect = { top: 100, bottom: 122 };
+    window.layout.set('fixture-2', { top: 100, bottom: 122 });
+    link.focus();
+    window.scrollY = 500;
+    const priorScrollY = window.scrollY;
+    assert.ok(link.getBoundingClientRect().bottom < 0, 'the user has scrolled the focused link above the viewport');
+
+    window.fireNextTimer();
+
+    const currentLink = document.activeElement;
+    assert.equal(currentLink.href, link.href);
+    assert.equal(window.scrollY, priorScrollY);
+    assert.ok(currentLink.getBoundingClientRect().bottom < 0, 'restoring focus does not bring the offscreen link back');
   });
 
   await t.test('the focused sixth group keeps focus when promoted out of the details list', () => {

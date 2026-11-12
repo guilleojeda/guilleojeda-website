@@ -176,15 +176,17 @@ if (section && section.dataset.appearancesInitialized !== 'true') {
           ? activeElement
           : undefined;
         const focusedItem = focusedLink?.closest('li[data-appearance-group-id]');
-        const focusedAgendaLink = focusedItem
-          && (list.contains(focusedItem) || moreList.contains(focusedItem))
-          ? {
+        let focusedAgendaLink;
+        if (focusedLink && focusedItem && (list.contains(focusedItem) || moreList.contains(focusedItem))) {
+          const { top, bottom } = focusedLink.getBoundingClientRect();
+          focusedAgendaLink = {
             groupType: focusedItem.dataset.appearanceGroupType,
             groupId: focusedItem.dataset.appearanceGroupId,
             href: focusedLink.href,
-            label: focusedLink.getAttribute('aria-label')
-          }
-          : undefined;
+            label: focusedLink.getAttribute('aria-label'),
+            wasVisible: bottom > 0 && top < window.innerHeight
+          };
+        }
 
         const visibleGroups = groups.slice(0, 5).map(createCard);
         const remainingGroups = groups.slice(5).map(createCard);
@@ -217,7 +219,7 @@ if (section && section.dataset.appearancesInitialized !== 'true') {
             && replacementLink.href === focusedAgendaLink.href
             && replacementLink.getAttribute('aria-label') === focusedAgendaLink.label) {
             if (moreList.contains(replacementLink)) more.open = true;
-            replacementLink.focus({ preventScroll: true });
+            replacementLink.focus({ preventScroll: !focusedAgendaLink.wasVisible });
           }
         }
 
