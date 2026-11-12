@@ -630,6 +630,7 @@ a:hover {
 
 .appearance-link {
   display: inline-block;
+  scroll-margin-block: 5.5rem 0.5rem;
 }
 
 .appearances-more {
