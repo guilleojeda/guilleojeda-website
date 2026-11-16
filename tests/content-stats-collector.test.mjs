@@ -4052,10 +4052,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 12 are rejected as unsupported", async () => {
+test("schema versions newer than input 13 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseSixInput(), schemaVersion: 13 },
+    input: { ...phaseSixInput(), schemaVersion: 14 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");

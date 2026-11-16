@@ -1828,7 +1828,9 @@ test('phase 1 input13 adds verified Builder and talk dates while input12 remains
   assert.deepEqual(result.builderArticleDates, builderArticleDatesSelection());
   assert.deepEqual(result.builderArticleViews, source.articleConfig.builderArticleViews,
     'manual Builder view evidence remains a separate optional input');
-  assert.deepEqual(result.articleInventory, inventory);
+  assert.deepEqual(result.articleInventory, noDateEvidence.articleInventory,
+    'input13 keeps the existing inventory projection, including exclusion privacy');
+  assert.equal(Object.hasOwn(result.articleInventory.exclusions[0], 'reason'), false);
   assert.deepEqual(result.curated.talks, [
     { id: 'same-session-at-first-event/main', kind: 'talk', status: 'delivered', language: 'es', delivery: periodDelivery('2025-02-11') },
     { id: 'same-session-at-second-event/first-slot', kind: 'talk', status: 'delivered', language: 'en', delivery: null },

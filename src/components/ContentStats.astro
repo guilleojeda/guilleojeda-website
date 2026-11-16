@@ -42,6 +42,7 @@ const copy = locale === 'en'
       },
       coverage: 'Coverage',
       lastCollected: 'Last updated',
+      noPeriodData: 'No data for this period.',
       metadataSummary: 'Source & dates',
       viewsTitle: 'Simple AWS page views',
       viewsLoading: 'Loading page views…',
@@ -179,6 +180,7 @@ const copy = locale === 'en'
       },
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
+      noPeriodData: 'No hay datos para este período.',
       metadataSummary: 'Fuente y fechas',
       viewsTitle: 'Vistas de páginas de Simple AWS',
       viewsLoading: 'Cargando vistas de páginas…',
@@ -335,10 +337,10 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
       {cardKinds.map((kind) => {
         const card = copy.cards[kind];
         return (
-          <article class="content-stats-card" data-stats-kind={kind} data-stats-unavailable={card.unavailable} aria-labelledby={`content-stats-${kind}-title`} aria-busy="false">
+          <article class="content-stats-card" data-stats-kind={kind} data-stats-unavailable={card.unavailable} data-stats-period-unavailable={copy.noPeriodData} aria-labelledby={`content-stats-${kind}-title`} aria-busy="false">
             <div class="content-stats-card-heading">
               <div>
-                {kind !== 'newsletter' && <div class="work-kicker">{copy.cumulative}</div>}
+                {kind === 'books' && <div class="work-kicker">{copy.cumulative}</div>}
                 <h3 id={`content-stats-${kind}-title`}>{card.title}</h3>
                 {kind === 'articles' && (
                   <a class="content-stats-catalog-link" href={locale === 'en' ? '/articles/' : '/es/articles/'}>
@@ -353,7 +355,8 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
             <div class="content-stats-results" data-stats-results hidden>
               <p class="content-stats-count" data-stats-count-region role="status" aria-live="polite" aria-atomic="true">
                 <span data-stats-count></span>
-                <span data-stats-count-label>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
+                <span data-stats-count-label data-stats-inventory-count-label={kind === 'articles' || kind === 'talks' ? '' : undefined}>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
+                {(kind === 'articles' || kind === 'talks') && <span data-stats-inventory-uncertainty-live hidden></span>}
               </p>
 
               <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>

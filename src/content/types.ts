@@ -63,6 +63,7 @@ export interface TalkOccurrence {
   kind: TalkOccurrenceKind;
   status: TalkOccurrenceStatus;
   language: ContentLanguage;
+  delivery?: { earliest: string; latest: string } | null;
 }
 
 export interface BookPublication {

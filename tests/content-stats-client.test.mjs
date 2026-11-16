@@ -103,21 +103,125 @@ function snapshot({ sources = [caylent], schemaVersion = 1, definitionVersion = 
   };
 }
 
-function threeGroupSnapshot() {
+function datedArticleFixtures(counts = { all: 11, en: 7, es: 4 }, collectedAt = '2026-08-04T00:00:00.000Z') {
+  const records = [];
+  const collectedDate = typeof collectedAt === 'string' && /^\d{4}-\d{2}-\d{2}/u.test(collectedAt)
+    ? new Date(`${collectedAt.slice(0, 10)}T00:00:00.000Z`)
+    : new Date('2026-08-03T00:00:00.000Z');
+  collectedDate.setUTCDate(collectedDate.getUTCDate() - 1);
+  const publishedAt = collectedDate.toISOString().slice(0, 10);
+  for (const [language, count] of [['en', counts.en], ['es', counts.es]]) {
+    for (let index = 0; index < count; index += 1) {
+      const number = records.length + 1;
+      const title = `Fixture article ${String(number).padStart(2, '0')}`;
+      records.push({
+        id: number.toString(16).padStart(64, '0'),
+        title,
+        language,
+        publishedAt,
+        publications: [{
+          sourceId: 'caylent',
+          title,
+          publishedAt,
+          url: `https://caylent.com/blog/fixture-article-${number}`,
+          emailOnly: false
+        }]
+      });
+    }
+  }
+  return records;
+}
+
+function mutableArticleGroup(group) {
+  let syncing = false;
+  const syncRecords = () => {
+    if (syncing || group.definitionVersion !== 2 || !group.counts || !Number.isSafeInteger(group.counts.en)
+      || !Number.isSafeInteger(group.counts.es) || group.counts.en < 0 || group.counts.es < 0) return;
+    syncing = true;
+    group.records = datedArticleFixtures(
+      { all: group.counts.en + group.counts.es, en: group.counts.en, es: group.counts.es },
+      group.collectedAt
+    );
+    syncing = false;
+  };
+  const counts = new Proxy(group.counts, {
+    set(target, property, value) {
+      target[property] = value;
+      syncRecords();
+      return true;
+    }
+  });
+  group.counts = counts;
+  return new Proxy(group, {
+    set(target, property, value) {
+      target[property] = value;
+      if (property === 'counts' || property === 'collectedAt') syncRecords();
+      return true;
+    }
+  });
+}
+
+function datedTalkFixtures() {
+  return [
+    ...Array.from({ length: 2 }, () => ({ language: 'en', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } })),
+    ...Array.from({ length: 4 }, () => ({ language: 'es', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } }))
+  ];
+}
+
+function mutableTalkGroup(group) {
+  let syncing = false;
+  const syncOccurrences = () => {
+    if (syncing || group.definitionVersion !== 2 || !group.counts || !Number.isSafeInteger(group.counts.en)
+      || !Number.isSafeInteger(group.counts.es) || group.counts.en < 0 || group.counts.es < 0) return;
+    syncing = true;
+    group.occurrences = [
+      ...Array.from({ length: group.counts.en }, () => ({ language: 'en', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } })),
+      ...Array.from({ length: group.counts.es }, () => ({ language: 'es', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } }))
+    ];
+    syncing = false;
+  };
+  const counts = new Proxy(group.counts, {
+    set(target, property, value) {
+      target[property] = value;
+      syncOccurrences();
+      return true;
+    }
+  });
+  group.counts = counts;
+  return new Proxy(group, {
+    set(target, property, value) {
+      target[property] = value;
+      if (property === 'counts') syncOccurrences();
+      return true;
+    }
+  });
+}
+
+function threeGroupSnapshot({ legacy = false } = {}) {
+  let articles = aggregateGroup({
+    sources: [caylent, builderCenter],
+    scopeId: 'article-scope-2026-08',
+    counts: { all: 11, en: 7, es: 4 }
+  });
+  let talks = aggregateGroup({
+    collectedAt: talksCollectedAt,
+    scopeId: 'talks-scope-2026-07',
+    sources: [websiteInventory],
+    counts: { all: 6, en: 2, es: 4 }
+  });
+  if (!legacy) {
+    articles.definitionVersion = 2;
+    articles.records = datedArticleFixtures(articles.counts, articles.collectedAt);
+    articles = mutableArticleGroup(articles);
+    talks.definitionVersion = 2;
+    talks.occurrences = datedTalkFixtures();
+    talks = mutableTalkGroup(talks);
+  }
   return {
     schemaVersion: 1,
     groups: {
-      articles: aggregateGroup({
-        sources: [caylent, builderCenter],
-        scopeId: 'article-scope-2026-08',
-        counts: { all: 11, en: 7, es: 4 }
-      }),
-      talks: aggregateGroup({
-        collectedAt: talksCollectedAt,
-        scopeId: 'talks-scope-2026-07',
-        sources: [websiteInventory],
-        counts: { all: 6, en: 2, es: 4 }
-      }),
+      articles,
+      talks,
       books: aggregateGroup({
         collectedAt: booksCollectedAt,
         scopeId: 'books-scope-2026-06',
@@ -126,6 +230,10 @@ function threeGroupSnapshot() {
       })
     }
   };
+}
+
+function legacyThreeGroupSnapshot() {
+  return threeGroupSnapshot({ legacy: true });
 }
 
 function newsletterGroup({
@@ -179,8 +287,8 @@ function manualBuilderArticleViewsGroup({
   };
 }
 
-function snapshotWithNewsletter(options = {}) {
-  const data = threeGroupSnapshot();
+function snapshotWithNewsletter({ legacy = false, ...options } = {}) {
+  const data = threeGroupSnapshot({ legacy });
   data.groups.newsletter = newsletterGroup(options);
   return data;
 }
@@ -290,8 +398,8 @@ function articleViewsRecords() {
   return Object.fromEntries(articleViewPeriods.map((period) => [period, articleViewsRecord(period)]));
 }
 
-function snapshotWithArticleViews({ records = articleViewsRecords(), definitionVersion = 1 } = {}) {
-  const data = snapshotWithNewsletter();
+function snapshotWithArticleViews({ records = articleViewsRecords(), definitionVersion = 1, legacy = false } = {}) {
+  const data = snapshotWithNewsletter({ legacy });
   data.groups.articleViews = { definitionVersion, records };
   return data;
 }
@@ -345,6 +453,8 @@ function snapshotWithIndividualArticleSources({
   data.groups.articles.sources = [...automaticSources, ...sources];
   data.groups.articles.counts = { ...counts };
   data.groups.articles.collectedAt = collectedAt;
+  data.groups.articles.definitionVersion = 1;
+  delete data.groups.articles.records;
   return data;
 }
 
@@ -646,9 +756,13 @@ function makeCard(kind, locale) {
     dataset: { statsCountLabel: '' },
     textContent: initialUnits[locale][kind]
   }));
+  const uncertaintyLive = countRegion.appendChild(new SemanticElement({
+    dataset: { statsInventoryUncertaintyLive: '' },
+    hidden: true
+  }));
   const coverage = results.appendChild(new SemanticElement({ dataset: { statsCoverage: '' } }));
   const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsCollectedDate: '' } }));
-  return { card, status, results, countRegion, count, countLabel, coverage, collectedDate };
+  return { card, status, results, countRegion, count, countLabel, uncertaintyLive, coverage, collectedDate };
 }
 
 function makeArticleViews(card, locale) {
@@ -942,8 +1056,10 @@ function createBrowser(initialHref) {
 function createPage({
   locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError,
   includeViews = true, includeSearch = true, includeActivityRegions = true,
-  includeCatalog = false, includeStats = true, fetchGate, url, initialPeriod = '12m'
+  includeCatalog = false, includeStats = true, fetchGate, url, initialPeriod
 } = {}) {
+  const selectedInitialPeriod = initialPeriod
+    ?? (data?.groups?.articles?.definitionVersion === 1 || data?.groups?.talks?.definitionVersion === 1 ? 'total' : '12m');
   const section = new SemanticElement({
     dataset: {
       statsSource: '/content-stats/v1/current.json',
@@ -963,7 +1079,7 @@ function createPage({
   }));
   const periodSelector = section.appendChild(new SemanticElement({
     dataset: { statsPeriod: '' },
-    value: initialPeriod,
+    value: selectedInitialPeriod,
     disabled: true
   }));
   const periodOptions = Object.fromEntries(articleViewPeriods.map((period) => {
@@ -2222,18 +2338,18 @@ for (const locale of ['en', 'es']) {
 
     page.selector.value = 'en';
     page.selector.dispatch('change');
-    assert.equal(page.periodSelector.value, '12m', 'English falls back when no English total remains applicable');
-    assert.equal(page.periodOptions.total.disabled, true);
+    assert.equal(page.periodSelector.value, 'total', 'English keeps the editorial total while directory totals are unavailable');
+    assert.equal(page.periodOptions.total.disabled, false);
     assertDirectoryViewsUnavailable(page, locale, { hidden: true });
     assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
     assert.equal(page.cards.articles.count.textContent, '7');
 
     page.selector.value = 'es';
     page.selector.dispatch('change');
-    assert.equal(page.periodSelector.value, '12m', 'restoring total availability does not silently reselect it');
+    assert.equal(page.periodSelector.value, 'total', 'restoring directory availability keeps the editorial total selected');
     assert.equal(page.periodOptions.total.disabled, false);
-    assertDirectoryViewsVisible(page, locale, '12m');
-    assertDirectoryOutboundClicksVisible(page, locale, '12m');
+    assertDirectoryViewsVisible(page, locale, 'total');
+    assertDirectoryOutboundClicksVisible(page, locale, 'total');
 
     page.periodSelector.value = 'total';
     page.periodSelector.dispatch('change');
@@ -2363,7 +2479,7 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} Article Views follow periods while legacy Article and Talk counts stay total-only`, async () => {
-    const page = createPage({ locale, data: snapshotWithArticleViews() });
+    const page = createPage({ locale, data: snapshotWithArticleViews({ legacy: true }), initialPeriod: '12m' });
     await page.settle();
 
     assert.equal(page.periodSelector.disabled, false, 'the views period control enables after a valid snapshot');
@@ -2512,7 +2628,7 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} schema-v1 legacy counts stay in the overview and Total registered until dates are available`, async () => {
-    const page = createPage({ locale, data: snapshotWithNewsletter() });
+    const page = createPage({ locale, data: snapshotWithNewsletter({ legacy: true }), initialPeriod: '12m' });
     await page.settle();
 
     assert.equal(page.periodOptions.total.disabled, false, 'legacy Article and Talk counts remain valid registered totals');
@@ -2666,7 +2782,8 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.results.hidden, false, 'the harness must observe successful rendering');
     assert.equal(page.status.hidden, true);
     assert.equal(page.count.textContent, '40');
-    assert.equal(page.countLabel.textContent, locale === 'es' ? 'artículos publicados' : 'published articles');
+    assert.match(page.countLabel.textContent, locale === 'es'
+      ? /^artículos publicados · Total registrado · / : /^published articles · Recorded total · /);
     assert.equal(page.coverage.textContent, 'Caylent', 'the saved snapshot must not be relabeled as newer coverage');
     assert.equal(page.collectedDate.textContent, expectedDate(locale), 'the saved collection date must be preserved');
     assert.equal(page.section.dataset.statsLocale, locale, 'content filtering must not change the UI locale');
@@ -2903,12 +3020,18 @@ for (const locale of ['en', 'es']) {
     ];
 
     for (const [description, sources] of invalidSourceSets) {
-      const data = snapshotWithArticleSearchClicks();
+      const data = snapshotWithArticleSearchClicks({ includeViews: true });
+      data.groups.articles.definitionVersion = 1;
+      delete data.groups.articles.records;
       data.groups.articles.sources = sources;
       const page = createPage({ locale, data });
       await page.settle();
+      page.periodSelector.value = '12m';
+      page.periodSelector.dispatch('change');
 
-      assertUnavailable(page, locale, 'articles');
+      assert.equal(page.cards.articles.results.hidden, true);
+      assert.equal(page.cards.articles.count.textContent, '');
+      assert.equal(page.cards.articles.status.hidden, false);
       assertViewsVisible(page, locale, '12m');
       assertSearchVisible(page, locale, '12m');
       assert.equal(page.cards.talks.count.textContent, '6');
@@ -2955,6 +3078,8 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.newsletter.count.textContent, '27');
     assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label);
     assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
+    page.periodSelector.value = '12m';
+    page.periodSelector.dispatch('change');
     assertViewsVisible(page, locale, '12m');
     assertSearchVisible(page, locale, '12m');
 
@@ -2969,9 +3094,9 @@ for (const locale of ['en', 'es']) {
     ]) {
       page.selector.value = language;
       page.selector.dispatch('change');
-      assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(expected.articles));
-      assert.equal(page.cards.articles.coverage.textContent, expectedCoverage);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assert.equal(page.cards.articles.results.hidden, true);
+      assert.equal(page.cards.articles.count.textContent, '');
+      assert.equal(page.cards.articles.status.hidden, false);
       assert.equal(page.cards.talks.count.textContent, String(expected.talks));
       assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
       assert.equal(page.cards.books.count.textContent, String(expected.books));
@@ -3284,7 +3409,7 @@ for (const locale of ['en', 'es']) {
       ['missing articles', 'articles', (data) => { delete data.groups.articles; }],
       ['invalid articles', 'articles', (data) => { data.groups.articles.counts.all += 1; }],
       ['missing talks', 'talks', (data) => { delete data.groups.talks; }],
-      ['invalid talks', 'talks', (data) => { data.groups.talks.definitionVersion = 2; }],
+      ['invalid talks', 'talks', (data) => { data.groups.talks.definitionVersion = 3; }],
       ['missing books', 'books', (data) => { delete data.groups.books; }],
       ['invalid books', 'books', (data) => { data.groups.books.sources = [caylent]; }],
       ['missing newsletter', 'newsletter', (data) => { delete data.groups.newsletter; }],
@@ -3349,7 +3474,7 @@ for (const locale of ['en', 'es']) {
 
   for (const [description, invalidKind, updateGroup] of [
     ['Books using an article source', 'books', (group) => ({ ...group, sources: [caylent] })],
-    ['Talks using a future definition', 'talks', (group) => ({ ...group, definitionVersion: 2 })]
+    ['Talks using a future definition', 'talks', (group) => ({ ...group, definitionVersion: 3 })]
   ]) {
     test(`${locale} ${description} leaves only that curated card unavailable`, async () => {
       const data = threeGroupSnapshot();
@@ -3509,9 +3634,12 @@ for (const locale of ['en', 'es']) {
     const opens = newsletterEmailRecords('opens');
     opens.ytd.opens = 0;
     delete opens['30d'];
+    const data = snapshotWithNewsletterEngagements({ data: snapshotWithNewsletter(), opens });
+    delete data.groups.articles;
+    delete data.groups.talks;
     const page = createPage({
       locale,
-      data: snapshotWithNewsletterEngagements({ data: snapshotWithNewsletter(), opens })
+      data
     });
     await page.settle();
 
@@ -3760,9 +3888,10 @@ for (const locale of ['en', 'es']) {
       group: newsletterSentGroup({ sent: 0, collectedAt: '2026-01-04T00:00:00.000Z' })
     });
     delete data.groups.newsletter;
+    delete data.groups.articles;
+    delete data.groups.talks;
     const page = createPage({ locale, data });
     await page.settle();
-
     assert.equal(page.cards.newsletter.card.hidden, false, 'a valid sent total keeps the Newsletter card visible by itself');
     assertNewsletterUnavailable(page, locale);
     assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
@@ -4261,8 +4390,8 @@ for (const locale of ['en', 'es']) {
     assertBuilderViewsVisible(page, locale, 'es', group);
     assert.equal(page.cards.articles.count.textContent, '4');
     assertViewsUnavailable(page, locale);
-    assert.equal(page.periodOptions.total.disabled, true, 'Builder Center does not supply an activity-period total');
-    assert.equal(page.periodSelector.value, '12m', 'Spanish filtering retains the existing unsupported-total reset behavior');
+    assert.equal(page.periodOptions.total.disabled, false, 'editorial inventories supply the recorded total independently of Builder Center');
+    assert.equal(page.periodSelector.value, 'total', 'Spanish filtering retains the editorial total');
     for (const period of articleSearchPeriods) {
       page.periodSelector.value = period;
       page.periodSelector.dispatch('change');
@@ -6652,8 +6781,8 @@ for (const locale of ['en', 'es']) {
 
     page.periodSelector.value = 'ytd';
     page.periodSelector.dispatch('change');
-    assert.equal(page.cards.articles.count.textContent, '2', 'the year-to-date interval begins inclusively on January 1');
-    assert.equal(page.cards.talks.count.textContent, '2');
+    assert.equal(page.cards.articles.count.textContent, '1', 'the year-to-date interval begins inclusively on January 1');
+    assert.equal(page.cards.talks.count.textContent, '1');
     assertEditorialInterval(page, locale, 'articles', '2024-01-01', '2024-02-28');
     assertEditorialInterval(page, locale, 'talks', '2024-01-01', '2024-02-28');
     assert.equal(page.fetchCount, 1);

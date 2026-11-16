@@ -254,7 +254,7 @@ function validateArticleConfig(articleConfig) {
   return sourceIds;
 }
 
-function projectTalks(talks) {
+function projectTalks(talks, includeDelivery = false) {
   if (!Array.isArray(talks)) invalid('talks must be an array');
 
   const recordIds = new Set();
@@ -282,7 +282,17 @@ function projectTalks(talks) {
       const id = `${record.id}/${occurrence.id}`;
       if (factIds.has(id)) invalid(`duplicate occurrence fact ID ${id}`);
       factIds.add(id);
-      return { id, kind: occurrence.kind, status: occurrence.status, language: occurrence.language };
+      return {
+        id,
+        kind: occurrence.kind,
+        status: occurrence.status,
+        language: occurrence.language,
+        ...(includeDelivery ? {
+          delivery: Object.hasOwn(occurrence, 'delivery')
+            ? projectDelivery(occurrence.delivery, `${record.id}/${occurrence.id}`)
+            : null
+        } : {})
+      };
     });
   });
 }
@@ -461,6 +471,51 @@ function projectBuilderArticleViews(value) {
   return { observedAt: value.observedAt, views: { en, es } };
 }
 
+function projectBuilderArticleDates(value) {
+  if (!Array.isArray(value)) invalid('builderArticleDates must be an array');
+
+  const articleIds = new Set();
+  return value.map((record, index) => {
+    assertObject(record, `builder article date ${index}`);
+    if (Object.keys(record).sort().join(',') !== 'articleId,publishedAt') {
+      invalid(`builder article date ${index} must contain only articleId and publishedAt`);
+    }
+    assertNonEmptyString(record.articleId, `builder article date ${index} articleId`);
+    if (record.articleId.trim() !== record.articleId || !/^\/content\/[^/?#]+$/.test(record.articleId)) {
+      invalid(`builder article date ${index} articleId must be a canonical Builder article ID`);
+    }
+    if (articleIds.has(record.articleId)) {
+      invalid(`duplicate Builder article ID ${record.articleId}`);
+    }
+    articleIds.add(record.articleId);
+
+    const publishedAt = articlePublicationInstant(record.publishedAt, `builder article date ${index} publishedAt`);
+    if (publishedAt > Date.now()) invalid(`builder article date ${index} cannot be future-dated`);
+    return { articleId: record.articleId, publishedAt: record.publishedAt };
+  });
+}
+
+function projectDelivery(value, label) {
+  if (value === null) return null;
+  assertObject(value, `${label} delivery`);
+  if (Object.keys(value).sort().join(',') !== 'earliest,latest') {
+    invalid(`${label} delivery must contain only earliest and latest`);
+  }
+  if (!isRealDate(value.earliest) || !isRealDate(value.latest)) {
+    invalid(`${label} delivery bounds must be real calendar dates`);
+  }
+  if (value.earliest > value.latest) invalid(`${label} delivery bounds cannot be reversed`);
+  return { earliest: value.earliest, latest: value.latest };
+}
+
+function containsTalkDeliveryEvidence(talks) {
+  if (!Array.isArray(talks)) return false;
+  return talks.some((record) => record && typeof record === 'object' && !Array.isArray(record) &&
+    Array.isArray(record.occurrences) && record.occurrences.some((occurrence) =>
+      occurrence && typeof occurrence === 'object' && !Array.isArray(occurrence) &&
+      Object.hasOwn(occurrence, 'delivery')));
+}
+
 export function buildContentStatsInputs({ articleConfig, talks, books, articles } = {}) {
   const sourceIds = validateArticleConfig(articleConfig);
   const hasNewsletter = Object.hasOwn(articleConfig, 'newsletter');
@@ -476,6 +531,12 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
   const hasNewsletterEngagements = Object.hasOwn(articleConfig, 'newsletterEngagements');
   const hasBuilderArticleViews = Object.hasOwn(articleConfig, 'builderArticleViews');
   const hasArticleInventory = articles !== undefined;
+  const hasBuilderArticleDates = Object.hasOwn(articleConfig, 'builderArticleDates');
+  const hasTalkDelivery = containsTalkDeliveryEvidence(talks);
+  const hasDatedInventory = hasBuilderArticleDates || hasTalkDelivery;
+  if (hasDatedInventory && !hasArticleInventory) {
+    invalid('dated input requires articleInventory');
+  }
   if (hasNewsletterEngagements && articleConfig.newsletterEngagements !== true) {
     invalid('newsletterEngagements must be the literal true opt-in');
   }
@@ -503,10 +564,14 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
   const builderArticleViews = hasBuilderArticleViews
     ? projectBuilderArticleViews(articleConfig.builderArticleViews)
     : null;
+  const builderArticleDates = hasDatedInventory
+    ? projectBuilderArticleDates(hasBuilderArticleDates ? articleConfig.builderArticleDates : [])
+    : null;
   const articleInventory = hasArticleInventory ? projectArticles(articles) : null;
 
   return {
-    schemaVersion: hasArticleInventory ? 12
+    schemaVersion: hasDatedInventory ? 13
+      : hasArticleInventory ? 12
       : hasBuilderArticleViews ? 11
       : hasNewsletterEngagements ? 10
       : hasDirectoryRecordedSince ? 9
@@ -518,7 +583,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
     definitionVersion: 1,
     sources: structuredClone(articleConfig.sources),
     curated: {
-      talks: projectTalks(talks),
+      talks: projectTalks(talks, hasDatedInventory),
       books: projectBooks(books)
     },
     ...(newsletter ? { newsletter } : {}),
@@ -527,7 +592,8 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
     ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {}),
     ...(directoryAnalytics ? { directoryAnalytics } : {}),
     ...(builderArticleViews ? { builderArticleViews } : {}),
-    ...(articleInventory ? { articleInventory } : {})
+    ...(articleInventory ? { articleInventory } : {}),
+    ...(builderArticleDates ? { builderArticleDates } : {})
   };
 }
 

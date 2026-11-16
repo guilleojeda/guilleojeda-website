@@ -984,6 +984,27 @@ a:hover {
   line-height: 0.95;
 }
 
+.content-stats-count [data-stats-inventory-count-label] {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+  color: var(--forest-deep);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.content-stats-count [data-stats-inventory-uncertainty-live] {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
 .content-stats-meta {
   display: flex;
   flex-wrap: wrap;
