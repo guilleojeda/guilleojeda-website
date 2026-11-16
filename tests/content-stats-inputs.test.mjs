@@ -713,6 +713,7 @@ test('a directory history date selects input9 for Views-only and click-enabled s
   delete clickSource.newsletterEngagements;
   delete clickSource.builderArticleViews;
   delete clickSource.builderArticleDates;
+  delete clickSource.searchConsole.historyMonths;
   const source = {
     ...fixture(), articleConfig: clickSource
   };
@@ -887,6 +888,7 @@ test('the maintained article-source input8 can add Simple AWS available history 
   delete articleConfig.newsletterEngagements;
   delete articleConfig.builderArticleViews;
   delete articleConfig.builderArticleDates;
+  delete articleConfig.searchConsole.historyMonths;
   delete articleConfig.directoryAnalytics.recordedSince;
   const source = { ...fixture(), articleConfig };
   const before = build(source);
