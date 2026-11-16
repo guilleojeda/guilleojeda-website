@@ -710,6 +710,7 @@ function getNewsletterSentElements(section) {
 }
 
 function getElements(section) {
+  const reportStatus = section.querySelector('[data-stats-report-status]');
   const cards = Object.fromEntries(knownKinds.map((kind) => {
     const card = section.querySelector(`[data-stats-kind="${kind}"]`);
     if (!card) return [kind, null];
@@ -788,6 +789,7 @@ function getElements(section) {
   } : null;
 
   return {
+    reportStatus,
     cards,
     overviewRegion: section.querySelector('[data-stats-overview]'),
     overview: Object.fromEntries(knownKinds.map((kind) => [
@@ -950,6 +952,12 @@ function clearEditorialMetadata(elements) {
   }
 }
 
+function editorialLiveSentence(elements, locale, count, intervalLabel, uncertaintyText = '') {
+  const parts = [`${new Intl.NumberFormat(locale).format(count)} ${elements.baseCountLabel}`, intervalLabel];
+  if (uncertaintyText) parts.push(uncertaintyText);
+  return parts.join(' · ');
+}
+
 function renderEditorialUnavailable(elements, locale) {
   elements.card.hidden = false;
   elements.results.hidden = true;
@@ -958,10 +966,12 @@ function renderEditorialUnavailable(elements, locale) {
   elements.coverage.textContent = '';
   elements.collectedDate.textContent = '';
   clearEditorialMetadata(elements);
-  elements.status.textContent = elements.card.dataset.statsPeriodUnavailable?.trim()
+  const noPeriodData = elements.card.dataset.statsPeriodUnavailable?.trim()
     || editorialUnavailableCopy[locale].noPeriodData;
+  elements.status.textContent = noPeriodData;
   elements.status.hidden = false;
   elements.card.setAttribute('aria-busy', 'false');
+  return `${elements.baseCountLabel}: ${noPeriodData}`;
 }
 
 function articleRecordDate(record) {
@@ -1002,14 +1012,12 @@ function countEditorialPeriod(group, kind, language, bounds) {
 
 function renderEditorialGroup(group, locale, language, elements, kind, period) {
   if (period !== 'total' && group.definitionVersion !== 2) {
-    renderEditorialUnavailable(elements, locale);
-    return;
+    return renderEditorialUnavailable(elements, locale);
   }
 
   const bounds = inventoryPeriodBounds(group.collectedAt, period);
   if (!bounds) {
-    renderEditorialUnavailable(elements, locale);
-    return;
+    return renderEditorialUnavailable(elements, locale);
   }
 
   const result = period === 'total'
@@ -1031,16 +1039,17 @@ function renderEditorialGroup(group, locale, language, elements, kind, period) {
     elements.uncertaintyLive.textContent = uncertaintyText;
     elements.uncertaintyLive.hidden = result.uncertain === 0;
   }
+  return editorialLiveSentence(elements, locale, result.count, intervalLabel, uncertaintyText);
 }
 
 function renderGroup(group, locale, language, elements, kind, period) {
   if ((kind === 'articles' || kind === 'talks') && group) {
-    renderEditorialGroup(group, locale, language, elements, kind, period);
-    return;
+    return renderEditorialGroup(group, locale, language, elements, kind, period);
   }
   const count = group.counts[language];
   const coverage = group.sources.map((source) => localizeSource(source, locale)).join(', ');
   renderCount(count, coverage, formatCollectedDate(group.collectedAt, locale), locale, elements);
+  return null;
 }
 
 function renderCount(count, coverage, collectionDate, locale, elements) {
@@ -1065,6 +1074,7 @@ function renderUnavailable(elements) {
   elements.status.textContent = elements.card.dataset.statsUnavailable?.trim() || 'Statistics are temporarily unavailable.';
   elements.status.hidden = false;
   elements.card.setAttribute('aria-busy', 'false');
+  return elements.status.textContent;
 }
 
 function clearNewsletterSubscriber(elements, hidden = false) {
@@ -1110,21 +1120,28 @@ function renderNewsletter(snapshot, locale, language, elements) {
   }
 }
 
-function renderAll(snapshot, locale, language, elements) {
+function renderAll(snapshot, locale, language, elements, refreshFixed = true) {
   const groups = snapshot?.groups ?? null;
   const period = knownViewPeriods.includes(elements.periodSelector?.value) ? elements.periodSelector.value : '12m';
+  const editorialStatuses = [];
   for (const kind of knownKinds) {
     if (kind === 'newsletter') continue;
+    if (kind === 'books' && !refreshFixed) continue;
     const card = elements.cards[kind];
     const group = groups?.[kind];
     if (!card || !group) {
-      if (card) renderUnavailable(card);
+      if (card) {
+        const status = renderUnavailable(card);
+        if (kind === 'articles' || kind === 'talks') editorialStatuses.push(status);
+      }
       continue;
     }
-    renderGroup(group, locale, language, card, kind, period);
+    const status = renderGroup(group, locale, language, card, kind, period);
+    if (status) editorialStatuses.push(status);
   }
   const newsletter = elements.cards.newsletter;
-  if (newsletter) renderNewsletter(snapshot, locale, language, newsletter);
+  if (newsletter && refreshFixed) renderNewsletter(snapshot, locale, language, newsletter);
+  return editorialStatuses;
 }
 
 function newsletterEmailElementsReady(elements) {
@@ -1647,16 +1664,24 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
   clicks.status.textContent = '';
 }
 
-function renderReport(snapshot, locale, language, elements) {
+function updateReportLiveStatus(elements, text) {
+  if (!elements.reportStatus || elements.reportStatus.textContent === text) return;
+  elements.reportStatus.textContent = text;
+}
+
+function renderReport(snapshot, locale, language, elements, { refreshFixed = true } = {}) {
   updateRecordedTotalAvailability(snapshot, language, elements);
-  renderAll(snapshot, locale, language, elements);
-  renderNewsletterSent(snapshot, locale, language, elements.newsletterEmailsSent, elements.cards.newsletter?.card);
+  const editorialStatuses = renderAll(snapshot, locale, language, elements, refreshFixed);
+  if (refreshFixed) {
+    renderNewsletterSent(snapshot, locale, language, elements.newsletterEmailsSent, elements.cards.newsletter?.card);
+    renderBuilderViews(snapshot, locale, language, elements);
+  }
   renderNewsletterEmail(snapshot, locale, language, elements);
-  renderBuilderViews(snapshot, locale, language, elements);
   renderViews(snapshot, locale, language, elements);
   renderSearch(snapshot, locale, language, elements);
   renderDirectoryViews(snapshot, locale, language, elements);
   renderDirectoryOutboundClicks(snapshot, locale, language, elements);
+  updateReportLiveStatus(elements, editorialStatuses.filter(Boolean).join(' · '));
 }
 
 async function loadContentStats(section) {
@@ -1693,12 +1718,13 @@ async function loadContentStats(section) {
     || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
     || viewsElementsReady(elements) || searchElementsReady(elements)
     || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements));
-  const renderSelection = () => renderReport(snapshot, locale, elements.selector.value, elements);
+  const renderSelection = () => renderReport(snapshot, locale, elements.selector.value, elements, { refreshFixed: true });
+  const renderPeriod = () => renderReport(snapshot, locale, elements.selector.value, elements, { refreshFixed: false });
   renderSelection();
   elements.selector.addEventListener('change', renderSelection);
   if (hasPeriodControl) {
     elements.periodSelector.disabled = !snapshot;
-    elements.periodSelector.addEventListener('change', renderSelection);
+    elements.periodSelector.addEventListener('change', renderPeriod);
   }
 }
 

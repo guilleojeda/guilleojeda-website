@@ -686,7 +686,6 @@ function validateInput(input) {
     if (hasNewsletterEngagements) expectedKeys.push("newsletterEngagements");
     if (!exactKeys(input, expectedKeys) ||
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"]) ||
-        input.schemaVersion === 13 && !Array.isArray(input.builderArticleDates) ||
         hasAnalytics && !hasNewsletter ||
         hasSearchConsole && (!hasNewsletter || !hasAnalytics) ||
         hasNewsletterEngagements && input.newsletterEngagements !== true) {

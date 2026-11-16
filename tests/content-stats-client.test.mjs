@@ -132,33 +132,11 @@ function datedArticleFixtures(counts = { all: 11, en: 7, es: 4 }, collectedAt = 
   return records;
 }
 
-function mutableArticleGroup(group) {
-  let syncing = false;
-  const syncRecords = () => {
-    if (syncing || group.definitionVersion !== 2 || !group.counts || !Number.isSafeInteger(group.counts.en)
-      || !Number.isSafeInteger(group.counts.es) || group.counts.en < 0 || group.counts.es < 0) return;
-    syncing = true;
-    group.records = datedArticleFixtures(
-      { all: group.counts.en + group.counts.es, en: group.counts.en, es: group.counts.es },
-      group.collectedAt
-    );
-    syncing = false;
-  };
-  const counts = new Proxy(group.counts, {
-    set(target, property, value) {
-      target[property] = value;
-      syncRecords();
-      return true;
-    }
-  });
-  group.counts = counts;
-  return new Proxy(group, {
-    set(target, property, value) {
-      target[property] = value;
-      if (property === 'counts' || property === 'collectedAt') syncRecords();
-      return true;
-    }
-  });
+function setDatedArticleFixture(data, counts, collectedAt = data.groups.articles.collectedAt) {
+  data.groups.articles.counts = { ...counts };
+  data.groups.articles.collectedAt = collectedAt;
+  data.groups.articles.records = datedArticleFixtures(counts, collectedAt);
+  return data;
 }
 
 function datedTalkFixtures() {
@@ -166,35 +144,6 @@ function datedTalkFixtures() {
     ...Array.from({ length: 2 }, () => ({ language: 'en', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } })),
     ...Array.from({ length: 4 }, () => ({ language: 'es', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } }))
   ];
-}
-
-function mutableTalkGroup(group) {
-  let syncing = false;
-  const syncOccurrences = () => {
-    if (syncing || group.definitionVersion !== 2 || !group.counts || !Number.isSafeInteger(group.counts.en)
-      || !Number.isSafeInteger(group.counts.es) || group.counts.en < 0 || group.counts.es < 0) return;
-    syncing = true;
-    group.occurrences = [
-      ...Array.from({ length: group.counts.en }, () => ({ language: 'en', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } })),
-      ...Array.from({ length: group.counts.es }, () => ({ language: 'es', delivery: { earliest: '2026-07-27', latest: '2026-07-27' } }))
-    ];
-    syncing = false;
-  };
-  const counts = new Proxy(group.counts, {
-    set(target, property, value) {
-      target[property] = value;
-      syncOccurrences();
-      return true;
-    }
-  });
-  group.counts = counts;
-  return new Proxy(group, {
-    set(target, property, value) {
-      target[property] = value;
-      if (property === 'counts') syncOccurrences();
-      return true;
-    }
-  });
 }
 
 function threeGroupSnapshot({ legacy = false } = {}) {
@@ -212,10 +161,8 @@ function threeGroupSnapshot({ legacy = false } = {}) {
   if (!legacy) {
     articles.definitionVersion = 2;
     articles.records = datedArticleFixtures(articles.counts, articles.collectedAt);
-    articles = mutableArticleGroup(articles);
     talks.definitionVersion = 2;
     talks.occurrences = datedTalkFixtures();
-    talks = mutableTalkGroup(talks);
   }
   return {
     schemaVersion: 1,
@@ -405,7 +352,7 @@ function snapshotWithArticleViews({ records = articleViewsRecords(), definitionV
 }
 
 function overviewSnapshot() {
-  const data = snapshotWithArticleViews();
+  const data = snapshotWithArticleViews({ legacy: true });
   data.groups.articles.counts = { all: 12_345, en: 9_000, es: 3_345 };
   data.groups.talks.counts = { all: 67, en: 23, es: 44 };
   data.groups.books.counts = { all: 1_234, en: 734, es: 500 };
@@ -737,19 +684,21 @@ const builderArticleViewsCopy = {
 };
 
 function makeCard(kind, locale) {
+  const isEditorial = kind === 'articles' || kind === 'talks';
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
     attributes: { 'aria-busy': 'false' }
   });
   const status = card.appendChild(new SemanticElement({
     dataset: { statsStatus: '' },
+    attributes: isEditorial ? {} : { role: 'status', 'aria-live': 'polite' },
     textContent: loadingCopy[locale][kind],
     hidden: true
   }));
   const results = card.appendChild(new SemanticElement({ dataset: { statsResults: '' }, hidden: true }));
   const countRegion = results.appendChild(new SemanticElement({
     dataset: { statsCountRegion: '' },
-    attributes: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }
+    attributes: isEditorial ? {} : { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }
   }));
   const count = countRegion.appendChild(new SemanticElement({ dataset: { statsCount: '' } }));
   const countLabel = countRegion.appendChild(new SemanticElement({
@@ -1082,6 +1031,10 @@ function createPage({
     value: selectedInitialPeriod,
     disabled: true
   }));
+  const reportStatus = section.appendChild(new SemanticElement({
+    dataset: { statsReportStatus: '' },
+    attributes: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }
+  }));
   const periodOptions = Object.fromEntries(articleViewPeriods.map((period) => {
     const option = periodSelector.appendChild(new SemanticElement({
       attributes: { value: period },
@@ -1169,6 +1122,7 @@ function createPage({
     results: cards.articles.results,
     selector,
     periodSelector,
+    reportStatus,
     periodOptions,
     section,
     catalog,
@@ -1343,6 +1297,18 @@ function assertEditorialInterval(page, locale, kind, startDate, endDate) {
   const text = visibleEditorialText(page, kind);
   assert.ok(text.includes(expectedDateOnly(locale, startDate)), `${kind} shows its localized inclusive start date`);
   assert.ok(text.includes(expectedDateOnly(locale, endDate)), `${kind} shows its localized inclusive end date`);
+}
+
+function assertAnnouncedEditorialResults(page) {
+  const announcement = page.reportStatus.textContent;
+  for (const kind of ['articles', 'talks']) {
+    const { count, countLabel, uncertaintyLive } = page.cards[kind];
+    assert.ok(announcement.includes(`${count.textContent} ${countLabel.textContent}`),
+      `${kind} announces the visible count and its interval`);
+    if (!uncertaintyLive.hidden) {
+      assert.ok(announcement.includes(uncertaintyLive.textContent), `${kind} announces the visible date uncertainty`);
+    }
+  }
 }
 
 function assertPeriodHasNoData(page, locale, kind) {
@@ -2183,7 +2149,7 @@ for (const locale of ['en', 'es']) {
 
   test(`${locale} an invalid directory Views group does not poison other families`, async () => {
     const data = snapshotWithDirectoryViews({ definitionVersion: 2 });
-    const page = createPage({ locale, data });
+    const page = createPage({ locale, data, initialPeriod: '12m' });
     await page.settle();
 
     assertDirectoryViewsUnavailable(page, locale);
@@ -2503,9 +2469,14 @@ for (const locale of ['en', 'es']) {
       if (period === 'total') {
         assert.equal(page.cards.articles.count.textContent, '11');
         assert.equal(page.cards.talks.count.textContent, '6');
+        assert.match(page.reportStatus.textContent, locale === 'es' ? /11 .*Total registrado.*6 .*Total registrado/i : /11 .*Recorded total.*6 .*Recorded total/i);
       } else {
         assertPeriodHasNoData(page, locale, 'articles');
         assertPeriodHasNoData(page, locale, 'talks');
+        assert.equal(page.reportStatus.hidden, false);
+        assert.match(page.reportStatus.textContent, locale === 'es'
+          ? /artículos publicados: No hay datos.*sesiones: No hay datos/i
+          : /published articles: No data.*sessions: No data/i);
       }
       assert.equal(page.cards.books.count.textContent, fixedCounts.books, 'fixed Books counts ignore the activity period');
       assert.equal(page.cards.newsletter.count.textContent, fixedCounts.newsletter, 'current subscribers ignore the activity period');
@@ -2824,7 +2795,7 @@ for (const locale of ['en', 'es']) {
     const data = snapshotWithArticleSearchClicks();
     const originalDate = '2025-11-03T00:00:00.000Z';
     data.groups.articles.sources = [caylent, builderCenter, simpleAws];
-    data.groups.articles.collectedAt = originalDate;
+    setDatedArticleFixture(data, data.groups.articles.counts, originalDate);
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -2874,7 +2845,7 @@ for (const locale of ['en', 'es']) {
   test(`${locale} an expanded Simple AWS source set can report a measured zero`, async () => {
     const data = snapshotWithNewsletter();
     data.groups.articles.sources = [caylent, builderCenter, simpleAws];
-    data.groups.articles.counts = { all: 0, en: 0, es: 0 };
+    setDatedArticleFixture(data, { all: 0, en: 0, es: 0 });
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -2893,8 +2864,7 @@ for (const locale of ['en', 'es']) {
     const data = snapshotWithArticleSearchClicks();
     const collectedAt = '2025-11-03T00:00:00.000Z';
     data.groups.articles.sources = [caylent, builderCenter, cloudyThings];
-    data.groups.articles.counts = { all: 13, en: 9, es: 4 };
-    data.groups.articles.collectedAt = collectedAt;
+    setDatedArticleFixture(data, { all: 13, en: 9, es: 4 }, collectedAt);
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -2942,8 +2912,7 @@ for (const locale of ['en', 'es']) {
     const data = snapshotWithArticleSearchClicks();
     const collectedAt = '2026-10-26T12:34:56.000Z';
     data.groups.articles.sources = [caylent, builderCenter, simpleAws, cloudyThings, dondeAprendoAws];
-    data.groups.articles.counts = { all: 209, en: 13, es: 196 };
-    data.groups.articles.collectedAt = collectedAt;
+    setDatedArticleFixture(data, { all: 209, en: 13, es: 196 }, collectedAt);
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -2967,8 +2936,7 @@ for (const locale of ['en', 'es']) {
     const data = snapshotWithArticleSearchClicks();
     const collectedAt = '2026-10-26T14:15:16.000Z';
     data.groups.articles.sources = [caylent, builderCenter, simpleAws, cloudyThings, dondeAprendoAws, awsForEngineers];
-    data.groups.articles.counts = { all: 17, en: 12, es: 5 };
-    data.groups.articles.collectedAt = collectedAt;
+    setDatedArticleFixture(data, { all: 17, en: 12, es: 5 }, collectedAt);
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -2997,8 +2965,7 @@ for (const locale of ['en', 'es']) {
     const data = snapshotWithArticleSearchClicks();
     const collectedAt = '2024-10-19T00:00:00.000Z';
     data.groups.articles.sources = [caylent, builderCenter, simpleAws, cloudyThings];
-    data.groups.articles.counts = { all: 0, en: 0, es: 0 };
-    data.groups.articles.collectedAt = collectedAt;
+    setDatedArticleFixture(data, { all: 0, en: 0, es: 0 }, collectedAt);
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -3357,7 +3324,7 @@ for (const locale of ['en', 'es']) {
 
   test(`${locale} overview values use All content languages and stay fixed while detail filters change`, async () => {
     const data = overviewSnapshot();
-    const page = createPage({ locale, data });
+    const page = createPage({ locale, data, initialPeriod: '12m' });
     const allLanguageValues = {
       articles: data.groups.articles.counts.all,
       talks: data.groups.talks.counts.all,
@@ -3367,10 +3334,13 @@ for (const locale of ['en', 'es']) {
     await page.settle();
 
     for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
-    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(data.groups.articles.counts.all),
-      'the detailed count initially uses All');
     assert.equal(page.cards.articles.views.value.textContent, new Intl.NumberFormat(locale).format(data.groups.articleViews.records['12m'].views),
       'the detailed activity starts at twelve months');
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(data.groups.articles.counts.all),
+      'the legacy editorial count uses Total registered');
 
     page.selector.value = 'en';
     page.selector.dispatch('change');
@@ -3386,6 +3356,8 @@ for (const locale of ['en', 'es']) {
     assertViewsVisible(page, locale, '30d');
     for (const kind of overviewKinds) assertOverviewCount(page, locale, kind, allLanguageValues[kind]);
 
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
     page.selector.value = 'es';
     page.selector.dispatch('change');
     assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(data.groups.articles.counts.es));
@@ -4481,7 +4453,7 @@ test('Builder Center fixed views cannot enable Total registered when editorial i
 test('Builder Center recorded zero stays visible for All, English, and Spanish content', async () => {
   const group = builderArticleViewsGroup({ views: { all: 0, en: 0, es: 0 } });
   const data = snapshotWithBuilderArticleViews({ group });
-  data.groups.articles.counts = { all: 0, en: 0, es: 0 };
+  setDatedArticleFixture(data, { all: 0, en: 0, es: 0 });
   const page = createPage({ locale: 'es', data });
   await page.settle();
 
@@ -6728,12 +6700,14 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.talks.count.textContent, new Intl.NumberFormat(locale).format(talkCount), `${period} counts each eligible delivery`);
       assertEditorialInterval(page, locale, 'articles', startDate, '2026-11-16');
       assertEditorialInterval(page, locale, 'talks', startDate, '2026-11-16');
+      assertAnnouncedEditorialResults(page);
       assert.equal(page.cards.books.count.textContent, '3', 'the fixed Books total is independent of the period');
       assert.equal(page.cards.newsletter.count.textContent, '27', 'current subscribers are independent of the period');
       assertBuilderViewsVisible(page, locale, 'all');
       assert.equal(page.document.activeElement, page.periodSelector, 'changing the period keeps focus on its control');
-      assert.equal(page.cards.articles.countRegion.getAttribute('role'), 'status');
-      assert.equal(page.cards.articles.countRegion.getAttribute('aria-live'), 'polite');
+      assert.equal(page.cards.articles.countRegion.getAttribute('role'), null);
+      assert.equal(page.reportStatus.getAttribute('role'), 'status');
+      assert.equal(page.reportStatus.getAttribute('aria-live'), 'polite');
       assert.equal(page.fetchCount, 1, 'period changes reuse the initial snapshot');
     }
 
@@ -6762,6 +6736,7 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.count.textContent, '0', 'a known zero for dated Spanish articles remains visible');
     assert.equal(page.cards.talks.count.textContent, '1', 'Spanish deliveries remain separate from English ones');
     assert.equal(page.cards.articles.results.hidden, false, 'a measured zero is not a missing-data state');
+    assertAnnouncedEditorialResults(page);
     assert.equal(page.periodOptions.total.disabled, false, 'Spanish retains its valid editorial totals');
     assert.equal(page.overviewValues.articles.textContent, '12', 'the overview does not follow the content-language filter');
     assert.equal(page.fetchCount, 1);
@@ -6885,6 +6860,8 @@ for (const locale of ['en', 'es']) {
     assert.equal(uncertainPage.cards.talks.results.hidden, false);
     assert.equal(uncertainPage.cards.talks.count.textContent, '1', 'only the contained range is a confirmed delivery in the window');
     assertUncertainEditorialCount(uncertainPage, locale, 'talks', 2, interval);
+    assertAnnouncedEditorialResults(uncertainPage);
+    const previousUncertainty = ['articles', 'talks'].map((kind) => uncertainPage.cards[kind].uncertaintyLive.textContent);
     uncertainPage.selector.value = 'es';
     uncertainPage.selector.dispatch('change');
     assert.equal(uncertainPage.cards.talks.count.textContent, '0', 'the outside and overlapping Spanish ranges are not confirmed deliveries');
@@ -6894,8 +6871,13 @@ for (const locale of ['en', 'es']) {
     uncertainPage.periodSelector.value = 'total';
     uncertainPage.periodSelector.dispatch('change');
     assert.equal(uncertainPage.cards.talks.count.textContent, '4', 'the total counts all delivered occurrences, irrespective of date certainty');
-    assert.equal(uncertainPage.cards.talks.countRegion.getAttribute('role'), 'status');
-    assert.equal(uncertainPage.cards.talks.countRegion.getAttribute('aria-live'), 'polite');
+    assert.equal(uncertainPage.cards.talks.countRegion.getAttribute('role'), null);
+    assert.equal(uncertainPage.reportStatus.getAttribute('role'), 'status');
+    assert.equal(uncertainPage.reportStatus.getAttribute('aria-live'), 'polite');
+    assertAnnouncedEditorialResults(uncertainPage);
+    for (const phrase of previousUncertainty) {
+      assert.ok(!uncertainPage.reportStatus.textContent.includes(phrase), 'the total announcement drops period uncertainty');
+    }
     assert.equal(uncertainPage.fetchCount, 1);
   });
 }

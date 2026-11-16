@@ -333,9 +333,12 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
           </div>
         </div>
 
+        <p class="content-stats-live-status" data-stats-report-status role="status" aria-live="polite" aria-atomic="true"></p>
+
     <div class="content-stats-cards">
       {cardKinds.map((kind) => {
         const card = copy.cards[kind];
+        const isEditorial = kind === 'articles' || kind === 'talks';
         return (
           <article class="content-stats-card" data-stats-kind={kind} data-stats-unavailable={card.unavailable} data-stats-period-unavailable={copy.noPeriodData} aria-labelledby={`content-stats-${kind}-title`} aria-busy="false">
             <div class="content-stats-card-heading">
@@ -350,13 +353,19 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
               </div>
             </div>
 
-            <p class="content-stats-status" data-stats-status role="status" aria-live="polite" hidden>{card.loading}</p>
+            <p class="content-stats-status" data-stats-status role={isEditorial ? undefined : 'status'} aria-live={isEditorial ? undefined : 'polite'} hidden>{card.loading}</p>
 
             <div class="content-stats-results" data-stats-results hidden>
-              <p class="content-stats-count" data-stats-count-region role="status" aria-live="polite" aria-atomic="true">
+              <p
+                class="content-stats-count"
+                data-stats-count-region
+                role={isEditorial ? undefined : 'status'}
+                aria-live={isEditorial ? undefined : 'polite'}
+                aria-atomic={isEditorial ? undefined : 'true'}
+              >
                 <span data-stats-count></span>
-                <span data-stats-count-label data-stats-inventory-count-label={kind === 'articles' || kind === 'talks' ? '' : undefined}>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
-                {(kind === 'articles' || kind === 'talks') && <span data-stats-inventory-uncertainty-live hidden></span>}
+                <span data-stats-count-label data-stats-inventory-count-label={isEditorial ? '' : undefined}>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
+                {isEditorial && <span data-stats-inventory-uncertainty-live hidden></span>}
               </p>
 
               <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
