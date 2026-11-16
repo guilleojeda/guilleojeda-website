@@ -12474,8 +12474,8 @@ test("phase 1 input13 merges Builder dates by stable ID before Article dedupe an
 test("phase 1 rejects malformed input13 root shapes before any provider request", async () => {
   const valid = phaseThirteenPeriodInput();
   const invalidShapes = [
-    ["Builder date list is not an array", (input) => { input.builderArticleDates = {}; }],
     ["required Article inventory is absent", (input) => { delete input.articleInventory; }],
+    ["required Builder date list is absent", (input) => { delete input.builderArticleDates; }],
     ["unexpected root property", (input) => { input.unexpectedPeriodFact = true; }]
   ];
   for (const [name, mutate] of invalidShapes) {
@@ -12513,6 +12513,12 @@ test("phase 1 malformed nested dates and duplicate IDs omit only their family an
   const compatiblePriorBytes = JSON.stringify(seeded);
 
   const invalidFacts = [
+    ["articles", "Builder date list is not an array", (next) => {
+      next.builderArticleDates = {};
+    }],
+    ["articles", "null Builder date list", (next) => {
+      next.builderArticleDates = null;
+    }],
     ["articles", "invalid Builder date", (next) => {
       next.builderArticleDates[0].publishedAt = "2024-02-30";
     }],
@@ -12557,7 +12563,10 @@ test("phase 1 malformed nested dates and duplicate IDs omit only their family an
     const { groups } = await readPut(harness.putCalls.at(-1));
     assert.equal(Object.hasOwn(groups, family), false, `${name} cannot publish or retain ${family}`);
     const healthy = family === "articles" ? "talks" : "articles";
-    assert.ok(groups[healthy] && groups.books, `${name} leaves ${healthy} and books available`);
+    for (const sibling of [healthy, "books"]) {
+      assert.equal(groups[sibling]?.collectedAt, "2026-10-18T01:00:00.000Z",
+        `${name} still refreshes ${sibling}`);
+    }
     assert.deepEqual(groups.builderArticleViews, seeded.groups.builderArticleViews,
       `${name} leaves the independent manual Builder observation available`);
   }

@@ -333,6 +333,8 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
           </div>
         </div>
 
+        <p class="content-stats-live-status" data-stats-report-status role="status" aria-live="polite" aria-atomic="true"></p>
+
     <div class="content-stats-cards">
       {cardKinds.map((kind) => {
         const card = copy.cards[kind];
@@ -350,10 +352,16 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
               </div>
             </div>
 
-            <p class="content-stats-status" data-stats-status role="status" aria-live="polite" hidden>{card.loading}</p>
+            <p class="content-stats-status" data-stats-status hidden>{card.loading}</p>
 
             <div class="content-stats-results" data-stats-results hidden>
-              <p class="content-stats-count" data-stats-count-region role="status" aria-live="polite" aria-atomic="true">
+              <p
+                class="content-stats-count"
+                data-stats-count-region
+                role={kind === 'articles' || kind === 'talks' ? undefined : 'status'}
+                aria-live={kind === 'articles' || kind === 'talks' ? undefined : 'polite'}
+                aria-atomic={kind === 'articles' || kind === 'talks' ? undefined : 'true'}
+              >
                 <span data-stats-count></span>
                 <span data-stats-count-label data-stats-inventory-count-label={kind === 'articles' || kind === 'talks' ? '' : undefined}>{kind === 'newsletter' ? copy.currentSubscribers : card.unit}</span>
                 {(kind === 'articles' || kind === 'talks') && <span data-stats-inventory-uncertainty-live hidden></span>}

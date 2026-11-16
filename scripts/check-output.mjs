@@ -659,6 +659,12 @@ function checkContentStatsShell(page, html) {
   assert.match(normalizedText(reportSummary), locale === 'en' ? /^explore statistics$/ : /^explorar estadisticas$/,
     `${locale} full-report summary is localized and describes the action`);
   assert.ok(overview.end <= reportDisclosure.start, `${locale} overview stays outside and before the closed report`);
+  const reportStatus = extractElement(reportDisclosure.html, null, 'data-stats-report-status');
+  assert.ok(reportStatus, `${locale} report has one persistent editorial status region`);
+  mustContain(reportStatus.html, 'role="status"', `${locale} editorial report status has a status role`);
+  mustContain(reportStatus.html, 'aria-live="polite"', `${locale} editorial report status announces changes politely`);
+  mustContain(reportStatus.html, 'aria-atomic="true"', `${locale} editorial report status is atomic`);
+  assert.doesNotMatch(reportStatus.html, /\shidden(?:\s|=|>)/i, `${locale} editorial report status stays mounted and exposed`);
   const overviewAndScopeText = normalizedText(statsHtml.slice(0, reportDisclosure.start));
   assert.match(overviewAndScopeText, locale === 'en' ? /all content languages/ : /todos? los idiomas de contenido/,
     `${locale} visible overview identifies its all-language scope`);
@@ -812,7 +818,10 @@ function checkContentStatsShell(page, html) {
     for (const field of ['status', 'results', 'count', 'count-label', 'coverage', 'collected-date']) {
       assert.ok(new RegExp(`\\bdata-stats-${field}(?:\\s|=|>)`).test(card), `${locale} ${kind} needs its own ${field}`);
     }
-    mustContain(card, 'aria-live="polite"', `${locale} ${kind} accessible updates`);
+    if (kind === 'books' || kind === 'newsletter') {
+      mustContain(card, 'role="status"', `${locale} ${kind} accessible updates`);
+      mustContain(card, 'aria-live="polite"', `${locale} ${kind} accessible updates`);
+    }
   }
   const newsletterUnit = newsletterCard.match(/<[^>]*\bdata-stats-count-label\b[^>]*>([\s\S]*?)<\//i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
   if (locale === 'en') assert.match(newsletterUnit, /(?:active|current) subscribers?|subscriptions?/i, 'English newsletter count keeps its current-subscriber meaning');
