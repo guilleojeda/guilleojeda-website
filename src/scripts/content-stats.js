@@ -709,9 +709,11 @@ function getNewsletterSentElements(section) {
   return {
     region,
     attributePrefix: 'data-stats-newsletter-sent',
+    heading: region.querySelector('#content-stats-newsletter-sent-title'),
     status: region.querySelector('[data-stats-newsletter-sent-status]'),
     results: region.querySelector('[data-stats-newsletter-sent-results]'),
     value: region.querySelector('[data-stats-newsletter-sent-value]'),
+    totalLabel: region.querySelector('[data-stats-newsletter-sent-label]'),
     coverage: region.querySelector('[data-stats-newsletter-sent-coverage]'),
     collectedDate: region.querySelector('[data-stats-newsletter-sent-collected-date]')
   };
@@ -1257,39 +1259,50 @@ function renderNewsletterSentLoading(elements) {
   elements.status.hidden = false;
 }
 
-function renderNewsletterSentUnavailable(elements, locale, hidden = false) {
-  if (!newsletterSentElementsReady(elements)) return;
+function renderNewsletterSentUnavailable(elements, locale, hidden = false, message = null) {
+  if (!newsletterSentElementsReady(elements)) return null;
   elements.region.hidden = hidden;
   elements.results.hidden = true;
   clearNewsletterSentResult(elements);
-  elements.status.textContent = hidden
+  const statusText = hidden
     ? ''
-    : elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
+    : message
+      || elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
       || (locale === 'es' ? 'El total informado de emails enviados no está disponible.' : 'The reported emails-sent total is unavailable.');
+  elements.status.textContent = statusText;
   elements.status.hidden = hidden;
+  return statusText;
 }
 
-function renderNewsletterSent(snapshot, locale, language, elements, newsletterCard) {
-  if (!newsletterSentElementsReady(elements)) return;
-  // debug
+function renderNewsletterSent(snapshot, locale, language, elements, newsletterCard, period = '12m') {
+  if (!newsletterSentElementsReady(elements)) return null;
   if (language === 'es' || newsletterCard?.hidden) {
     renderNewsletterSentUnavailable(elements, locale, true);
-    return;
+    return null;
   }
 
   const group = snapshot?.newsletterEmailsSent;
-  if (!group) {
-    renderNewsletterSentUnavailable(elements, locale);
-    return;
+  if (snapshot && period !== 'total') {
+    const message = elements.region.getAttribute(`${elements.attributePrefix}-period-unavailable`)?.trim()
+      || (locale === 'es' ? 'Envíos del período no disponibles.' : 'Sends for this period are unavailable.');
+    return renderNewsletterSentUnavailable(elements, locale, false, message);
   }
 
+  if (!group) return renderNewsletterSentUnavailable(elements, locale);
+
   elements.region.hidden = false;
-  elements.value.textContent = new Intl.NumberFormat(locale).format(group.sent);
+  const formattedSent = new Intl.NumberFormat(locale).format(group.sent);
+  const totalLabel = elements.totalLabel?.textContent?.trim()
+    || (locale === 'es' ? 'Acumulado de Beehiiv' : 'Beehiiv cumulative total');
+  elements.value.textContent = formattedSent;
   elements.coverage.textContent = group.publication.label;
   elements.collectedDate.textContent = formatCollectedDate(group.collectedAt, locale);
   elements.results.hidden = false;
   elements.status.hidden = true;
   elements.status.textContent = '';
+  const heading = elements.heading?.textContent?.trim()
+    || (locale === 'es' ? 'Emails enviados' : 'Emails sent');
+  return `${heading}, ${formattedSent} (${totalLabel})`;
 }
 
 function builderViewsElementsReady(elements) {
@@ -1450,8 +1463,9 @@ function updateRecordedTotalAvailability(snapshot, language, elements) {
   const searchTotalSupported = language !== 'es' && Boolean(snapshot?.articleSearchClicks?.total);
   const directoryTotalSupported = language !== 'en'
     && Boolean(snapshot?.directoryViews?.total || snapshot?.directoryOutboundClicks?.total);
+  const newsletterSentTotalSupported = language !== 'es' && Boolean(snapshot?.newsletterEmailsSent);
   const totalSupported = articlesTotalSupported || talksTotalSupported || articleTotalSupported
-    || searchTotalSupported || directoryTotalSupported;
+    || searchTotalSupported || directoryTotalSupported || newsletterSentTotalSupported;
   totalOption.disabled = !totalSupported;
   if (!totalSupported && periodSelector.value === 'total') periodSelector.value = '12m';
 }
@@ -1739,9 +1753,17 @@ function updateReportLiveStatus(elements, text) {
 
 function renderReport(snapshot, locale, language, elements, { refreshFixed = true } = {}) {
   updateRecordedTotalAvailability(snapshot, language, elements);
+  const period = knownViewPeriods.includes(elements.periodSelector?.value) ? elements.periodSelector.value : '12m';
   const editorialStatuses = renderAll(snapshot, locale, language, elements, refreshFixed);
+  const newsletterSentStatus = renderNewsletterSent(
+    snapshot,
+    locale,
+    language,
+    elements.newsletterEmailsSent,
+    elements.cards.newsletter?.card,
+    period
+  );
   if (refreshFixed) {
-    renderNewsletterSent(snapshot, locale, language, elements.newsletterEmailsSent, elements.cards.newsletter?.card);
     renderBuilderViews(snapshot, locale, language, elements);
   }
   renderNewsletterEmail(snapshot, locale, language, elements);
@@ -1749,7 +1771,7 @@ function renderReport(snapshot, locale, language, elements, { refreshFixed = tru
   renderSearch(snapshot, locale, language, elements);
   renderDirectoryViews(snapshot, locale, language, elements);
   renderDirectoryOutboundClicks(snapshot, locale, language, elements);
-  updateReportLiveStatus(elements, editorialStatuses.filter(Boolean).join(' · '));
+  updateReportLiveStatus(elements, [...editorialStatuses, newsletterSentStatus].filter(Boolean).join(' · '));
 }
 
 async function loadContentStats(section) {
@@ -1782,6 +1804,7 @@ async function loadContentStats(section) {
 
   renderOverview(snapshot, locale, elements);
   const hasPeriodControl = elements.periodSelector && (snapshot?.groups?.articles || snapshot?.groups?.talks
+    || snapshot?.newsletterEmailsSent
     || newsletterEmailElementsReady(elements.newsletterEmailOpens)
     || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
     || viewsElementsReady(elements) || searchElementsReady(elements)

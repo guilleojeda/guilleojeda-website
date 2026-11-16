@@ -660,11 +660,11 @@ function checkContentStatsShell(page, html) {
     `${locale} full-report summary is localized and describes the action`);
   assert.ok(overview.end <= reportDisclosure.start, `${locale} overview stays outside and before the closed report`);
   const reportStatus = extractElement(reportDisclosure.html, null, 'data-stats-report-status');
-  assert.ok(reportStatus, `${locale} report has one persistent editorial status region`);
-  mustContain(reportStatus.html, 'role="status"', `${locale} editorial report status has a status role`);
-  mustContain(reportStatus.html, 'aria-live="polite"', `${locale} editorial report status announces changes politely`);
-  mustContain(reportStatus.html, 'aria-atomic="true"', `${locale} editorial report status is atomic`);
-  assert.doesNotMatch(reportStatus.html, /\shidden(?:\s|=|>)/i, `${locale} editorial report status stays mounted and exposed`);
+  assert.ok(reportStatus, `${locale} report has one persistent status region`);
+  mustContain(reportStatus.html, 'role="status"', `${locale} report status has a status role`);
+  mustContain(reportStatus.html, 'aria-live="polite"', `${locale} report status announces changes politely`);
+  mustContain(reportStatus.html, 'aria-atomic="true"', `${locale} report status is atomic`);
+  assert.doesNotMatch(reportStatus.html, /\shidden(?:\s|=|>)/i, `${locale} report status stays mounted and exposed`);
   const overviewAndScopeText = normalizedText(statsHtml.slice(0, reportDisclosure.start));
   assert.match(overviewAndScopeText, locale === 'en' ? /all content languages/ : /todos? los idiomas de contenido/,
     `${locale} visible overview identifies its all-language scope`);
@@ -890,37 +890,35 @@ function checkContentStatsShell(page, html) {
   }
   assert.ok(!new RegExp(`${sentAttribute}-(?:interval|start-date|end-date)\\b`, 'i').test(sentRegion.html),
     `${locale} reported sent total must not imply a selected activity period or invented coverage dates`);
-  const sentText = normalizedText(sentRegion.html);
-  if (locale === 'en') assert.match(sentText, /emails? sent.{0,60}cumulative totals?/, 'English sent row says this is a cumulative total');
-  else assert.match(sentText, /emails? enviados?.{0,60}total acumulado/, 'Spanish sent row says this is a cumulative total');
-
   const sentLabelReference = sentRegion.html.match(/\baria-labelledby=["']([^"']+)["']/i)?.[1];
   const sentAccessibleName = sentRegion.html.match(/\baria-label=["']([^"']+)["']/i)?.[1];
   assert.ok(sentLabelReference || sentAccessibleName, `${locale} reported sent-total row has an accessible name`);
-  if (sentLabelReference) {
-    assert.ok(new RegExp(`<[^>]*\\bid=["']${sentLabelReference}["'][^>]*>`, 'i').test(sentRegion.html),
-      `${locale} reported sent-total row references its own label`);
-  }
-  if (sentAccessibleName) {
-    assert.match(normalizedText(sentAccessibleName), locale === 'en' ? /emails? sent.*cumulative total/ : /emails? enviados?.*total acumulado/,
-      `${locale} reported sent-total accessible name is localized`);
-  }
+  const sentHeading = sentLabelReference && extractElement(sentRegion.html, null, 'id', sentLabelReference);
+  assert.ok(!sentLabelReference || sentHeading, `${locale} reported sent-total row references its own label`);
+  assert.equal(normalizedText(sentHeading?.html ?? sentAccessibleName), locale === 'en' ? 'emails sent' : 'emails enviados',
+    `${locale} sent row names the metric in both period and total states`);
   const sentStatus = extractElement(sentRegion.html, null, `${sentAttribute}-status`);
   assert.ok(sentStatus, `${locale} reported sent total needs its own loading and unavailable status`);
-  mustContain(sentStatus.html, 'role="status"', `${locale} sent-total status has a status role`);
-  mustContain(sentStatus.html, 'aria-live="polite"', `${locale} sent-total status announces updates politely`);
+  assert.doesNotMatch(sentRegion.html, /\brole=["']status["']|\baria-live=/i,
+    `${locale} the shared report status announces sends without duplicate live regions`);
   assert.match(normalizedText(sentStatus.html), locale === 'en' ? /loading.*emails? sent/ : /cargando.*emails? enviados?/,
     `${locale} sent-total status has localized loading copy`);
   assert.match(sentStatus.html, /\shidden(?:\s|=|>)/i, `${locale} sent-total loading copy starts hidden without JavaScript`);
   const sentResults = extractElement(sentRegion.html, null, `${sentAttribute}-results`);
   assert.ok(sentResults, `${locale} reported sent total needs its own results region`);
   assert.match(sentResults.html, /\shidden(?:\s|=|>)/i, `${locale} sent-total results start hidden without JavaScript`);
+  assert.match(normalizedText(sentResults.html), locale === 'en' ? /beehiiv cumulative total/ : /acumulado de beehiiv/,
+    `${locale} the result identifies the Beehiiv cumulative total`);
   const sentValue = extractElement(sentResults.html, null, `${sentAttribute}-value`);
   assert.ok(sentValue, `${locale} reported sent total needs a value element`);
   assert.equal(normalizedText(sentValue.html), '', `${locale} sent total has no initial placeholder number`);
   const sentUnavailable = sentRegion.html.match(/data-stats-newsletter-sent-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
   if (locale === 'en') assert.match(normalizedText(sentUnavailable), /unavailable|not available/, 'English sent-total unavailable copy is meaningful');
   else assert.match(normalizedText(sentUnavailable), /no disponible|no disponibles|no se pueden/, 'Spanish sent-total unavailable copy is meaningful');
+  const sentPeriodUnavailable = sentRegion.html.match(/data-stats-newsletter-sent-period-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
+  const expectedSentPeriodUnavailable = locale === 'en' ? /sends for this period are unavailable/ : /envios del periodo no disponibles/;
+  assert.match(normalizedText(sentPeriodUnavailable), expectedSentPeriodUnavailable,
+    `${locale} sent row explains that finite-period sends are unavailable`);
 
   const sentDisclosureParagraph = sourceBullets.find((bullet) => locale === 'en'
     ? /emails? sent/i.test(bullet)
@@ -941,8 +939,7 @@ function checkContentStatsShell(page, html) {
       'English disclosure says available history can be partial');
     assert.match(sentDisclosureParagraph, /(?:may|can|might|could)[\s\S]{0,80}(?:revis|chang|updat)|(?:revis|chang|updat)[\s\S]{0,80}(?:may|can|might|could)/i,
       'English disclosure says the provider figure may be revised');
-    assert.match(sentDisclosureParagraph, /(?:not|does not|is not|independent of|separate from)[\s\S]{0,100}(?:(?:selected|chosen|activity|reporting)[\s\S]{0,40}period|period selection)|(?:(?:selected|chosen|activity|reporting)[\s\S]{0,40}period|period selection)[\s\S]{0,100}(?:not|does not|is not|independent)/i,
-      'English disclosure separates the total from the selected activity period');
+    assert.match(sentDisclosureParagraph, /recorded total/i, 'English disclosure identifies the selection that shows sent totals');
   } else {
     assert.match(sentDisclosureParagraph, /proveedor|beehiiv/i, 'Spanish disclosure identifies the provider-reported figure');
     assert.match(sentDisclosureParagraph, /informad|reportad/i, 'Spanish disclosure qualifies the provider figure as reported');
@@ -958,8 +955,7 @@ function checkContentStatsShell(page, html) {
       'Spanish disclosure says available history can be partial');
     assert.match(sentDisclosureParagraph, /(?:puede|podria|pueden|podrian)[\s\S]{0,80}(?:revis|cambi|actualiz|correg)|(?:revis|cambi|actualiz|correg)[\s\S]{0,80}(?:puede|podria|pueden|podrian)/i,
       'Spanish disclosure says the provider figure may be revised');
-    assert.match(sentDisclosureParagraph, /(?:no|independiente de|separado de)[\s\S]{0,100}(?:periodo de actividad|periodo seleccionado|periodo)|(?:periodo de actividad|periodo seleccionado|periodo)[\s\S]{0,100}(?:no|independiente|separado)/i,
-      'Spanish disclosure separates the total from the selected activity period');
+    assert.match(sentDisclosureParagraph, /total registrado/i, 'Spanish disclosure identifies the selection that shows sent totals');
   }
 
   const emailDisclosure = sourcesCopy;
