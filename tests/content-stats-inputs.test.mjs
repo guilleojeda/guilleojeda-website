@@ -1787,6 +1787,41 @@ function periodDelivery(earliest, latest = earliest) {
   return { earliest, latest };
 }
 
+test('phase 2 projects only the bounded Search history setting in dated input13', async () => {
+  const build = await inputBuilder();
+  const source = addInputSixSelections(fixture());
+  source.articles = individualArticleFacts();
+  source.articleConfig.builderArticleDates = builderArticleDatesSelection();
+  source.articleConfig.directoryAnalytics = {
+    ...directoryAnalyticsClickSelection(),
+    recordedSince: '2024-01-21'
+  };
+  source.articleConfig.newsletterEngagements = true;
+  const before = build(source);
+  assert.equal(before.schemaVersion, 13);
+  assert.deepEqual(before.searchConsole, searchConsoleSelection());
+
+  const searchConsole = { ...source.articleConfig.searchConsole, historyMonths: 16 };
+  source.articleConfig.searchConsole = searchConsole;
+  const result = build(source);
+  assert.deepEqual(result, { ...before, searchConsole },
+    'activation adds only the verified Search history length to the protected artifact');
+  assert.notEqual(result.searchConsole, searchConsole, 'projection copies the maintained selector');
+
+  for (const historyMonths of [null, '16', 0, 12, 17, 16.5]) {
+    source.articleConfig.searchConsole = { ...searchConsole, historyMonths };
+    assert.throws(() => build(source), /searchConsole/i, `invalid history length ${historyMonths}`);
+  }
+
+  const legacySource = addInputSixSelections(fixture());
+  legacySource.articleConfig.searchConsole.historyMonths = 16;
+  assert.throws(() => build(legacySource), /searchConsole|history/i,
+    'existing protected versions keep their original exact Search selector');
+
+  source.articleConfig.searchConsole = searchConsoleSelection();
+  assert.deepEqual(build(source), before, 'removing history restores the exact compatible input');
+});
+
 test('phase 1 input13 adds verified Builder and talk dates while input12 remains compatible without date evidence', async () => {
   const build = await inputBuilder();
   const inventory = individualArticleFacts();
