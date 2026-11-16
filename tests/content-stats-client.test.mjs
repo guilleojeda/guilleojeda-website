@@ -1187,6 +1187,11 @@ function createPage({
   };
 }
 
+function expectedInventoryDate(locale, timestamp = collectedAt) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'America/Argentina/Cordoba' })
+    .format(new Date(timestamp));
+}
+
 function expectedDate(locale, timestamp = collectedAt) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
 }
@@ -2785,7 +2790,7 @@ for (const locale of ['en', 'es']) {
     assert.match(page.countLabel.textContent, locale === 'es'
       ? /^artículos publicados · Total registrado · / : /^published articles · Recorded total · /);
     assert.equal(page.coverage.textContent, 'Caylent', 'the saved snapshot must not be relabeled as newer coverage');
-    assert.equal(page.collectedDate.textContent, expectedDate(locale), 'the saved collection date must be preserved');
+    assert.equal(page.collectedDate.textContent, expectedInventoryDate(locale), 'the saved collection date must be preserved');
     assert.equal(page.section.dataset.statsLocale, locale, 'content filtering must not change the UI locale');
     assert.equal(page.fetchCount, 1);
     assert.equal(page.fetchedUrl, 'https://guilleojeda.com/content-stats/v1/current.json');
@@ -2800,7 +2805,7 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.results.hidden, false, 'the harness must observe successful rendering');
     assert.equal(page.count.textContent, '5', 'All should start selected');
     assert.equal(page.coverage.textContent, 'Caylent, AWS Builder Center');
-    assert.equal(page.collectedDate.textContent, expectedDate(locale));
+    assert.equal(page.collectedDate.textContent, expectedInventoryDate(locale));
 
     page.selector.value = 'en';
     page.selector.dispatch('change');
@@ -2826,7 +2831,7 @@ for (const locale of ['en', 'es']) {
     const articleCoverage = 'Caylent, AWS Builder Center, Simple AWS';
     assert.equal(page.cards.articles.count.textContent, '11');
     assert.equal(page.cards.articles.coverage.textContent, articleCoverage);
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, originalDate));
     assertViewsVisible(page, locale, '12m');
     assert.equal(page.cards.articles.views.value.textContent, new Intl.NumberFormat(locale).format(1200));
     assert.equal(page.cards.articles.views.coverage.textContent, simpleAws.label);
@@ -2844,14 +2849,14 @@ for (const locale of ['en', 'es']) {
     assertViewsVisible(page, locale, '30d');
     assertSearchVisible(page, locale, '30d');
     assert.equal(page.cards.articles.count.textContent, '11', 'period changes do not change the article aggregate');
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, originalDate));
 
     for (const [language, expectedCount] of [['en', '7'], ['es', '4'], ['all', '11']]) {
       page.selector.value = language;
       page.selector.dispatch('change');
       assert.equal(page.cards.articles.count.textContent, expectedCount, `${language} uses its retained aggregate count`);
       assert.equal(page.cards.articles.coverage.textContent, articleCoverage, `${language} keeps all actual source coverage`);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, originalDate));
       if (language === 'es') {
         assertViewsUnavailable(page, locale);
         assertSearchUnavailable(page, locale);
@@ -2896,7 +2901,7 @@ for (const locale of ['en', 'es']) {
     const articleCoverage = 'Caylent, AWS Builder Center, Cloudy Things';
     assert.equal(page.cards.articles.count.textContent, '13');
     assert.equal(page.cards.articles.coverage.textContent, articleCoverage);
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
     assertViewsVisible(page, locale, '12m');
     assert.equal(page.cards.articles.views.coverage.textContent, simpleAws.label, 'Views retain their own publication coverage');
     assert.equal(page.cards.articles.views.collectedDate.textContent, expectedDate(locale, articleViewPeriodFacts['12m'].collectedAt));
@@ -2912,14 +2917,14 @@ for (const locale of ['en', 'es']) {
     assertViewsVisible(page, locale, '30d');
     assertSearchVisible(page, locale, '30d');
     assert.equal(page.cards.articles.count.textContent, '13', 'activity periods do not change cumulative article counts');
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
 
     for (const [language, expectedCount] of [['all', '13'], ['en', '9'], ['es', '4']]) {
       page.selector.value = language;
       page.selector.dispatch('change');
       assert.equal(page.cards.articles.count.textContent, expectedCount, `${language} applies the saved aggregate locally`);
       assert.equal(page.cards.articles.coverage.textContent, articleCoverage, `${language} keeps actual Cloudy Things coverage`);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
       if (language === 'es') {
         assertViewsUnavailable(page, locale);
         assertSearchUnavailable(page, locale);
@@ -2946,14 +2951,14 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.status.hidden, true);
     assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(209), 'All shows the published total');
     assert.match(page.cards.articles.coverage.textContent, /Dónde Aprendo AWS/, 'source coverage names the new Spanish publication');
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), 'the collection date remains truthful');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt), 'the collection date remains truthful');
 
     for (const [language, expected] of [['en', 13], ['es', 196], ['all', 209]]) {
       page.selector.value = language;
       page.selector.dispatch('change');
       assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(expected), `${language} uses its own cumulative count`);
       assert.match(page.cards.articles.coverage.textContent, /Dónde Aprendo AWS/, `${language} retains actual source coverage`);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), `${language} retains the aggregate collection date`);
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt), `${language} retains the aggregate collection date`);
       assert.equal(page.fetchCount, 1, `${language} filtering reuses the snapshot`);
     }
   });
@@ -2971,7 +2976,7 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.status.hidden, true);
     assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(17));
     assert.match(page.cards.articles.coverage.textContent, /AWS for Engineers/, 'All names the new English source');
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
 
     page.periodSelector.value = '30d';
     page.periodSelector.dispatch('change');
@@ -2981,7 +2986,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(expected),
         `${language} keeps its cumulative count when the activity period changes`);
       assert.match(page.cards.articles.coverage.textContent, /AWS for Engineers/, `${language} retains selected source coverage`);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt),
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt),
         `${language} retains the aggregate collection date`);
       assert.equal(page.periodSelector.value, '30d');
       assert.equal(page.fetchCount, 1, 'language and activity changes reuse the single aggregate request');
@@ -3004,7 +3009,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.articles.status.hidden, true);
       assert.equal(page.cards.articles.count.textContent, '0');
       assert.equal(page.cards.articles.coverage.textContent, 'Caylent, AWS Builder Center, Simple AWS, Cloudy Things');
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt), 'retained expanded coverage keeps its original collection date');
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt), 'retained expanded coverage keeps its original collection date');
     }
     assert.equal(page.fetchCount, 1);
   });
@@ -3066,12 +3071,12 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.status.hidden, true);
     assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(618));
     assert.equal(page.cards.articles.coverage.textContent, expectedCoverage, 'All preserves exact automatic and individually selected source coverage');
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
     assertOverviewCount(page, locale, 'articles', 618);
 
     assert.equal(page.cards.talks.count.textContent, '6');
     assertCuratedCoverage(page, 'talks', locale);
-    assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
+    assert.equal(page.cards.talks.collectedDate.textContent, expectedInventoryDate(locale, talksCollectedAt));
     assert.equal(page.cards.books.count.textContent, '3');
     assertCuratedCoverage(page, 'books', locale);
     assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
@@ -3098,7 +3103,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.articles.count.textContent, '');
       assert.equal(page.cards.articles.status.hidden, false);
       assert.equal(page.cards.talks.count.textContent, String(expected.talks));
-      assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
+      assert.equal(page.cards.talks.collectedDate.textContent, expectedInventoryDate(locale, talksCollectedAt));
       assert.equal(page.cards.books.count.textContent, String(expected.books));
       assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
       assertOverviewCount(page, locale, 'articles', 618);
@@ -3133,7 +3138,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.selector.value, 'all');
       assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(618));
       assert.equal(page.cards.articles.coverage.textContent, expectedCoverage);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
       assert.equal(page.fetchCount, 1);
     });
   }
@@ -3158,7 +3163,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.articles.status.hidden, true);
       assert.equal(page.cards.articles.count.textContent, '0');
       assert.equal(page.cards.articles.coverage.textContent, expectedCoverage);
-      assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, collectedAt));
+      assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, collectedAt));
       assertOverviewCount(page, locale, 'articles', 0);
     }
     assert.equal(page.fetchCount, 1);
@@ -3182,7 +3187,7 @@ for (const locale of ['en', 'es']) {
       assertUnavailable(page, locale, 'articles');
       assertOverviewUnavailable(page, locale, 'articles');
       assert.equal(page.cards.talks.count.textContent, '6');
-      assert.equal(page.cards.talks.collectedDate.textContent, expectedDate(locale, talksCollectedAt));
+      assert.equal(page.cards.talks.collectedDate.textContent, expectedInventoryDate(locale, talksCollectedAt));
       assert.equal(page.cards.books.count.textContent, '3');
       assert.equal(page.cards.books.collectedDate.textContent, expectedDate(locale, booksCollectedAt));
       assert.equal(page.cards.newsletter.count.textContent, '27');
@@ -3236,7 +3241,9 @@ for (const locale of ['en', 'es']) {
     for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
       assert.equal(page.cards[kind].results.hidden, false, `${kind} should render independently`);
       assert.equal(page.cards[kind].count.textContent, all[kind], `${kind} should start at All`);
-      assert.equal(page.cards[kind].collectedDate.textContent, expectedDate(locale, dates[kind]), `${kind} keeps its own collection date`);
+      const expectedCollectionDate = kind === 'articles' || kind === 'talks' ? expectedInventoryDate : expectedDate;
+      assert.equal(page.cards[kind].collectedDate.textContent, expectedCollectionDate(locale, dates[kind]),
+        `${kind} keeps its own collection date`);
       assertLocalizedUnit(page, kind, locale);
     }
     assert.equal(page.cards.articles.coverage.textContent, 'Caylent, AWS Builder Center', 'article source labels stay unchanged');
@@ -3300,7 +3307,7 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.results.hidden, false);
     assert.equal(page.cards.articles.count.textContent, '40');
     assert.equal(page.cards.articles.coverage.textContent, 'Caylent');
-    assert.equal(page.cards.articles.collectedDate.textContent, expectedDate(locale, originalDate));
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedInventoryDate(locale, originalDate));
     assertUnavailable(page, locale, 'talks');
     assertUnavailable(page, locale, 'books');
     assertNewsletterUnavailable(page, locale);

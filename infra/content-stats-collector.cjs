@@ -875,7 +875,8 @@ function validateBuilderArticleDates(value, now) {
   const datesByArticleId = new Map();
   for (const fact of value) {
     if (!exactKeys(fact, ["articleId", "publishedAt"]) ||
-        typeof fact.articleId !== "string" || !/^\/content\/[^/?#]+$/.test(fact.articleId) ||
+        typeof fact.articleId !== "string" || fact.articleId.trim() !== fact.articleId ||
+        !/^\/content\/[^/?#]+$/.test(fact.articleId) ||
         typeof fact.publishedAt !== "string" || articleInventoryInstant(fact.publishedAt) === null ||
         articleDateIsAfter(fact.publishedAt, now) || datesByArticleId.has(fact.articleId)) {
       throw fail("BUILDER_ARTICLE_DATES_INVALID");
@@ -2676,9 +2677,14 @@ function normalizedCaylentUrl(value) {
   return `https://caylent.com${pathname}`;
 }
 
-function normalizedBuilderUrl(articleIdValue, uriValue) {
-  const articleId = requireString(articleIdValue, "ELIGIBLE_RECORD_INVALID");
+function normalizedBuilderArticleId(value) {
+  const articleId = requireString(value, "ELIGIBLE_RECORD_INVALID");
   if (!/^\/content\/[^/?#]+$/.test(articleId)) throw fail("ELIGIBLE_RECORD_INVALID");
+  return articleId;
+}
+
+function normalizedBuilderUrl(articleIdValue, uriValue) {
+  const articleId = normalizedBuilderArticleId(articleIdValue);
   const uri = requireString(uriValue, "ELIGIBLE_RECORD_INVALID");
   let parsed;
   try {
@@ -2750,13 +2756,14 @@ function eligibleBuilderPublication(record, source, now, builderArticleDates) {
   if (publishedAt > now) return null;
 
   const identityTitle = normalizedTitle(record.title);
-  const url = normalizedBuilderUrl(record.articleId, record.uri);
+  const articleId = normalizedBuilderArticleId(record.articleId);
+  const url = normalizedBuilderUrl(articleId, record.uri);
   return {
     sourceId: source.id,
     title: record.title,
     identityTitle,
     language,
-    publishedAt: builderArticleDates?.get(record.articleId) ?? null,
+    publishedAt: builderArticleDates?.get(articleId) ?? null,
     url,
     emailOnly: false
   };

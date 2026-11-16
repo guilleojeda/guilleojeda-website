@@ -12371,6 +12371,7 @@ test("phase 1 input13 merges Builder dates by stable ID before Article dedupe an
       lastPublishedAt: Date.parse("2026-10-15T12:00:00.000Z")
     })
   ];
+  builderRows[0].articleId = " /content/period-builder-one ";
   builderRows[1].createdAt = Date.parse("2025-01-01T12:00:00.000Z");
   const requestLog = [];
   const harness = createHarness({
@@ -12509,6 +12510,9 @@ test("phase 1 malformed nested dates and duplicate IDs omit only their family an
     }],
     ["articles", "duplicate Builder article ID", (next) => {
       next.builderArticleDates.push({ ...next.builderArticleDates[0], publishedAt: "2024-05-07" });
+    }],
+    ["articles", "whitespace Builder article ID", (next) => {
+      next.builderArticleDates[0].articleId = " /content/period-builder-one ";
     }],
     ["talks", "invalid talk date", (next) => {
       next.curated.talks[0].delivery = { earliest: "2025-02-30", latest: "2025-03-01" };
