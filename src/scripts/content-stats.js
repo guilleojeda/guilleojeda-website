@@ -709,6 +709,7 @@ function getNewsletterSentElements(section) {
   return {
     region,
     attributePrefix: 'data-stats-newsletter-sent',
+    heading: region.querySelector('#content-stats-newsletter-sent-title'),
     status: region.querySelector('[data-stats-newsletter-sent-status]'),
     results: region.querySelector('[data-stats-newsletter-sent-results]'),
     value: region.querySelector('[data-stats-newsletter-sent-value]'),
@@ -1299,7 +1300,9 @@ function renderNewsletterSent(snapshot, locale, language, elements, newsletterCa
   elements.results.hidden = false;
   elements.status.hidden = true;
   elements.status.textContent = '';
-  return `${formattedSent} ${totalLabel}`;
+  const heading = elements.heading?.textContent?.trim()
+    || (locale === 'es' ? 'Emails enviados' : 'Emails sent');
+  return `${heading}, ${formattedSent} (${totalLabel})`;
 }
 
 function builderViewsElementsReady(elements) {

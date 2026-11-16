@@ -3967,9 +3967,10 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.document.activeElement, page.periodSelector, 'switching to Recorded total keeps focus on the control');
     assertNewsletterSentVisible(page, locale, 4321, collectedAt);
     const formattedSent = new Intl.NumberFormat(locale).format(4321);
+    const sentAnnouncement = `${newsletterSentCopy[locale].heading}, ${formattedSent} (${newsletterSentCopy[locale].totalLabel})`;
     assert.equal(page.reportStatus.hidden, false, 'the report status remains available to assistive technology');
-    assert.ok(page.reportStatus.textContent.includes(formattedSent) && page.reportStatus.textContent.includes(newsletterSentCopy[locale].totalLabel),
-      'the persistent report status announces the number and its cumulative basis');
+    assert.ok(page.reportStatus.textContent.includes(sentAnnouncement),
+      'the persistent report status announces the localized metric, number, and cumulative basis');
     assert.ok(!page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
       'the total announcement clears the period status');
     assert.equal(page.cards.newsletter.count.textContent, subscriberValue, 'subscribers remain fixed in Recorded total');
@@ -3986,7 +3987,7 @@ for (const locale of ['en', 'es']) {
     assertNewsletterSentPeriodUnavailable(page, locale);
     assert.ok(page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
       'the report status announces the finite window again');
-    assert.ok(!page.reportStatus.textContent.includes(formattedSent), 'the report status clears the previous total');
+    assert.ok(!page.reportStatus.textContent.includes(formattedSent), 'the report status clears the previous total announcement and number');
     assertViewsVisible(page, locale, '12m');
     for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, locale, spec, '12m');
     assert.equal(page.fetchCount, 1, 'period changes reuse the single aggregate snapshot request');
