@@ -241,12 +241,12 @@ test('the October 22 meetup preserves both owner-confirmed speaking occurrences'
     es: 'La Economía de los Agentes de IA'
   });
   const expected = [
-    { id: 'talk', kind: 'talk', status: 'delivered', language: 'es' },
-    { id: 'certification-panel', kind: 'panel', status: 'delivered', language: 'es' }
+    { id: 'talk', kind: 'talk', status: 'delivered', language: 'es', delivery: periodDelivery('2026-10-22') },
+    { id: 'certification-panel', kind: 'panel', status: 'delivered', language: 'es', delivery: periodDelivery('2026-10-22') }
   ];
   assert.deepEqual(meetup.occurrences, expected, 'the talk and panel were separately confirmed by the owner');
   const build = await inputBuilder();
-  const result = build({ ...fixture(), talks: [meetup] });
+  const result = build({ ...fixture(), talks: [meetup], articles: individualArticleFacts() });
   assert.deepEqual(result.curated.talks, expected.map((occurrence) => ({
     ...occurrence, id: `cordoba-agent-economics-2026/${occurrence.id}`
   })), 'the protected projection retains each delivered occurrence exactly once');
@@ -712,10 +712,9 @@ test('a directory history date selects input9 for Views-only and click-enabled s
   clickSource.sources[0].apiKey = 'synthetic-public-delivery-key';
   delete clickSource.newsletterEngagements;
   delete clickSource.builderArticleViews;
+  delete clickSource.builderArticleDates;
   const source = {
-    articleConfig: clickSource,
-    talks: JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8')),
-    books: JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'))
+    ...fixture(), articleConfig: clickSource
   };
   delete source.articleConfig.directoryAnalytics.recordedSince;
   const input8 = build(source);
@@ -887,12 +886,9 @@ test('the maintained article-source input8 can add Simple AWS available history 
   articleConfig.sources[0].apiKey = 'synthetic-public-delivery-key';
   delete articleConfig.newsletterEngagements;
   delete articleConfig.builderArticleViews;
+  delete articleConfig.builderArticleDates;
   delete articleConfig.directoryAnalytics.recordedSince;
-  const source = {
-    articleConfig,
-    talks: JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8')),
-    books: JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'))
-  };
+  const source = { ...fixture(), articleConfig };
   const before = build(source);
   assert.equal(before.schemaVersion, 8);
   assert.deepEqual(before.sources, articleConfig.sources, 'input8 projects the exact maintained article selection');
