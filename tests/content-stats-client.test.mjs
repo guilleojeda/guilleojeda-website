@@ -684,21 +684,21 @@ const builderArticleViewsCopy = {
 };
 
 function makeCard(kind, locale) {
+  const isEditorial = kind === 'articles' || kind === 'talks';
   const card = new SemanticElement({
     dataset: { statsKind: kind, statsUnavailable: unavailableCopy[locale][kind] },
     attributes: { 'aria-busy': 'false' }
   });
   const status = card.appendChild(new SemanticElement({
     dataset: { statsStatus: '' },
+    attributes: isEditorial ? {} : { role: 'status', 'aria-live': 'polite' },
     textContent: loadingCopy[locale][kind],
     hidden: true
   }));
   const results = card.appendChild(new SemanticElement({ dataset: { statsResults: '' }, hidden: true }));
   const countRegion = results.appendChild(new SemanticElement({
     dataset: { statsCountRegion: '' },
-    attributes: kind === 'articles' || kind === 'talks'
-      ? {}
-      : { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }
+    attributes: isEditorial ? {} : { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }
   }));
   const count = countRegion.appendChild(new SemanticElement({ dataset: { statsCount: '' } }));
   const countLabel = countRegion.appendChild(new SemanticElement({
@@ -1297,6 +1297,18 @@ function assertEditorialInterval(page, locale, kind, startDate, endDate) {
   const text = visibleEditorialText(page, kind);
   assert.ok(text.includes(expectedDateOnly(locale, startDate)), `${kind} shows its localized inclusive start date`);
   assert.ok(text.includes(expectedDateOnly(locale, endDate)), `${kind} shows its localized inclusive end date`);
+}
+
+function assertAnnouncedEditorialResults(page) {
+  const announcement = page.reportStatus.textContent;
+  for (const kind of ['articles', 'talks']) {
+    const { count, countLabel, uncertaintyLive } = page.cards[kind];
+    assert.ok(announcement.includes(`${count.textContent} ${countLabel.textContent}`),
+      `${kind} announces the visible count and its interval`);
+    if (!uncertaintyLive.hidden) {
+      assert.ok(announcement.includes(uncertaintyLive.textContent), `${kind} announces the visible date uncertainty`);
+    }
+  }
 }
 
 function assertPeriodHasNoData(page, locale, kind) {
@@ -6688,6 +6700,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.talks.count.textContent, new Intl.NumberFormat(locale).format(talkCount), `${period} counts each eligible delivery`);
       assertEditorialInterval(page, locale, 'articles', startDate, '2026-11-16');
       assertEditorialInterval(page, locale, 'talks', startDate, '2026-11-16');
+      assertAnnouncedEditorialResults(page);
       assert.equal(page.cards.books.count.textContent, '3', 'the fixed Books total is independent of the period');
       assert.equal(page.cards.newsletter.count.textContent, '27', 'current subscribers are independent of the period');
       assertBuilderViewsVisible(page, locale, 'all');
@@ -6723,6 +6736,7 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.count.textContent, '0', 'a known zero for dated Spanish articles remains visible');
     assert.equal(page.cards.talks.count.textContent, '1', 'Spanish deliveries remain separate from English ones');
     assert.equal(page.cards.articles.results.hidden, false, 'a measured zero is not a missing-data state');
+    assertAnnouncedEditorialResults(page);
     assert.equal(page.periodOptions.total.disabled, false, 'Spanish retains its valid editorial totals');
     assert.equal(page.overviewValues.articles.textContent, '12', 'the overview does not follow the content-language filter');
     assert.equal(page.fetchCount, 1);
@@ -6846,6 +6860,8 @@ for (const locale of ['en', 'es']) {
     assert.equal(uncertainPage.cards.talks.results.hidden, false);
     assert.equal(uncertainPage.cards.talks.count.textContent, '1', 'only the contained range is a confirmed delivery in the window');
     assertUncertainEditorialCount(uncertainPage, locale, 'talks', 2, interval);
+    assertAnnouncedEditorialResults(uncertainPage);
+    const previousUncertainty = ['articles', 'talks'].map((kind) => uncertainPage.cards[kind].uncertaintyLive.textContent);
     uncertainPage.selector.value = 'es';
     uncertainPage.selector.dispatch('change');
     assert.equal(uncertainPage.cards.talks.count.textContent, '0', 'the outside and overlapping Spanish ranges are not confirmed deliveries');
@@ -6858,6 +6874,10 @@ for (const locale of ['en', 'es']) {
     assert.equal(uncertainPage.cards.talks.countRegion.getAttribute('role'), null);
     assert.equal(uncertainPage.reportStatus.getAttribute('role'), 'status');
     assert.equal(uncertainPage.reportStatus.getAttribute('aria-live'), 'polite');
+    assertAnnouncedEditorialResults(uncertainPage);
+    for (const phrase of previousUncertainty) {
+      assert.ok(!uncertainPage.reportStatus.textContent.includes(phrase), 'the total announcement drops period uncertainty');
+    }
     assert.equal(uncertainPage.fetchCount, 1);
   });
 }

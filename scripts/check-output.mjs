@@ -819,8 +819,12 @@ function checkContentStatsShell(page, html) {
       assert.ok(new RegExp(`\\bdata-stats-${field}(?:\\s|=|>)`).test(card), `${locale} ${kind} needs its own ${field}`);
     }
     if (kind === 'books' || kind === 'newsletter') {
-      mustContain(card, 'role="status"', `${locale} ${kind} accessible updates`);
-      mustContain(card, 'aria-live="polite"', `${locale} ${kind} accessible updates`);
+      for (const attribute of ['data-stats-status', 'data-stats-count-region']) {
+        const region = extractElement(card, null, attribute);
+        assert.ok(region, `${locale} ${kind} has ${attribute}`);
+        mustContain(region.html, 'role="status"', `${locale} ${kind} ${attribute} status role`);
+        mustContain(region.html, 'aria-live="polite"', `${locale} ${kind} ${attribute} polite updates`);
+      }
     }
   }
   const newsletterUnit = newsletterCard.match(/<[^>]*\bdata-stats-count-label\b[^>]*>([\s\S]*?)<\//i)?.[1]?.replace(/<[^>]*>/g, '').trim() ?? '';
