@@ -486,7 +486,7 @@ function projectBuilderArticleDates(value) {
       invalid(`builder article date ${index} must contain only articleId and publishedAt`);
     }
     assertNonEmptyString(record.articleId, `builder article date ${index} articleId`);
-    if (!/^\/content\/[^/?#]+$/.test(record.articleId)
+    if (!/^\/content\/[^/?#]+$/.test(record.articleId) || /%(?:2f|5c)/i.test(record.articleId)
       || new URL(record.articleId, 'https://builder.aws.com').pathname !== record.articleId) {
       invalid(`builder article date ${index} articleId must be a canonical Builder article ID`);
     }

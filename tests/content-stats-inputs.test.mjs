@@ -1862,6 +1862,7 @@ test('phase 1 input13 validates stable Builder IDs and exact calendar delivery b
     ['blank stable ID', [{ articleId: ' ', publishedAt: '2024-05-06' }]],
     ['stable ID requiring URL encoding', [{ articleId: '/content/period builder', publishedAt: '2024-05-06' }]],
     ['stable ID removed by URL normalization', [{ articleId: '/content/..', publishedAt: '2024-05-06' }]],
+    ['stable ID with an encoded path separator', [{ articleId: '/content/period%2Fbuilder', publishedAt: '2024-05-06' }]],
     ['missing date', [{ articleId: '/content/period-builder-one' }]],
     ['timestamp without a timezone', [{ articleId: '/content/period-builder-one', publishedAt: '2024-05-06T12:00:00' }]],
     ['impossible Builder date', [{ articleId: '/content/period-builder-one', publishedAt: '2024-02-30' }]],

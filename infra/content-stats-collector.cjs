@@ -880,6 +880,7 @@ function validateBuilderArticleDates(value, now) {
   for (const fact of value) {
     if (!exactKeys(fact, ["articleId", "publishedAt"]) ||
         typeof fact.articleId !== "string" || !/^\/content\/[^/?#]+$/.test(fact.articleId) ||
+        /%(?:2f|5c)/i.test(fact.articleId) ||
         new URL(fact.articleId, "https://builder.aws.com").pathname !== fact.articleId ||
         typeof fact.publishedAt !== "string" || articleInventoryInstant(fact.publishedAt) === null ||
         articleDateIsAfter(fact.publishedAt, now) || datesByArticleId.has(fact.articleId)) {
