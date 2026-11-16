@@ -1407,6 +1407,8 @@ const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics
 const hasNewsletterEngagements = Object.hasOwn(sourceConfig, 'newsletterEngagements');
 const hasManualBuilderObservation = Object.hasOwn(sourceConfig, 'builderArticleViews');
 const hasIndividualArticleInventory = Object.hasOwn(inputs, 'articleInventory');
+const hasDatedInventory = Object.hasOwn(sourceConfig, 'builderArticleDates')
+  || talks.some(({ occurrences }) => occurrences.some((occurrence) => Object.hasOwn(occurrence, 'delivery')));
 if (hasNewsletterEngagements) assert.equal(sourceConfig.newsletterEngagements, true, 'newsletter engagement selection must be the literal true opt-in');
 const hasDirectoryOutboundClicks = hasDirectoryAnalyticsSelection
   && Object.hasOwn(sourceConfig.directoryAnalytics ?? {}, 'outboundClicks');
@@ -1422,13 +1424,14 @@ assert.deepEqual(Object.keys(inputs).sort(), [
   ...(hasDirectoryAnalyticsSelection ? ['directoryAnalytics'] : []),
   ...(hasManualBuilderObservation ? ['builderArticleViews'] : []),
   ...(hasIndividualArticleInventory ? ['articleInventory'] : []),
+  ...(hasDatedInventory ? ['builderArticleDates'] : []),
   'schemaVersion',
   'sources'
 ].sort(),
 'protected build input must combine source configuration and maintained facts without credentials');
 assert.equal(hasDirectoryAnalyticsSelection, Object.hasOwn(sourceConfig, 'directoryAnalytics'), 'directory selector and protected input must be published together');
 if (hasDirectoryOutboundClicks) assert.equal(sourceConfig.directoryAnalytics.outboundClicks, true, 'outbound clicks require the literal true selector');
-assert.equal(inputs.schemaVersion, hasIndividualArticleInventory ? 12 : hasManualBuilderObservation ? 11 : hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
+assert.equal(inputs.schemaVersion, hasDatedInventory ? 13 : hasIndividualArticleInventory ? 12 : hasManualBuilderObservation ? 11 : hasNewsletterEngagements ? 10 : hasDirectoryRecordedTotal ? 9 : hasDirectoryOutboundClicks ? 8 : hasDirectoryAnalyticsSelection ? 7 : hasSearchConsoleSelection ? 6 : hasAnalyticsSelection ? 5 : hasNewsletterSelection ? 4 : 3, 'protected build input schema version');
 assert.equal(inputs.definitionVersion, 1, 'protected build input definition version');
 assert.ok(Array.isArray(inputs.sources), 'protected build input sources must be an array');
 if (hasIndividualArticleInventory) {
@@ -1450,6 +1453,13 @@ if (hasManualBuilderObservation) {
   assert.deepEqual(inputs.builderArticleViews, sourceConfig.builderArticleViews, 'protected input projects the manual Builder observation without refreshing its date');
 } else {
   assert.equal(Object.hasOwn(inputs, 'builderArticleViews'), false, 'no synthetic manual observation is generated when the owner has not supplied one');
+}
+if (hasDatedInventory) {
+  assert.ok(hasIndividualArticleInventory, 'dated input extends the article catalog input');
+  const sortByArticleId = (left, right) => left.articleId.localeCompare(right.articleId);
+  assert.deepEqual(inputs.builderArticleDates.toSorted(sortByArticleId),
+    (sourceConfig.builderArticleDates ?? []).toSorted(sortByArticleId),
+    'protected input preserves verified Builder publication dates by stable article ID');
 }
 if (hasNewsletterEngagements) {
   assert.ok(hasNewsletterSelection, 'newsletter engagement opt-in requires the existing Newsletter publication');
@@ -1581,7 +1591,8 @@ const expectedTalkFacts = talks.flatMap((talk) => {
     id: `${talk.id}/${occurrence.id}`,
     kind: occurrence.kind,
     status: occurrence.status,
-    language: occurrence.language
+    language: occurrence.language,
+    ...(hasDatedInventory ? { delivery: occurrence.delivery ?? null } : {})
   }));
 });
 const expectedBookFacts = books.map((book) => {
@@ -1591,7 +1602,8 @@ const expectedBookFacts = books.map((book) => {
 assert.deepEqual(inputs.curated.talks, expectedTalkFacts, 'built speaking facts must come from the complete maintained inventory once, not highlights plus archive or a copied catalog');
 assert.deepEqual(inputs.curated.books, expectedBookFacts, 'built book facts must come from the maintained book records');
 for (const fact of inputs.curated.talks) {
-  assert.deepEqual(Object.keys(fact).sort(), ['id', 'kind', 'language', 'status'], 'speaking inputs project facts without prose, titles, URLs or reach data');
+  const expectedFields = hasDatedInventory ? ['delivery', 'id', 'kind', 'language', 'status'] : ['id', 'kind', 'language', 'status'];
+  assert.deepEqual(Object.keys(fact).sort(), expectedFields, 'speaking inputs project facts without prose, titles, URLs or reach data');
 }
 for (const fact of inputs.curated.books) {
   assert.deepEqual(Object.keys(fact).sort(), ['id', 'language', 'status'], 'book inputs project publication facts only');

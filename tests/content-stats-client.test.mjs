@@ -637,7 +637,10 @@ function makeCard(kind, locale) {
     hidden: true
   }));
   const results = card.appendChild(new SemanticElement({ dataset: { statsResults: '' }, hidden: true }));
-  const countRegion = results.appendChild(new SemanticElement({ dataset: { statsCountRegion: '' } }));
+  const countRegion = results.appendChild(new SemanticElement({
+    dataset: { statsCountRegion: '' },
+    attributes: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }
+  }));
   const count = countRegion.appendChild(new SemanticElement({ dataset: { statsCount: '' } }));
   const countLabel = countRegion.appendChild(new SemanticElement({
     dataset: { statsCountLabel: '' },
@@ -938,7 +941,8 @@ function createBrowser(initialHref) {
 
 function createPage({
   locale = 'en', data = snapshot(), fetchError, responseOk = true, jsonError,
-  includeViews = true, includeSearch = true, includeCatalog = false, includeStats = true, fetchGate, url
+  includeViews = true, includeSearch = true, includeActivityRegions = true,
+  includeCatalog = false, includeStats = true, fetchGate, url, initialPeriod = '12m'
 } = {}) {
   const section = new SemanticElement({
     dataset: {
@@ -959,7 +963,7 @@ function createPage({
   }));
   const periodSelector = section.appendChild(new SemanticElement({
     dataset: { statsPeriod: '' },
-    value: '12m',
+    value: initialPeriod,
     disabled: true
   }));
   const periodOptions = Object.fromEntries(articleViewPeriods.map((period) => {
@@ -974,15 +978,17 @@ function createPage({
     section.appendChild(card.card);
     return [kind, card];
   }));
-  cards.newsletter.emailOpens = makeNewsletterEmailMetric('opens', locale, cards.newsletter.card);
-  cards.newsletter.emailVerifiedClicks = makeNewsletterEmailMetric('clicks', locale, cards.newsletter.card);
-  cards.newsletter.sent = makeNewsletterSentMetric(locale, cards.newsletter.card);
   cards.articles.builderViews = makeBuilderArticleViews(locale, cards.articles.card);
-  cards.directoryViews = makeDirectoryViews(locale);
-  section.appendChild(cards.directoryViews.card);
-  cards.directoryOutboundClicks = makeDirectoryOutboundClicks(locale, cards.directoryViews.card);
-  if (includeViews) cards.articles.views = makeArticleViews(cards.articles.card, locale);
-  if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
+  if (includeActivityRegions) {
+    cards.newsletter.emailOpens = makeNewsletterEmailMetric('opens', locale, cards.newsletter.card);
+    cards.newsletter.emailVerifiedClicks = makeNewsletterEmailMetric('clicks', locale, cards.newsletter.card);
+    cards.newsletter.sent = makeNewsletterSentMetric(locale, cards.newsletter.card);
+    cards.directoryViews = makeDirectoryViews(locale);
+    section.appendChild(cards.directoryViews.card);
+    cards.directoryOutboundClicks = makeDirectoryOutboundClicks(locale, cards.directoryViews.card);
+    if (includeViews) cards.articles.views = makeArticleViews(cards.articles.card, locale);
+    if (includeSearch) cards.articles.search = makeArticleSearch(cards.articles.card, locale);
+  }
   const catalog = includeCatalog ? makeArticleCatalog(locale) : null;
   const fetchCalls = [];
   const browser = createBrowser(url ?? 'https://guilleojeda.com/');
@@ -1004,6 +1010,7 @@ function createPage({
     createElement: (tagName) => new SemanticElement({ tagName, documentRef }),
     createDocumentFragment: () => new SemanticElement({ tagName: '#document-fragment', documentRef })
   };
+  for (const element of [section, ...section.descendants()]) element.ownerDocument = documentRef;
   langToggle.ownerDocument = documentRef;
 
   if (catalog) {
@@ -1134,6 +1141,106 @@ function articleCatalogSnapshot({ records = [], sources = articleSourceCoverage,
     records
   };
   return data;
+}
+
+const editorialPeriodCollectedAt = '2026-11-17T02:30:00.000Z';
+
+function editorialPeriodArticle(index, { title = `Period article ${index}`, language = index % 2 ? 'en' : 'es', publicationDates = [] } = {}) {
+  const publications = publicationDates.map((publishedAt, copyIndex) => catalogPublication({
+    sourceId: copyIndex === 0 ? 'dev-community' : 'caylent',
+    title,
+    publishedAt
+  }));
+  const datedCopies = publicationDates.filter((date) => date !== null).sort();
+  return catalogRecord(index, {
+    title,
+    language,
+    publishedAt: datedCopies[0] ?? null,
+    publications
+  });
+}
+
+function talksPeriodGroup(occurrences, collectedAt = editorialPeriodCollectedAt) {
+  const counts = { all: occurrences.length, en: 0, es: 0 };
+  for (const occurrence of occurrences) counts[occurrence.language] += 1;
+  return {
+    definitionVersion: 2,
+    basis: 'cumulative',
+    collectedAt,
+    scopeId: 'talks-period-scope',
+    sources: [{ ...websiteInventory }],
+    counts,
+    occurrences
+  };
+}
+
+function editorialPeriodSnapshot({
+  articles,
+  talks,
+  collectedAt = editorialPeriodCollectedAt,
+  articleCollectedAt = collectedAt,
+  talksCollectedAt = collectedAt,
+  books = { all: 3, en: 2, es: 1 }
+}) {
+  const data = threeGroupSnapshot();
+  data.groups.articles = {
+    definitionVersion: 2,
+    basis: 'cumulative',
+    collectedAt: articleCollectedAt,
+    scopeId: 'articles-period-scope',
+    sources: articleSourceCoverage.map((source) => ({ ...source })),
+    counts: catalogCounts(articles),
+    records: articles
+  };
+  data.groups.talks = talksPeriodGroup(talks, talksCollectedAt);
+  data.groups.books.counts = { ...books };
+  data.groups.newsletter = newsletterGroup();
+  data.groups.builderArticleViews = builderArticleViewsGroup();
+  delete data.groups.articleViews;
+  delete data.groups.articleSearchClicks;
+  delete data.groups.directoryViews;
+  delete data.groups.directoryOutboundClicks;
+  return data;
+}
+
+function periodTalk(language, date) {
+  return { language, delivery: date === null ? null : { earliest: date, latest: date } };
+}
+
+function visibleEditorialText(page, kind, excludedElement = null) {
+  const { card } = page.cards[kind];
+  function visibleText(element) {
+    if (element.hidden || element === excludedElement) return '';
+    if (Object.hasOwn(element.dataset, 'statsBuilderViews') || Object.hasOwn(element.dataset, 'statsViews')
+      || Object.hasOwn(element.dataset, 'statsSearch')) return '';
+    return [element.textContent, ...element.children.map(visibleText)].filter(Boolean).join(' ');
+  }
+  return visibleText(card);
+}
+
+function assertEditorialInterval(page, locale, kind, startDate, endDate) {
+  const text = visibleEditorialText(page, kind);
+  assert.ok(text.includes(expectedDateOnly(locale, startDate)), `${kind} shows its localized inclusive start date`);
+  assert.ok(text.includes(expectedDateOnly(locale, endDate)), `${kind} shows its localized inclusive end date`);
+}
+
+function assertPeriodHasNoData(page, locale, kind) {
+  const card = page.cards[kind];
+  assert.ok(card.results.hidden || card.count.textContent === '',
+    `${kind} does not show a cumulative count when period dates are unavailable`);
+  assert.match(visibleEditorialText(page, kind), locale === 'es' ? /sin datos.*per[ií]odo|no hay datos.*per[ií]odo/i : /no data.*period|period.*unavailable/i,
+    `${kind} explains that this period has no usable dated inventory`);
+}
+
+function assertUncertainEditorialCount(page, locale, kind, count, interval) {
+  const text = interval.reduce((result, date) => result.replaceAll(expectedDateOnly(locale, date), ''),
+    visibleEditorialText(page, kind, page.cards[kind].count));
+  const uncertainty = locale === 'es'
+    ? '(?:sin fecha|fecha desconocida|sin precisar|imprecis\\w*|inciert\\w*)'
+    : '(?:undated|unknown date|date unknown|without (?:a )?date|imprecise|uncertain)';
+  const number = `\\b${count}\\b`;
+  assert.match(text, new RegExp(`${number}[^0-9]{0,45}${uncertainty}|${uncertainty}[^0-9]{0,45}${number}`, 'i'),
+    `${kind} displays the number of entries whose dates cannot determine period membership`);
 }
 
 function catalogSearchRecords() {
@@ -2255,17 +2362,15 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.fetchCount, 1);
   });
 
-  test(`${locale} article views support each period locally and keep counts independent`, async () => {
+  test(`${locale} Article Views follow periods while legacy Article and Talk counts stay total-only`, async () => {
     const page = createPage({ locale, data: snapshotWithArticleViews() });
     await page.settle();
 
     assert.equal(page.periodSelector.disabled, false, 'the views period control enables after a valid snapshot');
     assert.equal(page.periodSelector.value, '12m', 'twelve months is the initial reporting period');
-    assert.equal(page.periodOptions.total.disabled, false, 'an available recorded total enables its option');
+    assert.equal(page.periodOptions.total.disabled, false, 'legacy editorial counts independently enable Total registered');
     assertViewsVisible(page, locale, '12m');
-    const unchangedCounts = {
-      articles: page.cards.articles.count.textContent,
-      talks: page.cards.talks.count.textContent,
+    const fixedCounts = {
       books: page.cards.books.count.textContent,
       newsletter: page.cards.newsletter.count.textContent
     };
@@ -2274,9 +2379,15 @@ for (const locale of ['en', 'es']) {
       page.periodSelector.value = period;
       page.periodSelector.dispatch('change');
       assertViewsVisible(page, locale, period);
-      for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
-        assert.equal(page.cards[kind].count.textContent, unchangedCounts[kind], `${kind} count is independent of the selected views period`);
+      if (period === 'total') {
+        assert.equal(page.cards.articles.count.textContent, '11');
+        assert.equal(page.cards.talks.count.textContent, '6');
+      } else {
+        assertPeriodHasNoData(page, locale, 'articles');
+        assertPeriodHasNoData(page, locale, 'talks');
       }
+      assert.equal(page.cards.books.count.textContent, fixedCounts.books, 'fixed Books counts ignore the activity period');
+      assert.equal(page.cards.newsletter.count.textContent, fixedCounts.newsletter, 'current subscribers ignore the activity period');
       assert.equal(page.fetchCount, 1, 'period changes reuse the same aggregate request');
       assert.equal(page.section.dataset.statsLocale, locale, 'period changes do not change the interface locale');
     }
@@ -2286,21 +2397,21 @@ for (const locale of ['en', 'es']) {
     page.selector.value = 'en';
     page.selector.dispatch('change');
     assertViewsVisible(page, locale, '12m');
-    assert.equal(page.cards.articles.count.textContent, '7', 'English filtering still applies to cumulative article counts');
+    assertPeriodHasNoData(page, locale, 'articles');
+    assertPeriodHasNoData(page, locale, 'talks');
 
     page.selector.value = 'es';
     page.selector.dispatch('change');
     assertViewsUnavailable(page, locale);
-    assert.equal(page.cards.articles.results.hidden, false, 'unsupported views language does not hide article counts');
-    assert.equal(page.cards.articles.count.textContent, '4');
-    assert.equal(page.periodOptions.total.disabled, true, 'recorded total is unavailable for unsupported content language');
+    assertPeriodHasNoData(page, locale, 'articles');
+    assertPeriodHasNoData(page, locale, 'talks');
+    assert.equal(page.periodOptions.total.disabled, false, 'Spanish inventory totals remain available without a Google total');
     assert.equal(page.cards.newsletter.card.hidden, true, 'the English newsletter follows its own supported-language rule');
 
     page.selector.value = 'all';
     page.selector.dispatch('change');
     assertViewsVisible(page, locale, '12m');
     assert.equal(page.periodOptions.total.disabled, false, 'All restores the supported recorded-total option');
-    assert.equal(page.cards.articles.count.textContent, unchangedCounts.articles, 'All restores article counts and views');
     assert.equal(page.fetchCount, 1, 'language and period controls share one fetch');
     assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
     assert.equal(page.location.href, 'https://guilleojeda.com/', 'local controls must not navigate');
@@ -2310,31 +2421,37 @@ for (const locale of ['en', 'es']) {
     assertViewsVisible(page, locale, 'total');
     page.selector.value = 'es';
     page.selector.dispatch('change');
-    assert.equal(page.periodSelector.value, '12m', 'article-only total falls back when Spanish has no directory total');
-    assert.equal(page.periodOptions.total.disabled, true);
+    assert.equal(page.periodSelector.value, 'total', 'the Spanish inventory keeps the supported total selected');
+    assert.equal(page.periodOptions.total.disabled, false);
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.talks.count.textContent, '4');
     assertViewsUnavailable(page, locale);
     assertDirectoryViewsUnavailable(page, locale);
     assertDirectoryOutboundClicksUnavailable(page, locale);
 
     page.selector.value = 'all';
     page.selector.dispatch('change');
-    assert.equal(page.periodSelector.value, '12m', 'All re-enables article total without silently reselecting it');
+    assert.equal(page.periodSelector.value, 'total', 'All retains the selected inventory total');
     assert.equal(page.periodOptions.total.disabled, false);
-    assertViewsVisible(page, locale, '12m');
+    assertViewsVisible(page, locale, 'total');
   });
 
   test(`${locale} missing total disables only Recorded total and keeps supported periods available`, async () => {
     const records = articleViewsRecords();
     delete records.total;
-    const page = createPage({ locale, data: snapshotWithArticleViews({ records }) });
+    const data = snapshotWithArticleViews({ records });
+    delete data.groups.articles;
+    delete data.groups.talks;
+    const page = createPage({ locale, data });
     await page.settle();
 
     assert.equal(page.periodOptions.total.disabled, true, 'Recorded total is unavailable when no configured total exists');
     assert.equal(page.periodSelector.value, '12m');
+    assertUnavailable(page, locale, 'articles');
+    assertUnavailable(page, locale, 'talks');
     page.periodSelector.value = '90d';
     page.periodSelector.dispatch('change');
     assertViewsVisible(page, locale, '90d');
-    assert.equal(page.cards.articles.count.textContent, '11');
     assert.equal(page.fetchCount, 1);
   });
 
@@ -2364,12 +2481,15 @@ for (const locale of ['en', 'es']) {
   test(`${locale} invalid recorded-total basis disables only Recorded total`, async () => {
     const data = snapshotWithArticleViews();
     data.groups.articleViews.records.total.basis = 'period';
+    delete data.groups.articles;
+    delete data.groups.talks;
     const page = createPage({ locale, data });
     await page.settle();
 
     assert.equal(page.periodOptions.total.disabled, true, 'an invalid total record cannot enable the option');
+    assertUnavailable(page, locale, 'articles');
+    assertUnavailable(page, locale, 'talks');
     assertViewsVisible(page, locale, '12m');
-    assert.equal(page.cards.articles.count.textContent, '11');
     assert.equal(page.fetchCount, 1);
   });
 
@@ -2391,18 +2511,37 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.fetchCount, 1);
   });
 
-  test(`${locale} schema-v1 four-family legacy snapshots keep all original cards and show views unavailable`, async () => {
+  test(`${locale} schema-v1 legacy counts stay in the overview and Total registered until dates are available`, async () => {
     const page = createPage({ locale, data: snapshotWithNewsletter() });
     await page.settle();
 
-    for (const kind of ['articles', 'talks', 'books', 'newsletter']) {
-      assert.equal(page.cards[kind].results.hidden, false, `${kind} remains available in the legacy snapshot`);
-    }
+    assert.equal(page.periodOptions.total.disabled, false, 'legacy Article and Talk counts remain valid registered totals');
+    assert.equal(page.overviewValues.articles.textContent, '11');
+    assert.equal(page.overviewValues.talks.textContent, '6');
+    assert.equal(page.overviewValues.books.textContent, '3');
+    assert.equal(page.overviewValues.newsletter.textContent, '27');
+    assertPeriodHasNoData(page, locale, 'articles');
+    assertPeriodHasNoData(page, locale, 'talks');
     assertViewsUnavailable(page, locale);
-    assert.equal(page.periodOptions.total.disabled, true, 'legacy data has no recorded total');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertPeriodHasNoData(page, locale, 'articles');
+    assertPeriodHasNoData(page, locale, 'talks');
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '11');
+    assert.equal(page.cards.talks.count.textContent, '6');
+    assert.equal(page.cards.books.count.textContent, '3');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+
     page.selector.value = 'es';
     page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'the Spanish totals remain available in the legacy inventory');
     assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.cards.talks.count.textContent, '4');
+    assert.equal(page.cards.books.count.textContent, '1');
+    assert.equal(page.overviewValues.articles.textContent, '11', 'the overview remains all-language');
     assertViewsUnavailable(page, locale);
     assert.equal(page.fetchCount, 1);
   });
@@ -4184,18 +4323,21 @@ test('Builder Center and GA4 views remain available when article counts are miss
   assert.equal(page.fetchCount, 1);
 });
 
-test('Builder Center views remain available when article counts exist and GA4 views are missing', async () => {
+test('Builder Center fixed views cannot enable Total registered when editorial inventories are missing', async () => {
   const group = builderArticleViewsGroup();
   const data = snapshotWithNewsletter();
+  delete data.groups.articles;
+  delete data.groups.talks;
   data.groups.builderArticleViews = group;
   const page = createPage({ locale: 'en', data });
   page.periodSelector.value = 'total';
   await page.settle();
 
-  assert.equal(page.cards.articles.count.textContent, '11');
+  assertUnavailable(page, 'en', 'articles');
+  assertUnavailable(page, 'en', 'talks');
   assertBuilderViewsVisible(page, 'en', 'all', group);
   assertViewsUnavailable(page, 'en');
-  assert.equal(page.periodOptions.total.disabled, true, 'Builder Center does not supply GA4 or another period total');
+  assert.equal(page.periodOptions.total.disabled, true, 'a fixed Builder observation does not supply an activity-period total');
   assert.equal(page.periodSelector.value, '12m', 'the existing fallback still resets an unsupported total');
   assert.equal(page.fetchCount, 1);
 });
@@ -6402,3 +6544,267 @@ test('client rejects Forem route collisions as one Articles family and accepts p
   assert.equal(page.catalog.results.hidden, false);
   assert.ok(page.catalog.list.children.length > 0);
 });
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} Articles and Talks use Córdoba calendar windows, language counts, and one loaded snapshot`, async () => {
+    const articles = [
+      editorialPeriodArticle(2101, { title: 'Cutoff day', language: 'en', publicationDates: ['2026-11-16'] }),
+      editorialPeriodArticle(2102, { title: 'Seven day start', language: 'en', publicationDates: ['2026-11-10'] }),
+      editorialPeriodArticle(2103, { title: 'Seven day before', language: 'es', publicationDates: ['2026-11-09'] }),
+      editorialPeriodArticle(2104, { title: 'Thirty day start', language: 'es', publicationDates: ['2026-10-18'] }),
+      editorialPeriodArticle(2105, { title: 'Thirty day before', language: 'es', publicationDates: ['2026-10-17'] }),
+      editorialPeriodArticle(2106, { title: 'Ninety day start', language: 'en', publicationDates: ['2026-08-19'] }),
+      editorialPeriodArticle(2107, { title: 'Ninety day before', language: 'es', publicationDates: ['2026-08-18'] }),
+      editorialPeriodArticle(2108, { title: 'Year start', language: 'en', publicationDates: ['2026-01-01'] }),
+      editorialPeriodArticle(2109, { title: 'Previous year', language: 'en', publicationDates: ['2025-12-31'] }),
+      editorialPeriodArticle(2110, {
+        title: 'First documented copy controls the period',
+        language: 'en',
+        publicationDates: ['2026-11-16', '2025-11-17']
+      }),
+      editorialPeriodArticle(2111, { title: 'Outside twelve months', language: 'es', publicationDates: ['2025-11-16'] }),
+      editorialPeriodArticle(2112, { title: 'Undated article', language: 'es', publicationDates: [null] })
+    ];
+    const talks = [
+      periodTalk('en', '2026-11-16'), periodTalk('es', '2026-11-10'), periodTalk('en', '2026-11-09'),
+      periodTalk('es', '2026-10-18'), periodTalk('en', '2026-10-17'), periodTalk('es', '2026-08-19'),
+      periodTalk('en', '2026-08-18'), periodTalk('en', '2026-01-01'), periodTalk('en', '2026-01-01'),
+      periodTalk('es', '2025-11-17'), periodTalk('en', '2025-11-16')
+    ];
+    const page = createPage({ locale, data: editorialPeriodSnapshot({ articles, talks }), includeActivityRegions: false });
+    await page.settle();
+
+    assert.equal(page.data.schemaVersion, 1, 'the public root schema remains v1');
+    assert.equal(page.data.groups.articles.definitionVersion, 2, 'the existing Articles v2 contract supplies dated records');
+    assert.equal(page.data.groups.talks.definitionVersion, 2, 'Talks v2 adds dated occurrences under root schema v1');
+    assert.equal(page.periodOptions.total.disabled, false, 'valid editorial totals enable Total registered without Google data');
+    assert.equal(page.overviewValues.articles.textContent, '12', 'the overview remains the all-time article total');
+    assert.equal(page.overviewValues.talks.textContent, '11', 'the overview counts each delivery, including same-day occurrences');
+
+    for (const [period, articleCount, talkCount, startDate] of [
+      ['7d', 2, 2, '2026-11-10'], ['30d', 4, 4, '2026-10-18'], ['90d', 6, 6, '2026-08-19'],
+      ['12m', 10, 10, '2025-11-17'], ['ytd', 8, 9, '2026-01-01']
+    ]) {
+      page.periodSelector.focus();
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assert.equal(page.cards.articles.count.textContent, new Intl.NumberFormat(locale).format(articleCount), `${period} articles use their first documented date`);
+      assert.equal(page.cards.talks.count.textContent, new Intl.NumberFormat(locale).format(talkCount), `${period} counts each eligible delivery`);
+      assertEditorialInterval(page, locale, 'articles', startDate, '2026-11-16');
+      assertEditorialInterval(page, locale, 'talks', startDate, '2026-11-16');
+      assert.equal(page.cards.books.count.textContent, '3', 'the fixed Books total is independent of the period');
+      assert.equal(page.cards.newsletter.count.textContent, '27', 'current subscribers are independent of the period');
+      assertBuilderViewsVisible(page, locale, 'all');
+      assert.equal(page.document.activeElement, page.periodSelector, 'changing the period keeps focus on its control');
+      assert.equal(page.cards.articles.countRegion.getAttribute('role'), 'status');
+      assert.equal(page.cards.articles.countRegion.getAttribute('aria-live'), 'polite');
+      assert.equal(page.fetchCount, 1, 'period changes reuse the initial snapshot');
+    }
+
+    page.periodSelector.focus();
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    for (const [kind, expected] of [['articles', 12], ['talks', 11]]) {
+      assert.equal(page.cards[kind].count.textContent, new Intl.NumberFormat(locale).format(expected));
+      assert.match(visibleEditorialText(page, kind), /recorded total|total registered|total registrado/i, `${kind} identifies the inventory total`);
+      assert.ok(visibleEditorialText(page, kind).includes(expectedDateOnly(locale, '2026-11-16')), `${kind} shows the inclusive Córdoba inventory cutoff`);
+    }
+    assert.equal(page.overviewValues.articles.textContent, '12', 'selecting a period never changes the overview');
+
+    page.selector.focus();
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.document.activeElement, page.selector, 'changing the content language keeps focus on its control');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '2', 'English article count filters by content language');
+    assert.equal(page.cards.talks.count.textContent, '1', 'English occurrence count filters by language');
+    assert.equal(page.periodOptions.total.disabled, false, 'English retains its valid editorial totals');
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '0', 'a known zero for dated Spanish articles remains visible');
+    assert.equal(page.cards.talks.count.textContent, '1', 'Spanish deliveries remain separate from English ones');
+    assert.equal(page.cards.articles.results.hidden, false, 'a measured zero is not a missing-data state');
+    assert.equal(page.periodOptions.total.disabled, false, 'Spanish retains its valid editorial totals');
+    assert.equal(page.overviewValues.articles.textContent, '12', 'the overview does not follow the content-language filter');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} twelve-month windows clamp leap-day starts and year-to-date starts on January 1`, async () => {
+    const collectedAt = '2024-02-29T02:59:00.000Z'; // 23:59 on February 28 in Córdoba.
+    const articles = [
+      editorialPeriodArticle(2201, { title: 'Adjusted twelve month start', language: 'en', publicationDates: ['2023-02-28'] }),
+      editorialPeriodArticle(2202, { title: 'Day before adjusted start', language: 'es', publicationDates: ['2023-02-27'] }),
+      editorialPeriodArticle(2203, { title: 'Year start included', language: 'es', publicationDates: ['2024-01-01'] }),
+      editorialPeriodArticle(2204, { title: 'Last day before year start', language: 'en', publicationDates: ['2023-12-31'] })
+    ];
+    const talks = [periodTalk('en', '2023-02-28'), periodTalk('es', '2023-02-27'), periodTalk('es', '2024-01-01'), periodTalk('en', '2023-12-31')];
+    const page = createPage({ locale, data: editorialPeriodSnapshot({ articles, talks, collectedAt }), includeViews: false, includeSearch: false });
+    await page.settle();
+
+    assert.equal(page.cards.articles.count.textContent, '3', 'February 28, 2023 is the clamped inclusive twelve-month start');
+    assert.equal(page.cards.talks.count.textContent, '3');
+    assertEditorialInterval(page, locale, 'articles', '2023-02-28', '2024-02-28');
+    assertEditorialInterval(page, locale, 'talks', '2023-02-28', '2024-02-28');
+
+    page.periodSelector.value = 'ytd';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '2', 'the year-to-date interval begins inclusively on January 1');
+    assert.equal(page.cards.talks.count.textContent, '2');
+    assertEditorialInterval(page, locale, 'articles', '2024-01-01', '2024-02-28');
+    assertEditorialInterval(page, locale, 'talks', '2024-01-01', '2024-02-28');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} retained Articles and current Talks keep their own Córdoba cutoffs without activity rows`, async () => {
+    const articleCollectedAt = '2026-11-10T02:30:00.000Z'; // November 9 in Córdoba.
+    const talksCollectedAt = editorialPeriodCollectedAt; // November 16 in Córdoba.
+    const articles = [editorialPeriodArticle(2251, {
+      title: 'Offset date remains November third',
+      language: 'en',
+      publicationDates: ['2026-11-03T00:30:00+14:00']
+    })];
+    const talks = [periodTalk('es', '2026-11-10')];
+    const page = createPage({
+      locale,
+      data: editorialPeriodSnapshot({ articles, talks, articleCollectedAt, talksCollectedAt }),
+      includeActivityRegions: false
+    });
+    await page.settle();
+
+    assert.equal(page.periodSelector.disabled, false, 'the editorial inventories alone enable period selection');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.cards.articles.count.textContent, '1', 'the publication uses its written November 3 date even though its instant falls on November 2 UTC');
+    assert.equal(page.cards.talks.count.textContent, '1');
+    assertEditorialInterval(page, locale, 'articles', '2026-11-03', '2026-11-09');
+    assertEditorialInterval(page, locale, 'talks', '2026-11-10', '2026-11-16');
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.ok(visibleEditorialText(page, 'articles').includes(expectedDateOnly(locale, '2026-11-09')),
+      'the retained Article total keeps its own collection cutoff');
+    assert.ok(visibleEditorialText(page, 'talks').includes(expectedDateOnly(locale, '2026-11-16')),
+      'the current Talks total uses the later collection cutoff');
+    assert.equal(page.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} editorial rows distinguish measured zero, missing dates, and imprecise deliveries`, async () => {
+    const zeroPage = createPage({
+      locale,
+      data: editorialPeriodSnapshot({
+        articles: [editorialPeriodArticle(2301, { title: 'Older article', language: 'en', publicationDates: ['2025-11-16'] })],
+        talks: [periodTalk('en', '2025-11-16')]
+      }),
+      includeViews: false,
+      includeSearch: false
+    });
+    await zeroPage.settle();
+    zeroPage.periodSelector.value = '7d';
+    zeroPage.periodSelector.dispatch('change');
+    for (const kind of ['articles', 'talks']) {
+      assert.equal(zeroPage.cards[kind].count.textContent, '0', `${kind} shows a valid zero when all dated entries fall outside the window`);
+      assert.equal(zeroPage.cards[kind].results.hidden, false);
+      assert.doesNotMatch(visibleEditorialText(zeroPage, kind), /undated|unknown date|imprecise|ambiguous|sin fecha|fecha desconocida|sin precisar|inciert/i,
+        `${kind} does not label a fully dated zero as missing or uncertain`);
+    }
+
+    const uncertainPage = createPage({
+      locale,
+      data: editorialPeriodSnapshot({
+        articles: [
+          editorialPeriodArticle(2311, { title: 'Older article', language: 'en', publicationDates: ['2025-11-16'] }),
+          editorialPeriodArticle(2312, { title: 'Undated article', language: 'es', publicationDates: [null] })
+        ],
+        talks: [
+          { language: 'en', delivery: { earliest: '2026-11-10', latest: '2026-11-12' } },
+          { language: 'es', delivery: { earliest: '2026-11-07', latest: '2026-11-09' } },
+          periodTalk('es', null),
+          { language: 'es', delivery: { earliest: '2026-11-09', latest: '2026-11-10' } }
+        ]
+      }),
+      includeViews: false,
+      includeSearch: false
+    });
+    await uncertainPage.settle();
+    uncertainPage.periodSelector.value = '7d';
+    uncertainPage.periodSelector.dispatch('change');
+
+    assert.equal(uncertainPage.cards.articles.results.hidden, false);
+    assert.equal(uncertainPage.cards.articles.count.textContent, '0', 'an undated record is not presented as a dated publication in the window');
+    const interval = ['2026-11-10', '2026-11-16'];
+    assertUncertainEditorialCount(uncertainPage, locale, 'articles', 1, interval);
+
+    assert.equal(uncertainPage.cards.talks.results.hidden, false);
+    assert.equal(uncertainPage.cards.talks.count.textContent, '1', 'only the contained range is a confirmed delivery in the window');
+    assertUncertainEditorialCount(uncertainPage, locale, 'talks', 2, interval);
+    uncertainPage.selector.value = 'es';
+    uncertainPage.selector.dispatch('change');
+    assert.equal(uncertainPage.cards.talks.count.textContent, '0', 'the outside and overlapping Spanish ranges are not confirmed deliveries');
+    assertUncertainEditorialCount(uncertainPage, locale, 'talks', 2, interval);
+    uncertainPage.selector.value = 'all';
+    uncertainPage.selector.dispatch('change');
+    uncertainPage.periodSelector.value = 'total';
+    uncertainPage.periodSelector.dispatch('change');
+    assert.equal(uncertainPage.cards.talks.count.textContent, '4', 'the total counts all delivered occurrences, irrespective of date certainty');
+    assert.equal(uncertainPage.cards.talks.countRegion.getAttribute('role'), 'status');
+    assert.equal(uncertainPage.cards.talks.countRegion.getAttribute('aria-live'), 'polite');
+    assert.equal(uncertainPage.fetchCount, 1);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} Talks v2 requires exact occurrence shapes and rejects invalid data independently`, async () => {
+    const invalidTalks = [
+      ['missing occurrences', (group) => { delete group.occurrences; }],
+      ['mismatched language counts with the same All total', (group) => { group.counts.en += 1; group.counts.es -= 1; }],
+      ['unsupported occurrence language', (group) => { group.occurrences[0].language = 'fr'; }],
+      ['impossible delivery date', (group) => { group.occurrences[0].delivery.earliest = '2026-02-30'; group.occurrences[0].delivery.latest = '2026-02-30'; }],
+      ['timestamp instead of date-only bound', (group) => { group.occurrences[0].delivery.earliest = '2026-11-16T00:00:00Z'; }],
+      ['reversed delivery bounds', (group) => { group.occurrences[0].delivery = { earliest: '2026-11-17', latest: '2026-11-16' }; }],
+      ['public occurrence identifier', (group) => { group.occurrences[0].id = 'public-id'; }],
+      ['unexpected Talks group field', (group) => { group.providerPayload = {}; }]
+    ];
+
+    for (const [description, mutate] of invalidTalks) {
+      const data = editorialPeriodSnapshot({
+        articles: [editorialPeriodArticle(2401, { title: 'Healthy article family', language: 'en', publicationDates: ['2026-11-16'] })],
+        talks: [periodTalk('en', '2026-11-16'), periodTalk('es', '2026-11-10')]
+      });
+      mutate(data.groups.talks);
+      const page = createPage({ locale, data, includeViews: false, includeSearch: false });
+      await page.settle();
+
+      assertUnavailable(page, locale, 'talks');
+      assert.equal(page.overviewValues.articles.textContent, '1', `${description} does not invalidate Articles`);
+      assertOverviewUnavailable(page, locale, 'talks');
+      assert.equal(page.cards.articles.count.textContent, '1');
+      assert.equal(page.cards.books.count.textContent, '3');
+      assert.equal(page.fetchCount, 1);
+    }
+
+    const data = editorialPeriodSnapshot({
+      articles: [editorialPeriodArticle(2402, { title: 'Invalid article family', language: 'en', publicationDates: ['2026-11-16'] })],
+      talks: [periodTalk('es', '2026-11-16')]
+    });
+    data.groups.articles.counts.all += 1;
+    data.groups.articles.counts.en += 1;
+    const page = createPage({ locale, data, includeViews: false, includeSearch: false });
+    await page.settle();
+
+    assertUnavailable(page, locale, 'articles');
+    assert.equal(page.overviewValues.talks.textContent, '1', 'invalid Articles do not reject a valid Talks v2 group');
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.cards.talks.count.textContent, '1');
+    assert.equal(page.cards.talks.results.hidden, false);
+    assert.equal(page.fetchCount, 1);
+  });
+}
