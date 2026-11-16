@@ -1881,6 +1881,7 @@ test('phase 1 input13 validates stable Builder IDs and exact calendar delivery b
     ['impossible earliest day', { earliest: '2025-02-30', latest: '2025-03-01' }],
     ['timestamp in a calendar-date bound', { earliest: '2025-02-01T00:00:00Z', latest: '2025-02-01' }],
     ['reversed delivery bounds', { earliest: '2025-02-02', latest: '2025-02-01' }],
+    ['wholly future delivery bounds', { earliest: '2099-02-01', latest: '2099-02-02' }],
     ['unknown delivery field', { earliest: '2025-02-01', latest: '2025-02-01', timezone: 'UTC' }]
   ];
   for (const [name, delivery] of invalidDeliveries) {
@@ -1889,4 +1890,12 @@ test('phase 1 input13 validates stable Builder IDs and exact calendar delivery b
     source.talks[0].occurrences[0].delivery = delivery;
     assert.throws(() => build(source), /delivery|talk|date|input|invalid/i, name);
   }
+
+  const source = fixture();
+  source.articles = individualArticleFacts();
+  source.talks[0].occurrences[0].delivery = periodDelivery('2025-02-11');
+  const paddedRecord = structuredClone(source.talks[0]);
+  paddedRecord.id = ` ${paddedRecord.id}`;
+  source.talks.push(paddedRecord);
+  assert.throws(() => build(source), /occurrence fact ID.*whitespace/i);
 });

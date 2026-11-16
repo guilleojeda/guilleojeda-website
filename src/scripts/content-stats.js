@@ -367,6 +367,7 @@ function validateTalksGroupV2(value) {
     || !Array.isArray(value.occurrences)) return null;
 
   const counts = { all: value.occurrences.length, en: 0, es: 0 };
+  const deliveryCutoff = cordobaDate(value.collectedAt);
   for (const occurrence of value.occurrences) {
     if (!hasOnlyKeys(occurrence, allowedKeys.talkOccurrence)
       || !['en', 'es'].includes(occurrence.language)) return null;
@@ -375,7 +376,8 @@ function validateTalksGroupV2(value) {
       if (!hasOnlyKeys(occurrence.delivery, allowedKeys.talkDelivery)
         || !isRealDateOnly(occurrence.delivery.earliest)
         || !isRealDateOnly(occurrence.delivery.latest)
-        || occurrence.delivery.earliest > occurrence.delivery.latest) return null;
+        || occurrence.delivery.earliest > occurrence.delivery.latest
+        || occurrence.delivery.earliest > deliveryCutoff) return null;
     }
     counts[occurrence.language] += 1;
   }

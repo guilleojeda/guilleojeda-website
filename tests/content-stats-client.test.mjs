@@ -6909,6 +6909,7 @@ for (const locale of ['en', 'es']) {
       ['impossible delivery date', (group) => { group.occurrences[0].delivery.earliest = '2026-02-30'; group.occurrences[0].delivery.latest = '2026-02-30'; }],
       ['timestamp instead of date-only bound', (group) => { group.occurrences[0].delivery.earliest = '2026-11-16T00:00:00Z'; }],
       ['reversed delivery bounds', (group) => { group.occurrences[0].delivery = { earliest: '2026-11-17', latest: '2026-11-16' }; }],
+      ['delivery after the local collection day', (group) => { group.occurrences[0].delivery = { earliest: '2026-11-17', latest: '2026-11-17' }; }],
       ['public occurrence identifier', (group) => { group.occurrences[0].id = 'public-id'; }],
       ['unexpected Talks group field', (group) => { group.providerPayload = {}; }]
     ];

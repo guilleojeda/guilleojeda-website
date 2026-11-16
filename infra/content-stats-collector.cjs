@@ -55,6 +55,7 @@ const TALK_KINDS = new Set([
 const TALK_STATUSES = new Set(["delivered", "scheduled", "unknown"]);
 const BOOK_STATUSES = new Set(["published", "in-progress", "unknown"]);
 const SPEAKING_KINDS = new Set(["talk", "workshop", "training", "panel", "session"]);
+const EDITORIAL_TIME_ZONE = "America/Argentina/Cordoba";
 const CURATED_SOURCE = Object.freeze({ id: "website-inventory", label: "Website inventory" });
 const NEWSLETTER_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
 const BEEHIIV_API_ENDPOINT = "https://api.beehiiv.com/v2/publications/";
@@ -803,8 +804,9 @@ function makeBuilderArticleViewsGroup(source, observation) {
   };
 }
 
-function validateCuratedFacts(family, value, { datedTalks = false } = {}) {
+function validateCuratedFacts(family, value, deliveryCutoff) {
   if (!Array.isArray(value)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+  const datedTalks = deliveryCutoff !== null;
   const facts = [];
   const ids = new Set();
   for (const fact of value) {
@@ -813,7 +815,7 @@ function validateCuratedFacts(family, value, { datedTalks = false } = {}) {
       : ["id", "status", "language"];
     if (!exactKeys(fact, expectedKeys)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
     const id = requireString(fact.id, `CURATED_${family.toUpperCase()}_INVALID`);
-    if (ids.has(id)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+    if (ids.has(id) || datedTalks && id !== fact.id) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
     ids.add(id);
 
     const status = requireString(fact.status, `CURATED_${family.toUpperCase()}_INVALID`);
@@ -831,7 +833,8 @@ function validateCuratedFacts(family, value, { datedTalks = false } = {}) {
     if (datedTalks) {
       if (fact.delivery !== null && (!exactKeys(fact.delivery, ["earliest", "latest"]) ||
           !isRealIsoDate(fact.delivery.earliest) || !isRealIsoDate(fact.delivery.latest) ||
-          fact.delivery.earliest > fact.delivery.latest)) {
+          fact.delivery.earliest > fact.delivery.latest ||
+          status === "delivered" && fact.delivery.earliest > deliveryCutoff)) {
         throw fail("CURATED_TALKS_INVALID");
       }
       delivery = fact.delivery === null ? null : {
@@ -847,7 +850,8 @@ function validateCuratedFacts(family, value, { datedTalks = false } = {}) {
 }
 
 function deriveCuratedGroup(family, value, collectedAt, { datedTalks = false } = {}) {
-  const facts = validateCuratedFacts(family, value, { datedTalks });
+  const deliveryCutoff = datedTalks ? localDateAt(EDITORIAL_TIME_ZONE, collectedAt) : null;
+  const facts = validateCuratedFacts(family, value, deliveryCutoff);
   const counts = { all: 0, en: 0, es: 0 };
   const occurrences = [];
   for (const fact of facts) {
@@ -3182,6 +3186,7 @@ function isValidTalksV2Group(group) {
   }
 
   const occurrenceCounts = { en: 0, es: 0 };
+  const deliveryCutoff = localDateAt(EDITORIAL_TIME_ZONE, collected);
   for (const occurrence of group.occurrences) {
     if (!exactKeys(occurrence, ["language", "delivery"]) || !SUPPORTED_LANGUAGES.has(occurrence.language)) {
       return false;
@@ -3189,7 +3194,8 @@ function isValidTalksV2Group(group) {
     if (occurrence.delivery !== null &&
         (!exactKeys(occurrence.delivery, ["earliest", "latest"]) ||
           !isRealIsoDate(occurrence.delivery.earliest) || !isRealIsoDate(occurrence.delivery.latest) ||
-          occurrence.delivery.earliest > occurrence.delivery.latest)) {
+          occurrence.delivery.earliest > occurrence.delivery.latest ||
+          occurrence.delivery.earliest > deliveryCutoff)) {
       return false;
     }
     occurrenceCounts[occurrence.language] += 1;

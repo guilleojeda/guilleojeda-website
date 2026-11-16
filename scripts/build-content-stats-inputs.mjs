@@ -257,6 +257,9 @@ function validateArticleConfig(articleConfig) {
 function projectTalks(talks, includeDelivery = false) {
   if (!Array.isArray(talks)) invalid('talks must be an array');
 
+  const deliveryCutoff = includeDelivery ? new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'America/Argentina/Cordoba', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format() : null;
   const recordIds = new Set();
   const factIds = new Set();
   return talks.flatMap((record, recordIndex) => {
@@ -280,18 +283,20 @@ function projectTalks(talks, includeDelivery = false) {
       assertLanguage(occurrence.language, `${record.id}/${occurrence.id} language`);
 
       const id = `${record.id}/${occurrence.id}`;
+      if (includeDelivery && id !== id.trim()) invalid(`occurrence fact ID ${id} has surrounding whitespace`);
       if (factIds.has(id)) invalid(`duplicate occurrence fact ID ${id}`);
       factIds.add(id);
+      const delivery = includeDelivery && Object.hasOwn(occurrence, 'delivery')
+        ? projectDelivery(occurrence.delivery, id) : null;
+      if (occurrence.status === 'delivered' && delivery && delivery.earliest > deliveryCutoff) {
+        invalid(`${id} delivery cannot be wholly in the future`);
+      }
       return {
         id,
         kind: occurrence.kind,
         status: occurrence.status,
         language: occurrence.language,
-        ...(includeDelivery ? {
-          delivery: Object.hasOwn(occurrence, 'delivery')
-            ? projectDelivery(occurrence.delivery, `${record.id}/${occurrence.id}`)
-            : null
-        } : {})
+        ...(includeDelivery ? { delivery } : {})
       };
     });
   });

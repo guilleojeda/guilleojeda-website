@@ -12520,11 +12520,17 @@ test("phase 1 malformed nested dates and duplicate IDs omit only their family an
     ["talks", "reversed talk bounds", (next) => {
       next.curated.talks[0].delivery = { earliest: "2025-02-12", latest: "2025-02-11" };
     }],
+    ["talks", "delivery wholly after the local cutoff", (next) => {
+      next.curated.talks[0].delivery = { earliest: "2026-10-18", latest: "2026-10-18" };
+    }],
+    ["talks", "whitespace occurrence ID", (next) => {
+      next.curated.talks[0].id = ` ${next.curated.talks[0].id}`;
+    }],
     ["talks", "duplicate talk occurrence ID", (next) => {
       next.curated.talks.push({ ...next.curated.talks[0], language: "en" });
     }]
   ];
-  clock.set("2026-10-17T12:00:00.000Z");
+  clock.set("2026-10-18T01:00:00.000Z");
   for (const [family, name, mutate] of invalidFacts) {
     const next = structuredClone(input);
     mutate(next);
