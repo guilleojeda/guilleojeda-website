@@ -12514,6 +12514,12 @@ test("phase 1 malformed nested dates and duplicate IDs omit only their family an
     ["articles", "whitespace Builder article ID", (next) => {
       next.builderArticleDates[0].articleId = " /content/period-builder-one ";
     }],
+    ["articles", "Builder article ID requiring URL encoding", (next) => {
+      next.builderArticleDates[0].articleId = "/content/period builder";
+    }],
+    ["articles", "Builder article ID removed by URL normalization", (next) => {
+      next.builderArticleDates[0].articleId = "/content/..";
+    }],
     ["talks", "invalid talk date", (next) => {
       next.curated.talks[0].delivery = { earliest: "2025-02-30", latest: "2025-03-01" };
     }],
