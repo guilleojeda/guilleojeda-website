@@ -35,10 +35,12 @@ const copy = locale === 'en'
       cumulative: 'Total',
       currentSubscribers: 'Current active subscribers',
       newsletterSent: {
-        label: 'Emails sent · cumulative total',
+        label: 'Emails sent',
+        totalLabel: 'Beehiiv cumulative total',
         unit: 'emails',
         loading: 'Loading emails sent…',
-        unavailable: 'Emails sent are unavailable.'
+        unavailable: 'Emails sent are unavailable.',
+        periodUnavailable: 'Sends for this period are unavailable.'
       },
       coverage: 'Coverage',
       lastCollected: 'Last updated',
@@ -143,7 +145,7 @@ const copy = locale === 'en'
         'External-link clicks recorded for Dónde Aprendo AWS cover links to the publication and social channels throughout the directory, including the footer. One person can click more than once; clicks are separate from directory views and incoming Search clicks.',
         'Email opens are tracking-pixel events: privacy protections and automated loads can count as opens, while some reads may not register.',
         'Verified email clicks are Beehiiv-filtered events; they can repeat and do not represent unique people or guarantee a human click. Email figures cover history returned by Beehiiv, so tracking gaps may omit activity and reported values can change later.',
-        'Emails sent are Beehiiv’s reported cumulative total; one person may receive multiple emails. The available history returned by Beehiiv may be incomplete; tracking gaps can leave activity missing and the reported total can change. It does not follow the selected period.',
+        'Emails sent are Beehiiv’s reported cumulative total for the Simple AWS publication, shown under Recorded total; one person may receive multiple emails. Beehiiv’s available history may be incomplete, and the reported total can change.',
         'Simple AWS is an English newsletter; the subscriber figure counts current active subscriptions.',
       ]
     }
@@ -175,10 +177,12 @@ const copy = locale === 'en'
       cumulative: 'Total',
       currentSubscribers: 'Suscriptores actuales',
       newsletterSent: {
-        label: 'Emails enviados · total acumulado',
+        label: 'Emails enviados',
+        totalLabel: 'Acumulado de Beehiiv',
         unit: 'emails',
         loading: 'Cargando emails enviados…',
-        unavailable: 'No se pueden mostrar los emails enviados.'
+        unavailable: 'No se pueden mostrar los emails enviados.',
+        periodUnavailable: 'Envíos del período no disponibles.'
       },
       coverage: 'Cobertura',
       lastCollected: 'Última actualización',
@@ -283,7 +287,7 @@ const copy = locale === 'en'
         'Los clics registrados en enlaces externos de Dónde Aprendo AWS cubren enlaces a la publicación y a redes sociales en todo el directorio, incluido el pie de página. Una persona puede hacer más de un clic; se informan aparte de las vistas del directorio y de las búsquedas entrantes.',
         'Las aperturas de emails son eventos de píxeles de seguimiento: las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, mientras que algunas lecturas pueden no registrarse.',
         'Los clics verificados en emails son eventos filtrados por Beehiiv; pueden repetirse y no representan personas únicas ni garantizan que una persona haya hecho clic. Las cifras de emails cubren el historial devuelto por Beehiiv, por lo que los períodos sin seguimiento pueden omitir actividad y los valores informados pueden cambiar más adelante.',
-        'Los emails enviados son el total acumulado informado por Beehiiv; una persona puede recibir varios emails. El historial disponible devuelto por Beehiiv puede estar incompleto; los períodos sin seguimiento pueden omitir actividad y el total informado puede cambiar. No sigue el período seleccionado.',
+        'Los emails enviados son el total acumulado informado por Beehiiv para la publicación Simple AWS, que se muestra en Total registrado; una persona puede recibir varios emails. El historial disponible de Beehiiv puede estar incompleto y el total informado puede cambiar.',
         'Simple AWS es un boletín en inglés; la cifra de suscriptores cuenta las suscripciones activas actuales.',
       ]
     };
@@ -393,18 +397,20 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                   class="content-stats-newsletter-sent"
                   data-stats-newsletter-sent
                   data-stats-newsletter-sent-unavailable={copy.newsletterSent.unavailable}
+                  data-stats-newsletter-sent-period-unavailable={copy.newsletterSent.periodUnavailable}
                   aria-labelledby="content-stats-newsletter-sent-title"
                 >
                   <h4 class="content-stats-newsletter-sent-heading" id="content-stats-newsletter-sent-title">
                     {copy.newsletterSent.label}
                   </h4>
-                  <p class="content-stats-newsletter-sent-status" data-stats-newsletter-sent-status role="status" aria-live="polite" hidden>
+                  <p class="content-stats-newsletter-sent-status" data-stats-newsletter-sent-status hidden>
                     {copy.newsletterSent.loading}
                   </p>
                   <div class="content-stats-newsletter-sent-results" data-stats-newsletter-sent-results hidden>
-                    <p class="content-stats-newsletter-sent-count" role="status" aria-live="polite" aria-atomic="true">
+                    <p class="content-stats-newsletter-sent-count">
                       <span data-stats-newsletter-sent-value></span>
                       <span>{copy.newsletterSent.unit}</span>
+                      <span data-stats-newsletter-sent-label>{copy.newsletterSent.totalLabel}</span>
                     </p>
                     <details class="content-stats-details"><summary>{copy.metadataSummary}</summary>
                       <dl class="content-stats-meta content-stats-newsletter-sent-meta">
