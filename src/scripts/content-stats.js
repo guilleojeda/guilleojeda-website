@@ -367,7 +367,7 @@ function validateTalksGroupV2(value) {
     || !Array.isArray(value.occurrences)) return null;
 
   const counts = { all: value.occurrences.length, en: 0, es: 0 };
-  const deliveryCutoff = cordobaDate(value.collectedAt);
+  const deliveryCutoff = dateInTimeZone(value.collectedAt, 'America/Argentina/Cordoba');
   for (const occurrence of value.occurrences) {
     if (!hasOnlyKeys(occurrence, allowedKeys.talkOccurrence)
       || !['en', 'es'].includes(occurrence.language)) return null;
@@ -511,18 +511,21 @@ function validateArticleSearchClicksRecord(value, expectedBasis = 'period') {
     || value.startDate > value.endDate
     || !isNonnegativeCount(value.clicks)) return null;
 
+  if (expectedBasis === 'available-history') {
+    const queryDay = dateOnlyToUtc(dateInTimeZone(value.collectedAt, value.timeZone));
+    if (!queryDay || value.endDate !== utcDateOnly(addUtcDays(queryDay, -3))
+      || value.startDate < utcDateOnly(addUtcMonths(queryDay, -16))) return null;
+  }
   return value;
 }
 
 function validateArticleSearchClicks(value) {
   if (!hasOnlyKeys(value, allowedKeys.articleSearchClicksGroup)
     || ![1, 2].includes(value.definitionVersion)
-    || !isRecord(value.records)
-    || !hasAllowedKeys(value.records, value.definitionVersion === 2
-      ? [...knownSearchPeriods, 'total']
-      : knownSearchPeriods)) return null;
+    || !isRecord(value.records)) return null;
 
   const periods = value.definitionVersion === 2 ? [...knownSearchPeriods, 'total'] : knownSearchPeriods;
+  if (!hasAllowedKeys(value.records, periods)) return null;
   return Object.fromEntries(periods.map((period) => [
     period,
     Object.hasOwn(value.records, period)
@@ -823,8 +826,8 @@ function getLocale(section) {
   return section.dataset.statsLocale === 'es' ? 'es' : 'en';
 }
 
-function formatCollectedDate(timestamp, locale) {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+function formatCollectedDate(timestamp, locale, timeZone = 'UTC') {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone }).format(new Date(timestamp));
 }
 
 async function loadSharedSnapshot(source) {
@@ -857,9 +860,9 @@ function formatDateOnly(date, locale) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
-function cordobaDate(timestamp) {
+function dateInTimeZone(timestamp, timeZone) {
   const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'America/Argentina/Cordoba',
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
@@ -883,8 +886,15 @@ function addUtcDays(date, days) {
   return result;
 }
 
+function addUtcMonths(date, months) {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + months;
+  const day = Math.min(date.getUTCDate(), new Date(Date.UTC(year, month + 1, 0)).getUTCDate());
+  return new Date(Date.UTC(year, month, day));
+}
+
 function inventoryPeriodBounds(collectedAt, period) {
-  const end = cordobaDate(collectedAt);
+  const end = dateInTimeZone(collectedAt, 'America/Argentina/Cordoba');
   if (period === 'total') return { start: null, end };
   if (period === 'ytd') return { start: `${end.slice(0, 4)}-01-01`, end };
 
@@ -896,10 +906,7 @@ function inventoryPeriodBounds(collectedAt, period) {
   }
   if (period === '12m') {
     const dayAfter = addUtcDays(endDate, 1);
-    const year = dayAfter.getUTCFullYear() - 1;
-    const month = dayAfter.getUTCMonth();
-    const day = Math.min(dayAfter.getUTCDate(), new Date(Date.UTC(year, month + 1, 0)).getUTCDate());
-    const start = new Date(Date.UTC(year, month, day));
+    const start = addUtcMonths(dayAfter, -12);
     return { start: utcDateOnly(start), end };
   }
   return null;
@@ -1573,7 +1580,7 @@ function renderSearch(snapshot, locale, language, elements) {
   search.value.textContent = new Intl.NumberFormat(locale).format(record.clicks);
   search.coverage.textContent = record.publication.label;
   search.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
-  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
+  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale, isHistory ? record.timeZone : undefined);
   search.results.hidden = false;
   search.status.hidden = true;
   search.status.textContent = '';

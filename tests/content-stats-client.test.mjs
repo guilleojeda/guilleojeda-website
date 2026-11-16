@@ -1177,8 +1177,8 @@ function expectedInventoryDate(locale, timestamp = collectedAt) {
     .format(new Date(timestamp));
 }
 
-function expectedDate(locale, timestamp = collectedAt) {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+function expectedDate(locale, timestamp = collectedAt, timeZone = 'UTC') {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone }).format(new Date(timestamp));
 }
 
 function expectedDateOnly(locale, date) {
@@ -1797,7 +1797,8 @@ function assertSearchHistoryVisible(page, locale) {
   assert.ok(search.interval.textContent.includes(expectedDateOnly(locale, record.endDate)), 'Search history shows its actual end date');
   assert.match(search.collectedLabel.textContent, locale === 'es' ? /última consulta válida/i : /last valid query/i,
     'Search history identifies the last valid query date');
-  assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'Search history shows the last valid collection date');
+  assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt, record.timeZone),
+    'Search history shows the last valid query on the Pacific calendar');
 }
 
 function assertDirectoryViewsUnavailable(page, locale, { hidden = false } = {}) {
@@ -4351,21 +4352,35 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.fetchCount, 1);
   });
 
-  test(`${locale} malformed Search history stays unavailable while ordinary windows remain usable`, async () => {
+  test(`${locale} Search history uses the Pacific day when UTC has reached the next month`, async () => {
     const data = snapshotWithArticleSearchHistory();
-    data.groups.articleSearchClicks.records.total.clicks = -1;
+    Object.assign(data.groups.articleSearchClicks.records.total, {
+      collectedAt: '2026-04-01T06:30:00.000Z', startDate: '2024-11-30', endDate: '2026-03-28'
+    });
     const page = createPage({ locale, data });
     await page.settle();
-
-    page.periodSelector.value = '12m';
-    page.periodSelector.dispatch('change');
-    assertSearchVisible(page, locale, '12m');
     page.periodSelector.value = 'total';
     page.periodSelector.dispatch('change');
-    assertSearchUnavailable(page, locale, locale === 'es' ? /total no disponible/i : /total (?:is )?unavailable/i);
-    assert.equal(page.cards.articles.search.interval.textContent, '', 'invalid history clears stale interval metadata');
-    assert.equal(page.cards.articles.count.textContent, '11');
-    assert.equal(page.fetchCount, 1);
+    assertSearchHistoryVisible(page, locale);
+    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDateOnly(locale, '2026-03-31'));
+  });
+
+  test(`${locale} malformed Search history stays unavailable while ordinary windows remain usable`, async () => {
+    for (const invalidHistory of [{ clicks: -1 }, { startDate: '2025-07-15' }, { endDate: '2026-11-14' }]) {
+      const data = snapshotWithArticleSearchHistory();
+      Object.assign(data.groups.articleSearchClicks.records.total, invalidHistory);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      page.periodSelector.value = '12m';
+      page.periodSelector.dispatch('change');
+      assertSearchVisible(page, locale, '12m');
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      assertSearchUnavailable(page, locale, locale === 'es' ? /total no disponible/i : /total (?:is )?unavailable/i);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.fetchCount, 1);
+    }
   });
 }
 

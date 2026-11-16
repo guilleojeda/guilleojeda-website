@@ -1590,7 +1590,9 @@ function articleSearchHistoryScopeFingerprint(searchConsole) {
 
 function isCompatibleSearchHistoryRecord(record, searchConsole) {
   if (record.scopeId !== articleSearchHistoryScopeFingerprint(searchConsole)) return false;
-  const collectionDate = localDateAt(GOOGLE_SEARCH_TIME_ZONE, Date.parse(record.collectedAt));
+  const collected = Date.parse(record.collectedAt);
+  if (collected > Date.now()) return false;
+  const collectionDate = localDateAt(GOOGLE_SEARCH_TIME_ZONE, collected);
   const range = googleSearchHistoryRange(searchConsole, collectionDate, addCalendarDays(collectionDate, -3));
   return range !== null && record.startDate === range.startDate && record.endDate === range.endDate;
 }
@@ -3974,18 +3976,19 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
           const currentYtdStart = `${(timeZone === "UTC" ? new Date(now).toISOString().slice(0, 10)
             : localDateAt(timeZone, now)).slice(0, 4)}-01-01`;
           const records = { ...(groups[family]?.records ?? {}) };
-          const searchHistoryEnabled = family === "articleSearchClicks" &&
-            configuration.searchConsole?.historyMonths !== undefined;
+          const search = family === "articleSearchClicks" ? configuration.searchConsole : undefined;
+          const searchHistoryEnabled = search?.historyMonths !== undefined;
+          const searchPeriodScope = search && articleSearchClicksScopeFingerprint(search);
           for (const period of result?.failedPeriods ?? []) {
             if (!eligiblePeriods.has(period) || !prior || !Object.hasOwn(prior.records, period)) continue;
             const priorRecord = prior.records[period];
-            if (family === "articleSearchClicks" && period === "total") {
-              if (!searchHistoryEnabled || !isCompatibleSearchHistoryRecord(priorRecord, configuration.searchConsole)) {
+            if (search && period === "total") {
+              if (!searchHistoryEnabled || !isCompatibleSearchHistoryRecord(priorRecord, search)) {
                 continue;
               }
             } else {
               if (period === "ytd" && priorRecord.startDate !== currentYtdStart) continue;
-              if (family === "articleSearchClicks" && priorRecord.startDate < configuration.searchConsole.availableSince) continue;
+              if (search && (priorRecord.scopeId !== searchPeriodScope || priorRecord.startDate < search.availableSince)) continue;
             }
             records[period] = priorRecord;
           }

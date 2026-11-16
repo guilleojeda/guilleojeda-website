@@ -320,7 +320,6 @@ function priorArticleViewsGroup(records = {
 
 function priorArticleSearchRecord({
   collectedAt = "2026-10-14T04:30:00.000Z",
-  scopeId = "a".repeat(64),
   startDate = "2026-10-06",
   endDate = "2026-10-12",
   clicks = 17
@@ -328,7 +327,7 @@ function priorArticleSearchRecord({
   return {
     basis: "period",
     collectedAt,
-    scopeId,
+    scopeId: "cc870c36695ca293b31ce1e0314bf9e62bcab8dc0a5f093d430e8a2664a16185",
     publication: { id: "simple-aws", label: "Simple AWS", language: "en" },
     timeZone: googleSearchTimeZone,
     startDate,
@@ -338,11 +337,11 @@ function priorArticleSearchRecord({
 }
 
 function priorArticleSearchClicksGroup(records = {
-  "7d": priorArticleSearchRecord({ scopeId: "a".repeat(64), startDate: "2026-10-06", endDate: "2026-10-12", clicks: 17 }),
-  "30d": priorArticleSearchRecord({ scopeId: "b".repeat(64), startDate: "2026-09-13", endDate: "2026-10-12", clicks: 30 }),
-  "90d": priorArticleSearchRecord({ scopeId: "c".repeat(64), startDate: "2026-07-15", endDate: "2026-10-12", clicks: 90 }),
-  "12m": priorArticleSearchRecord({ scopeId: "d".repeat(64), startDate: "2025-10-13", endDate: "2026-10-12", clicks: 120 }),
-  ytd: priorArticleSearchRecord({ scopeId: "e".repeat(64), startDate: "2026-01-01", endDate: "2026-10-12", clicks: 200 })
+  "7d": priorArticleSearchRecord({ startDate: "2026-10-06", endDate: "2026-10-12", clicks: 17 }),
+  "30d": priorArticleSearchRecord({ startDate: "2026-09-13", endDate: "2026-10-12", clicks: 30 }),
+  "90d": priorArticleSearchRecord({ startDate: "2026-07-15", endDate: "2026-10-12", clicks: 90 }),
+  "12m": priorArticleSearchRecord({ startDate: "2025-10-13", endDate: "2026-10-12", clicks: 120 }),
+  ytd: priorArticleSearchRecord({ startDate: "2026-01-01", endDate: "2026-10-12", clicks: 200 })
 }) {
   return { definitionVersion: 1, records };
 }
@@ -3677,7 +3676,6 @@ test("Search Console uses Pacific calendar windows, keeps full history windows, 
   const previous = priorFullOutput();
   const previousSearchRecords = priorArticleSearchClicksGroup().records;
   previousSearchRecords.ytd = priorArticleSearchRecord({
-    scopeId: "f".repeat(64),
     startDate: "2025-01-01",
     endDate: "2025-12-29",
     clicks: 500
@@ -3970,23 +3968,21 @@ test("Search Console drops an incompatible history total and restores v1 when th
   assert.deepEqual(incompatible.groups.articleSearchClicks.records["30d"], first.groups.articleSearchClicks.records["30d"],
     "advancing the available history boundary does not change the scope of a covered ordinary period");
 
-  const otherScope = structuredClone(first);
-  const priorRecords = otherScope.groups.articleSearchClicks.records;
-  priorRecords.total.scopeId = priorRecords["12m"].scopeId;
-  harness.objects.set(outputKey, JSON.stringify(otherScope));
   harness.setInput(phaseTwoSearchInput({ historyMonths: 16 }));
-  await harness.handler({}, {});
-  const wrongScope = await readPut(harness.putCalls[2]);
-  assert.equal(Object.hasOwn(wrongScope.groups.articleSearchClicks.records, "total"), false,
-    "a matching interval with a different valid scope hash cannot be retained");
-
-  const partialHistory = structuredClone(first);
-  partialHistory.groups.articleSearchClicks.records.total.startDate = "2025-07-17";
-  harness.objects.set(outputKey, JSON.stringify(partialHistory));
-  await harness.handler({}, {});
-  const wrongInterval = await readPut(harness.putCalls[3]);
-  assert.equal(Object.hasOwn(wrongInterval.groups.articleSearchClicks.records, "total"), false,
-    "a matching scope with a shortened history interval cannot be retained");
+  for (const [override, reason] of [
+    [{ scopeId: first.groups.articleSearchClicks.records["12m"].scopeId }, "a different valid scope hash"],
+    [{ startDate: "2025-07-17" }, "a shortened history interval"],
+    [{ collectedAt: "2026-11-17T20:30:00.000Z", startDate: "2025-07-17", endDate: "2026-11-14" }, "a future query time"]
+  ]) {
+    const badPrior = structuredClone(first);
+    Object.assign(badPrior.groups.articleSearchClicks.records.total, override);
+    harness.objects.set(outputKey, JSON.stringify(badPrior));
+    const writeIndex = harness.putCalls.length;
+    await harness.handler({}, {});
+    const updated = await readPut(harness.putCalls[writeIndex]);
+    assert.equal(Object.hasOwn(updated.groups.articleSearchClicks.records, "total"), false,
+      `history with ${reason} cannot be retained`);
+  }
 
   const rollbackLog = [];
   const rollback = createHarness({
@@ -3994,12 +3990,15 @@ test("Search Console drops an incompatible history total and restores v1 when th
     clock: createClock("2026-11-17T20:30:00.000Z"),
     fetchFn: phaseFiveApiFetch({
       requestLog: rollbackLog,
-      searchResponder: ({ request }) => request.json.startDate === "2026-10-16"
+      searchResponder: ({ request }) => ["2026-10-16", "2026-08-17"].includes(request.json.startDate)
         ? jsonResponse({ error: googleResponseCanary }, 403)
         : jsonResponse(searchConsoleResponse({ clicks: 42 }))
     })
   });
-  rollback.objects.set(outputKey, JSON.stringify(first));
+  const rollbackPrior = structuredClone(first);
+  const rollbackRecords = rollbackPrior.groups.articleSearchClicks.records;
+  rollbackRecords["90d"].scopeId = rollbackRecords.total.scopeId;
+  rollback.objects.set(outputKey, JSON.stringify(rollbackPrior));
   await rollback.handler({}, {});
   const restored = await readPut(rollback.putCalls[0]);
   assert.equal(restored.groups.articleSearchClicks.definitionVersion, 1,
@@ -4008,6 +4007,8 @@ test("Search Console drops an incompatible history total and restores v1 when th
     "the legacy Search group has only its five ordinary periods");
   assert.deepEqual(restored.groups.articleSearchClicks.records["30d"], first.groups.articleSearchClicks.records["30d"],
     "v1 rollback preserves the compatible ordinary record from a v2 output with history");
+  assert.equal(Object.hasOwn(restored.groups.articleSearchClicks.records, "90d"), false,
+    "rollback rejects a failed ordinary period with the history scope");
   assert.equal(googleRequests(rollbackLog, "google-search").length, 5,
     "restored input does not issue the history query");
 });
