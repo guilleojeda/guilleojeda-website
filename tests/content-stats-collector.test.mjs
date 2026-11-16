@@ -4052,10 +4052,10 @@ test("input 5 requires newsletter and validates the exact analytics selection be
   }
 });
 
-test("schema versions newer than input 12 are rejected as unsupported", async () => {
+test("schema versions newer than input 13 are rejected as unsupported", async () => {
   const requestLog = [];
   const harness = createHarness({
-    input: { ...phaseSixInput(), schemaVersion: 13 },
+    input: { ...phaseSixInput(), schemaVersion: 14 },
     fetchFn: phaseFiveApiFetch({ requestLog })
   });
   await assert.rejects(() => harness.handler({}, {}), (error) => error.code === "INPUT_VERSION_UNSUPPORTED");
@@ -12281,4 +12281,502 @@ test("implementation regression: uncertain S3 Put results resolve only when read
     assert.equal(harness.logs.join("\n").includes("synthetic"), false,
       `${mode}: storage details are not logged`);
   }
+});
+
+function periodTalkFact(id, kind, status, language, delivery) {
+  return { id, kind, status, language, delivery };
+}
+
+function phaseThirteenPeriodInput({
+  builderArticleDates = [{ articleId: "/content/period-builder-one", publishedAt: "2024-05-06" }],
+  builderArticleViews = manualBuilderArticleViewsInput({
+    observedAt: "2026-10-16T10:00:00.000Z",
+    views: { en: 41, es: 9 }
+  }),
+  talks = [periodTalkFact(
+    "phase1-period-talk",
+    "talk",
+    "delivered",
+    "es",
+    { earliest: "2025-02-11", latest: "2025-02-11" }
+  )],
+  books = [bookFact("phase1-period-book")]
+} = {}) {
+  const baseInput = phaseThreeInput({ curated: { talks, books } });
+  const input = phaseTwelveArticleInventoryInput({
+    baseInput,
+    articleInventory: { publications: [], exclusions: [] },
+    builderArticleViews
+  });
+  input.schemaVersion = 13;
+  input.builderArticleDates = structuredClone(builderArticleDates);
+  return input;
+}
+
+function periodArticleFetch({ requestLog = [], caylentPages, builderPages } = {}) {
+  return builderApiFetch({
+    requestLog,
+    ...(caylentPages ? { caylentPages } : {}),
+    ...(builderPages ? { builderPages } : {})
+  });
+}
+
+function sortedOccurrenceKeys(occurrences) {
+  return occurrences.map(({ language, delivery }) => JSON.stringify({ language, delivery })).sort();
+}
+
+test("phase 1 input13 merges Builder dates by stable ID before Article dedupe and publishes eligible talk deliveries", async () => {
+  const datedInput = phaseThirteenPeriodInput({
+    builderArticleDates: [
+      { articleId: "/content/period-builder-one", publishedAt: "2024-05-06" },
+      { articleId: "/content/period-builder-timestamp", publishedAt: "2025-09-14T16:32:10.000Z" },
+      { articleId: "/content/period-builder-inactive", publishedAt: "2023-07-08" }
+    ],
+    talks: [
+      periodTalkFact("phase1-talk-bounded", "talk", "delivered", "en", {
+        earliest: "2025-02-10",
+        latest: "2025-02-12"
+      }),
+      periodTalkFact("phase1-talk-same-day-a", "talk", "delivered", "es", {
+        earliest: "2025-02-11",
+        latest: "2025-02-11"
+      }),
+      periodTalkFact("phase1-talk-same-day-b", "panel", "delivered", "es", {
+        earliest: "2025-02-11",
+        latest: "2025-02-11"
+      }),
+      periodTalkFact("phase1-talk-unknown-date", "session", "delivered", "en", null),
+      periodTalkFact("phase1-talk-scheduled", "workshop", "scheduled", "en", {
+        earliest: "2026-11-14",
+        latest: "2026-11-14"
+      }),
+      periodTalkFact("phase1-host-only", "hosting", "delivered", "es", null)
+    ]
+  });
+  const sharedTitle = "Phase One Shared Article";
+  const builderRows = [
+    builderArticle({
+      id: "period-builder-one",
+      title: sharedTitle,
+      lastPublishedAt: Date.parse("2026-10-15T12:00:00.000Z")
+    }),
+    builderArticle({
+      id: "period-builder-no-verified-date",
+      title: "Builder Article Without a Verified Publication Date",
+      lastPublishedAt: Date.parse("2026-10-15T12:00:00.000Z")
+    }),
+    builderArticle({
+      id: "period-builder-timestamp",
+      title: "Builder Article with Verified Timestamp Evidence",
+      lastPublishedAt: Date.parse("2026-10-15T12:00:00.000Z")
+    })
+  ];
+  builderRows[0].articleId = " /content/period-builder-one ";
+  builderRows[1].createdAt = Date.parse("2025-01-01T12:00:00.000Z");
+  const requestLog = [];
+  const harness = createHarness({
+    input: datedInput,
+    clock: createClock("2026-10-16T12:00:00.000Z"),
+    fetchFn: periodArticleFetch({
+      requestLog,
+      caylentPages: new Map([[0, { results: [article({
+        id: "phase1-shared-caylent-copy",
+        title: sharedTitle,
+        publishedDate: Date.parse("2025-03-07T20:44:58.310Z")
+      })] }]]),
+      builderPages: new Map([["", { articles: builderRows, resultsSize: builderRows.length }]])
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  const articleGroup = output.groups.articles;
+  assertPhaseFiveCatalogShape(articleGroup);
+  assert.equal(articleGroup.definitionVersion, 2, "Articles keeps the existing public catalog version and shape");
+  assert.equal(articleGroup.records.length, 3, "the dated cross-source copy is still one title-language record");
+  const shared = articleGroup.records.find(({ title }) => phaseFiveCatalogTitle(title) === phaseFiveCatalogTitle(sharedTitle));
+  assert.ok(shared);
+  assert.equal(shared.publishedAt, "2024-05-06",
+    "the verified Builder date is applied before the existing title-language dedupe chooses the earliest date");
+  assert.equal(shared.publications.find(({ sourceId }) => sourceId === "builder-center").publishedAt, "2024-05-06",
+    "the date is matched to the exact Builder articleId");
+  const builderPublication = shared.publications.find(({ sourceId }) => sourceId === "builder-center");
+  assert.equal(builderPublication.url, "https://builder.aws.com/content/period-builder-one/shared-slug",
+    "the public Builder destination legitimately contains the stable article path");
+  assert.equal(Object.hasOwn(builderPublication, "articleId"), false,
+    "the private Builder articleId is not copied as a public catalog field");
+  const unknown = articleGroup.records.find(({ title }) => title === "Builder Article Without a Verified Publication Date");
+  assert.equal(unknown.publishedAt, null,
+    "Builder lastPublishedAt and createdAt do not become publication dates without maintained evidence");
+  assert.equal(unknown.publications[0].publishedAt, null);
+  const timestampDated = articleGroup.records.find(({ title }) => title === "Builder Article with Verified Timestamp Evidence");
+  assert.equal(timestampDated.publishedAt, "2025-09-14T16:32:10.000Z",
+    "a verified UTC timestamp keeps its supported precision in the public Article catalog");
+  assert.equal(timestampDated.publications[0].publishedAt, "2025-09-14T16:32:10.000Z");
+  assert.deepEqual(Object.keys(articleGroup).sort(), [
+    "basis", "collectedAt", "counts", "definitionVersion", "records", "scopeId", "sources"
+  ], "dated inputs do not change the existing Articles v2 public contract");
+
+  const talkGroup = output.groups.talks;
+  assert.equal(talkGroup.definitionVersion, 2);
+  assert.equal(talkGroup.basis, "cumulative");
+  assert.deepEqual(talkGroup.counts, { all: 4, en: 2, es: 2 });
+  assert.deepEqual(Object.keys(talkGroup).sort(), [
+    "basis", "collectedAt", "counts", "definitionVersion", "occurrences", "scopeId", "sources"
+  ], "Talks v2 adds only the delivered occurrence projection to the existing cumulative group");
+  assert.deepEqual(sortedOccurrenceKeys(talkGroup.occurrences), sortedOccurrenceKeys([
+    { language: "en", delivery: { earliest: "2025-02-10", latest: "2025-02-12" } },
+    { language: "es", delivery: { earliest: "2025-02-11", latest: "2025-02-11" } },
+    { language: "es", delivery: { earliest: "2025-02-11", latest: "2025-02-11" } },
+    { language: "en", delivery: null }
+  ]));
+  assert.equal(talkGroup.occurrences.filter(({ language, delivery }) => language === "es" &&
+    delivery?.earliest === "2025-02-11" && delivery.latest === "2025-02-11").length, 2,
+  "two same-day sessions remain two occurrences even though their public projections match");
+  for (const occurrence of talkGroup.occurrences) {
+    assert.deepEqual(Object.keys(occurrence).sort(), ["delivery", "language"]);
+  }
+  const publicJson = JSON.stringify(output);
+  for (const value of [
+    "phase1-talk-bounded",
+    "phase1-talk-same-day-a",
+    "phase1-talk-same-day-b",
+    "phase1-talk-unknown-date",
+    "phase1-talk-scheduled",
+    "phase1-host-only"
+  ]) {
+    assert.equal(publicJson.includes(value), false, "public aggregates omit stable IDs and undelivered display content");
+  }
+  assert.equal(publicJson.includes("https://builder.aws.com/content/period-builder-one/shared-slug"), true);
+  assert.equal(publicJson.includes("/content/period-builder-inactive"), false,
+    "a date override for an inactive Builder ID does not create an Article record");
+  assert.equal(JSON.stringify(talkGroup).includes("Builder Article Without a Verified Publication Date"), false,
+    "Talks never duplicates Article titles or display prose");
+  assert.deepEqual(output.groups.builderArticleViews.views, { all: 50, en: 41, es: 9 },
+    "verified publication dates do not replace or rewrite separate manual Builder view evidence");
+  assert.equal(output.groups.builderArticleViews.provenance, "manual");
+  assert.equal(output.groups.builderArticleViews.observedAt, "2026-10-16T10:00:00.000Z");
+  assert.ok(requestLog.some(({ kind }) => kind === "caylent-list"));
+  assert.ok(requestLog.some(({ kind }) => kind === "builder-list"));
+  assert.equal(requestLog.some(({ kind }) => kind === "builder-detail"), false,
+    "date facts join the existing list response by its stable ID without new detail requests");
+});
+
+test("phase 1 rejects malformed input13 root shapes before any provider request", async () => {
+  const valid = phaseThirteenPeriodInput();
+  const invalidShapes = [
+    ["Builder date list is not an array", (input) => { input.builderArticleDates = {}; }],
+    ["required Article inventory is absent", (input) => { delete input.articleInventory; }],
+    ["unexpected root property", (input) => { input.unexpectedPeriodFact = true; }]
+  ];
+  for (const [name, mutate] of invalidShapes) {
+    const input = structuredClone(valid);
+    mutate(input);
+    const requestLog = [];
+    const harness = createHarness({ input, fetchFn: periodArticleFetch({ requestLog }) });
+    await assert.rejects(() => harness.handler({}, {}), (error) => {
+      assert.equal(error.code, "INPUT_SCHEMA_INVALID", name);
+      return true;
+    });
+    assert.deepEqual(requestLog, [], name + " is rejected before source I/O");
+    assert.equal(harness.putCalls.length, 0, name + " cannot publish a partial result");
+  }
+});
+
+test("phase 1 malformed nested dates and duplicate IDs omit only their family and never retain its prior", async () => {
+  const input = phaseThirteenPeriodInput();
+  const requestLog = [];
+  const builderRows = [builderArticle({
+    id: "period-builder-one",
+    title: "Family-local Date Validation",
+    lastPublishedAt: Date.parse("2026-10-15T12:00:00.000Z")
+  })];
+  const fetchFn = periodArticleFetch({
+    requestLog,
+    caylentPages: new Map([[0, { results: [] }]]),
+    builderPages: new Map([["", { articles: builderRows, resultsSize: builderRows.length }]])
+  });
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const harness = createHarness({ input, fetchFn, clock });
+  await harness.handler({}, {});
+  const seeded = await readPut(harness.putCalls[0]);
+  assert.ok(seeded.groups.articles && seeded.groups.talks && seeded.groups.books);
+  const compatiblePriorBytes = JSON.stringify(seeded);
+
+  const invalidFacts = [
+    ["articles", "invalid Builder date", (next) => {
+      next.builderArticleDates[0].publishedAt = "2024-02-30";
+    }],
+    ["articles", "duplicate Builder article ID", (next) => {
+      next.builderArticleDates.push({ ...next.builderArticleDates[0], publishedAt: "2024-05-07" });
+    }],
+    ["articles", "whitespace Builder article ID", (next) => {
+      next.builderArticleDates[0].articleId = " /content/period-builder-one ";
+    }],
+    ["articles", "Builder article ID requiring URL encoding", (next) => {
+      next.builderArticleDates[0].articleId = "/content/period builder";
+    }],
+    ["articles", "Builder article ID removed by URL normalization", (next) => {
+      next.builderArticleDates[0].articleId = "/content/..";
+    }],
+    ["articles", "Builder article ID with an encoded path separator", (next) => {
+      next.builderArticleDates[0].articleId = "/content/period%5cbuilder";
+    }],
+    ["talks", "invalid talk date", (next) => {
+      next.curated.talks[0].delivery = { earliest: "2025-02-30", latest: "2025-03-01" };
+    }],
+    ["talks", "reversed talk bounds", (next) => {
+      next.curated.talks[0].delivery = { earliest: "2025-02-12", latest: "2025-02-11" };
+    }],
+    ["talks", "delivery wholly after the local cutoff", (next) => {
+      next.curated.talks[0].delivery = { earliest: "2026-10-18", latest: "2026-10-18" };
+    }],
+    ["talks", "whitespace occurrence ID", (next) => {
+      next.curated.talks[0].id = ` ${next.curated.talks[0].id}`;
+    }],
+    ["talks", "duplicate talk occurrence ID", (next) => {
+      next.curated.talks.push({ ...next.curated.talks[0], language: "en" });
+    }]
+  ];
+  clock.set("2026-10-18T01:00:00.000Z");
+  for (const [family, name, mutate] of invalidFacts) {
+    const next = structuredClone(input);
+    mutate(next);
+    harness.objects.set(outputKey, compatiblePriorBytes);
+    harness.setInput(next);
+    await harness.handler({}, {});
+    const { groups } = await readPut(harness.putCalls.at(-1));
+    assert.equal(Object.hasOwn(groups, family), false, `${name} cannot publish or retain ${family}`);
+    const healthy = family === "articles" ? "talks" : "articles";
+    assert.ok(groups[healthy] && groups.books, `${name} leaves ${healthy} and books available`);
+    assert.deepEqual(groups.builderArticleViews, seeded.groups.builderArticleViews,
+      `${name} leaves the independent manual Builder observation available`);
+  }
+  assert.equal(harness.putCalls.length, 1 + invalidFacts.length);
+});
+
+test("phase 1 date scopes retain only unchanged prior evidence and allow input12 rollback", async () => {
+  let articleSourceAvailable = true;
+  const requestLog = [];
+  const article = builderArticle({
+    id: "period-builder-one",
+    title: "Scope-bound Builder Article",
+    lastPublishedAt: Date.parse("2026-10-15T12:00:00.000Z")
+  });
+  const datedTalk = periodTalkFact("phase1-scope-talk", "talk", "delivered", "es", {
+    earliest: "2025-02-11",
+    latest: "2025-02-11"
+  });
+  const manualViews = manualBuilderArticleViewsInput({
+    observedAt: "2026-10-16T10:00:00.000Z",
+    views: { en: 41, es: 9 }
+  });
+  const periodInput = (publishedAt = "2024-05-06", talks = [datedTalk]) => phaseThirteenPeriodInput({
+    builderArticleDates: [{ articleId: "/content/period-builder-one", publishedAt }],
+    builderArticleViews: manualViews,
+    talks
+  });
+  const fetchFn = periodArticleFetch({
+    requestLog,
+    caylentPages: new Map([[0, () => articleSourceAvailable
+      ? jsonResponse({ results: [] })
+      : jsonResponse({ error: "synthetic Article outage" }, 503)]]),
+    builderPages: new Map([["", { articles: [article], resultsSize: 1 }]])
+  });
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const harness = createHarness({ input: periodInput(), fetchFn, clock });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assertPhaseFiveCatalogShape(first.groups.articles);
+  assert.equal(first.groups.articles.records[0].publishedAt, "2024-05-06");
+  assert.equal(first.groups.talks.definitionVersion, 2);
+  const firstArticleGroup = first.groups.articles;
+  const firstTalkScope = first.groups.talks.scopeId;
+  const firstManualViews = first.groups.builderArticleViews;
+
+  articleSourceAvailable = false;
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const sameEvidence = await readPut(harness.putCalls[1]);
+  assert.deepEqual(sameEvidence.groups.articles, firstArticleGroup,
+    "an Article source failure may retain the prior date-aware catalog when the maintained ID/date evidence is unchanged");
+  assert.notEqual(sameEvidence.groups.talks.collectedAt, first.groups.talks.collectedAt,
+    "the healthy curated family refreshes while Articles are retained");
+  assert.equal(sameEvidence.groups.talks.scopeId, firstTalkScope);
+  assert.deepEqual(sameEvidence.groups.builderArticleViews, firstManualViews,
+    "manual Builder evidence remains independent of Article source retention");
+
+  harness.setInput(periodInput("2024-05-07"));
+  clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const changedArticleEvidence = await readPut(harness.putCalls[2]);
+  assert.equal(Object.hasOwn(changedArticleEvidence.groups, "articles"), false,
+    "changed verified dates invalidate the old Article scope instead of retaining a stale date");
+  assert.equal(changedArticleEvidence.groups.talks.scopeId, firstTalkScope,
+    "Article evidence does not change the independent Talks scope");
+  assert.deepEqual(changedArticleEvidence.groups.builderArticleViews, firstManualViews);
+
+  articleSourceAvailable = true;
+  harness.setInput(periodInput("2024-05-06", [periodTalkFact(
+    "phase1-scope-talk", "talk", "delivered", "es", { earliest: "2025-02-12", latest: "2025-02-12" }
+  )]));
+  clock.set("2026-10-19T12:00:00.000Z");
+  await harness.handler({}, {});
+  const changedTalkEvidence = await readPut(harness.putCalls[3]);
+  assert.equal(changedTalkEvidence.groups.articles.scopeId, firstArticleGroup.scopeId,
+    "unchanged Article evidence restores the same semantic scope after recovery");
+  assert.equal(changedTalkEvidence.groups.articles.records[0].publishedAt, "2024-05-06",
+    "healthy recovery restores the maintained Builder publication date");
+  assert.equal(changedTalkEvidence.groups.articles.collectedAt, "2026-10-19T12:00:00.000Z",
+    "the recovered Article group records its own new collection time");
+  assert.notEqual(changedTalkEvidence.groups.talks.scopeId, firstTalkScope,
+    "changing a delivery date refreshes the Talks scope");
+  assert.deepEqual(changedTalkEvidence.groups.builderArticleViews, firstManualViews);
+
+  const rollbackBase = phaseThreeInput({ curated: {
+    talks: [talkFact("phase1-scope-talk", "talk", "delivered", "es")],
+    books: [bookFact("phase1-period-book")]
+  } });
+  harness.setInput(phaseTwelveArticleInventoryInput({
+    baseInput: rollbackBase,
+    articleInventory: { publications: [], exclusions: [] },
+    builderArticleViews: manualViews
+  }));
+  articleSourceAvailable = true;
+  clock.set("2026-10-20T12:00:00.000Z");
+  await harness.handler({}, {});
+  const rollback = await readPut(harness.putCalls[4]);
+  assertPhaseFiveCatalogShape(rollback.groups.articles);
+  assert.equal(rollback.groups.articles.records[0].publishedAt, null,
+    "input12 rollback keeps Builder eligibility but does not reuse input13 dates");
+  assert.equal(rollback.groups.talks.definitionVersion, 1);
+  assert.equal(Object.hasOwn(rollback.groups.talks, "occurrences"), false,
+    "the prior cumulative Talks v1 contract is restored with input12");
+  assert.deepEqual(rollback.groups.talks.counts, { all: 1, en: 0, es: 1 });
+  assert.deepEqual(rollback.groups.builderArticleViews, firstManualViews);
+  assert.equal(harness.putCalls.length, 5);
+  assert.ok(requestLog.some(({ kind }) => kind === "builder-list"),
+    "the existing Builder list adapter remains the source in input13 and input12");
+});
+
+test("malformed input12 Talks never retains an incompatible input13 Talks v2 group", async () => {
+  const manualViews = manualBuilderArticleViewsInput({
+    observedAt: "2026-10-16T10:00:00.000Z",
+    views: { en: 41, es: 9 }
+  });
+  const input13 = phaseThirteenPeriodInput({ builderArticleViews: manualViews });
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const harness = createHarness({
+    input: input13,
+    clock,
+    fetchFn: periodArticleFetch({
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]])
+    })
+  });
+
+  await harness.handler({}, {});
+  const dated = await readPut(harness.putCalls[0]);
+  assert.equal(dated.groups.talks.definitionVersion, 2);
+
+  const malformedInput12 = phaseTwelveArticleInventoryInput({
+    baseInput: phaseThreeInput({ curated: {
+      talks: [{ id: "legacy-malformed-talk", kind: "talk", status: "finished", language: "en" }],
+      books: [bookFact("legacy-healthy-book")]
+    } }),
+    articleInventory: { publications: [], exclusions: [] },
+    builderArticleViews: manualViews
+  });
+  harness.setInput(malformedInput12);
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const malformed = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(malformed.groups, "talks"), false,
+    "malformed input12 Talks cannot retain the prior input13 Talks v2 projection");
+  assert.notEqual(malformed.groups.articles.collectedAt, dated.groups.articles.collectedAt,
+    "healthy Articles refresh while malformed Talks are omitted");
+  assert.notEqual(malformed.groups.books.collectedAt, dated.groups.books.collectedAt,
+    "healthy Books refresh while malformed Talks are omitted");
+
+  const validInput12 = structuredClone(malformedInput12);
+  validInput12.curated.talks = [talkFact("legacy-valid-talk", "talk", "delivered", "en")];
+  harness.setInput(validInput12);
+  clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.equal(recovered.groups.talks.definitionVersion, 1,
+    "a subsequent valid input12 run publishes the legacy Talks v1 shape");
+  assert.equal(Object.hasOwn(recovered.groups.talks, "occurrences"), false);
+  assert.deepEqual(recovered.groups.talks.counts, { all: 1, en: 1, es: 0 });
+});
+
+test("fully selected input13 keeps optional provider and manual Builder families identical to input12", async () => {
+  const collectedAt = "2026-10-16T12:00:00.000Z";
+  const builderViews = manualBuilderArticleViewsInput({
+    observedAt: "2026-10-16T10:00:00.000Z",
+    views: { en: 41, es: 9 }
+  });
+  const input12 = phaseTwelveArticleInventoryInput({ builderArticleViews: builderViews });
+  input12.curated.talks = [talkFact("phase1-full-selection-talk", "talk", "delivered", "en")];
+
+  const input13 = structuredClone(input12);
+  input13.schemaVersion = 13;
+  input13.builderArticleDates = [
+    { articleId: "/content/six-source-builder", publishedAt: "2024-05-06" }
+  ];
+  input13.curated.talks = input13.curated.talks.map((fact) => ({
+    ...fact,
+    delivery: { earliest: "2025-02-11", latest: "2025-02-11" }
+  }));
+
+  const input12Log = [];
+  const legacy = createHarness({
+    input: input12,
+    clock: createClock(collectedAt),
+    fetchFn: phaseFourInventoryFetch({ requestLog: input12Log })
+  });
+  await legacy.handler({}, {});
+  const input12Output = await readPut(legacy.putCalls[0]);
+
+  const input13Log = [];
+  const clock = createClock(collectedAt);
+  const dated = createHarness({
+    input: input13,
+    clock,
+    fetchFn: phaseFourInventoryFetch({ requestLog: input13Log })
+  });
+  await dated.handler({}, {});
+  const input13Output = await readPut(dated.putCalls[0]);
+
+  for (const family of [
+    "newsletter", "newsletterEmailsSent", "newsletterEmailOpens", "newsletterEmailVerifiedClicks",
+    "articleViews", "articleSearchClicks", "directoryViews", "directoryOutboundClicks",
+    "builderArticleViews", "books"
+  ]) {
+    assert.deepEqual(input13Output.groups[family], input12Output.groups[family],
+      `${family} keeps values, intervals, scopes, and provenance unchanged at the same collection time`);
+  }
+  assert.deepEqual(Object.keys(input13Output.groups).sort(), Object.keys(input12Output.groups).sort(),
+    "input13 keeps every selected provider family enabled");
+  const legacyBuilderRecord = input12Output.groups.articles.records.find(({ title }) => title === "Six-source Builder identity");
+  const datedBuilderRecord = input13Output.groups.articles.records.find(({ title }) => title === "Six-source Builder identity");
+  assert.equal(legacyBuilderRecord.publishedAt, null);
+  assert.equal(datedBuilderRecord.publishedAt, "2024-05-06");
+  assert.equal(input12Output.groups.talks.definitionVersion, 1);
+  assert.equal(input13Output.groups.talks.definitionVersion, 2);
+  assert.equal(input12Log.length > 0 && input13Log.length > 0, true,
+    "both versions run through the existing mocked providers");
+
+  const withoutManualViews = structuredClone(input13);
+  delete withoutManualViews.builderArticleViews;
+  dated.setInput(withoutManualViews);
+  dated.objects.set(outputKey, JSON.stringify(input13Output));
+  clock.set("2026-10-17T12:00:00.000Z");
+  await dated.handler({}, {});
+  const retained = await readPut(dated.putCalls[1]);
+  assert.notEqual(retained.groups.articles.collectedAt, input13Output.groups.articles.collectedAt);
+  assert.deepEqual(retained.groups.builderArticleViews, input13Output.groups.builderArticleViews,
+    "input13 without the optional observation retains the prior Builder views and its provenance exactly");
 });

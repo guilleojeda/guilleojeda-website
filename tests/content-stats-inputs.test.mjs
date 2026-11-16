@@ -1779,3 +1779,126 @@ test('build rejects Forem route collisions and accepts public DEV article shapes
   assert.deepEqual(maintainedResult.articleInventory.publications, maintained.publications,
     'all currently maintained destinations remain unchanged in the protected input');
 });
+
+function builderArticleDatesSelection() {
+  return [
+    { articleId: '/content/period-builder-one', publishedAt: '2024-05-06' },
+    { articleId: '/content/period-builder-two', publishedAt: '2025-09-14T16:32:10.000Z' }
+  ];
+}
+
+function periodDelivery(earliest, latest = earliest) {
+  return { earliest, latest };
+}
+
+test('phase 1 input13 adds verified Builder and talk dates while input12 remains compatible without date evidence', async () => {
+  const build = await inputBuilder();
+  const inventory = individualArticleFacts();
+  const noDateEvidence = build({ ...fixture(), articles: inventory });
+  assert.equal(noDateEvidence.schemaVersion, 12);
+  assert.equal(Object.hasOwn(noDateEvidence, 'builderArticleDates'), false);
+  assert.equal(noDateEvidence.curated.talks.every((fact) => !Object.hasOwn(fact, 'delivery')), true,
+    'input12 keeps its established curated talk shape');
+
+  const source = fixture();
+  source.articles = inventory;
+  source.articleConfig.newsletter = newsletterSelection();
+  source.articleConfig.analytics = analyticsSelection();
+  source.articleConfig.searchConsole = searchConsoleSelection();
+  source.articleConfig.directoryAnalytics = {
+    ...directoryAnalyticsClickSelection(),
+    recordedSince: '2024-01-21'
+  };
+  source.articleConfig.newsletterEngagements = true;
+  source.articleConfig.builderArticleViews = builderArticleViewsSelection({
+    observedAt: '2026-10-16T12:00:00.000Z',
+    views: { en: 41, es: 9 }
+  });
+  source.articleConfig.builderArticleDates = builderArticleDatesSelection();
+  source.talks[0].occurrences[0].delivery = periodDelivery('2025-02-11');
+  freeze(source);
+
+  const result = build(source);
+  assert.equal(result.schemaVersion, 13);
+  assert.deepEqual(Object.keys(result).sort(), [
+    'analytics', 'articleInventory', 'builderArticleDates', 'builderArticleViews', 'curated',
+    'definitionVersion', 'directoryAnalytics', 'newsletter', 'newsletterEngagements',
+    'schemaVersion', 'searchConsole', 'sources'
+  ], 'input13 preserves every existing input12 selector and adds only verified date evidence');
+  assert.deepEqual(result.builderArticleDates, builderArticleDatesSelection());
+  assert.deepEqual(result.builderArticleViews, source.articleConfig.builderArticleViews,
+    'manual Builder view evidence remains a separate optional input');
+  assert.deepEqual(result.articleInventory, noDateEvidence.articleInventory,
+    'input13 keeps the existing inventory projection, including exclusion privacy');
+  assert.equal(Object.hasOwn(result.articleInventory.exclusions[0], 'reason'), false);
+  assert.deepEqual(result.curated.talks, [
+    { id: 'same-session-at-first-event/main', kind: 'talk', status: 'delivered', language: 'es', delivery: periodDelivery('2025-02-11') },
+    { id: 'same-session-at-second-event/first-slot', kind: 'talk', status: 'delivered', language: 'en', delivery: null },
+    { id: 'same-session-at-second-event/second-slot', kind: 'panel', status: 'scheduled', language: null, delivery: null }
+  ], 'input13 includes an explicit known or unknown delivery on every projected occurrence');
+  assert.notEqual(result.builderArticleDates, source.articleConfig.builderArticleDates);
+  assert.notEqual(result.builderArticleDates[0], source.articleConfig.builderArticleDates[0]);
+  assert.equal(JSON.stringify(result).includes('Private display prose'), false);
+  assert.equal(JSON.stringify(result).includes('https://example.test/private-recording'), false);
+  assert.equal(Object.hasOwn(result, 'counts'), false, 'the collector still derives all public counts');
+
+  const talkOnly = fixture();
+  talkOnly.articles = { publications: [], exclusions: [] };
+  talkOnly.talks[0].occurrences[0].delivery = null;
+  const talkOnlyResult = build(talkOnly);
+  assert.equal(talkOnlyResult.schemaVersion, 13,
+    'an explicitly unknown occurrence date still activates the dated contract');
+  assert.deepEqual(talkOnlyResult.curated.talks[0], {
+    id: 'same-session-at-first-event/main', kind: 'talk', status: 'delivered', language: 'es', delivery: null
+  });
+  assert.deepEqual(talkOnlyResult.articleInventory, { publications: [], exclusions: [] },
+    'the input13 extension retains input12 inventory semantics when no individual publications are selected');
+});
+
+test('phase 1 input13 validates stable Builder IDs and exact calendar delivery bounds', async () => {
+  const build = await inputBuilder();
+  const invalidBuilderDates = [
+    ['non-array Builder dates', {}],
+    ['blank stable ID', [{ articleId: ' ', publishedAt: '2024-05-06' }]],
+    ['stable ID requiring URL encoding', [{ articleId: '/content/period builder', publishedAt: '2024-05-06' }]],
+    ['stable ID removed by URL normalization', [{ articleId: '/content/..', publishedAt: '2024-05-06' }]],
+    ['stable ID with an encoded path separator', [{ articleId: '/content/period%2Fbuilder', publishedAt: '2024-05-06' }]],
+    ['missing date', [{ articleId: '/content/period-builder-one' }]],
+    ['timestamp without a timezone', [{ articleId: '/content/period-builder-one', publishedAt: '2024-05-06T12:00:00' }]],
+    ['impossible Builder date', [{ articleId: '/content/period-builder-one', publishedAt: '2024-02-30' }]],
+    ['duplicate stable ID', [
+      { articleId: '/content/period-builder-one', publishedAt: '2024-05-06' },
+      { articleId: '/content/period-builder-one', publishedAt: '2024-05-07' }
+    ]],
+    ['unknown date field', [{ articleId: '/content/period-builder-one', publishedAt: '2024-05-06', title: 'Not date evidence' }]]
+  ];
+  for (const [name, value] of invalidBuilderDates) {
+    const source = fixture();
+    source.articles = individualArticleFacts();
+    source.articleConfig.builderArticleDates = value;
+    assert.throws(() => build(source), /builder|article|date|id|input|invalid/i, name);
+  }
+
+  const invalidDeliveries = [
+    ['invalid delivery type', '2025-02-01'],
+    ['impossible earliest day', { earliest: '2025-02-30', latest: '2025-03-01' }],
+    ['timestamp in a calendar-date bound', { earliest: '2025-02-01T00:00:00Z', latest: '2025-02-01' }],
+    ['reversed delivery bounds', { earliest: '2025-02-02', latest: '2025-02-01' }],
+    ['wholly future delivery bounds', { earliest: '2099-02-01', latest: '2099-02-02' }],
+    ['unknown delivery field', { earliest: '2025-02-01', latest: '2025-02-01', timezone: 'UTC' }]
+  ];
+  for (const [name, delivery] of invalidDeliveries) {
+    const source = fixture();
+    source.articles = individualArticleFacts();
+    source.talks[0].occurrences[0].delivery = delivery;
+    assert.throws(() => build(source), /delivery|talk|date|input|invalid/i, name);
+  }
+
+  const source = fixture();
+  source.articles = individualArticleFacts();
+  source.talks[0].occurrences[0].delivery = periodDelivery('2025-02-11');
+  const paddedRecord = structuredClone(source.talks[0]);
+  paddedRecord.id = ` ${paddedRecord.id}`;
+  source.talks.push(paddedRecord);
+  assert.throws(() => build(source), /occurrence fact ID.*whitespace/i);
+});

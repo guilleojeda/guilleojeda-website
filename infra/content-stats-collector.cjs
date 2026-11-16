@@ -55,6 +55,7 @@ const TALK_KINDS = new Set([
 const TALK_STATUSES = new Set(["delivered", "scheduled", "unknown"]);
 const BOOK_STATUSES = new Set(["published", "in-progress", "unknown"]);
 const SPEAKING_KINDS = new Set(["talk", "workshop", "training", "panel", "session"]);
+const EDITORIAL_TIME_ZONE = "America/Argentina/Cordoba";
 const CURATED_SOURCE = Object.freeze({ id: "website-inventory", label: "Website inventory" });
 const NEWSLETTER_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
 const BEEHIIV_API_ENDPOINT = "https://api.beehiiv.com/v2/publications/";
@@ -480,11 +481,12 @@ function validateDirectoryAnalyticsSelection(value, outboundClicksEnabled = fals
 
 function validateInput(input) {
   if (!isObject(input)) throw fail("INPUT_SCHEMA_INVALID");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(input.schemaVersion)) {
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(input.schemaVersion)) {
     throw fail("INPUT_VERSION_UNSUPPORTED");
   }
   if (input.definitionVersion !== 1) throw fail("INPUT_VERSION_UNSUPPORTED");
-  if (input.schemaVersion !== 10 && input.schemaVersion !== 11 && input.schemaVersion !== 12 && Object.hasOwn(input, "newsletterEngagements")) {
+  if (input.schemaVersion !== 10 && input.schemaVersion !== 11 && input.schemaVersion !== 12 &&
+      input.schemaVersion !== 13 && Object.hasOwn(input, "newsletterEngagements")) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
 
@@ -494,7 +496,7 @@ function validateInput(input) {
 
   const simpleAwsAllowed = input.schemaVersion === 4 || input.schemaVersion === 5 || input.schemaVersion === 6 ||
     input.schemaVersion === 7 || input.schemaVersion === 8 || input.schemaVersion === 9 ||
-    input.schemaVersion === 10 || input.schemaVersion === 11 || input.schemaVersion === 12;
+    input.schemaVersion === 10 || input.schemaVersion === 11 || input.schemaVersion === 12 || input.schemaVersion === 13;
   if (!Array.isArray(input.sources)) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
@@ -659,7 +661,7 @@ function validateInput(input) {
     };
   }
 
-  if (input.schemaVersion === 11 || input.schemaVersion === 12) {
+  if (input.schemaVersion === 11 || input.schemaVersion === 12 || input.schemaVersion === 13) {
     const hasNewsletter = Object.hasOwn(input, "newsletter");
     const hasAnalytics = Object.hasOwn(input, "analytics");
     const hasSearchConsole = Object.hasOwn(input, "searchConsole");
@@ -671,9 +673,12 @@ function validateInput(input) {
       Object.hasOwn(input.directoryAnalytics, "recordedSince");
     const expectedKeys = ["schemaVersion", "definitionVersion", "sources", "curated"];
     if (input.schemaVersion === 11) expectedKeys.push("builderArticleViews");
-    if (input.schemaVersion === 12) expectedKeys.push("articleInventory");
+    if (input.schemaVersion === 12 || input.schemaVersion === 13) expectedKeys.push("articleInventory");
+    if (input.schemaVersion === 13) expectedKeys.push("builderArticleDates");
     const hasBuilderArticleViews = Object.hasOwn(input, "builderArticleViews");
-    if (input.schemaVersion === 12 && hasBuilderArticleViews) expectedKeys.push("builderArticleViews");
+    if ((input.schemaVersion === 12 || input.schemaVersion === 13) && hasBuilderArticleViews) {
+      expectedKeys.push("builderArticleViews");
+    }
     if (hasNewsletter) expectedKeys.push("newsletter");
     if (hasAnalytics) expectedKeys.push("analytics");
     if (hasSearchConsole) expectedKeys.push("searchConsole");
@@ -681,6 +686,7 @@ function validateInput(input) {
     if (hasNewsletterEngagements) expectedKeys.push("newsletterEngagements");
     if (!exactKeys(input, expectedKeys) ||
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"]) ||
+        input.schemaVersion === 13 && !Array.isArray(input.builderArticleDates) ||
         hasAnalytics && !hasNewsletter ||
         hasSearchConsole && (!hasNewsletter || !hasAnalytics) ||
         hasNewsletterEngagements && input.newsletterEngagements !== true) {
@@ -698,7 +704,8 @@ function validateInput(input) {
       sources,
       curated: input.curated,
       ...(hasBuilderArticleViews ? { builderArticleViews: input.builderArticleViews } : {}),
-      ...(input.schemaVersion === 12 ? { articleInventory: input.articleInventory } : {}),
+      ...(input.schemaVersion === 12 || input.schemaVersion === 13 ? { articleInventory: input.articleInventory } : {}),
+      ...(input.schemaVersion === 13 ? { builderArticleDates: input.builderArticleDates } : {}),
       ...(hasNewsletter ? { newsletter } : {}),
       ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
       ...(hasAnalytics ? { analytics: validateAnalyticsSelection(input.analytics) } : {}),
@@ -724,15 +731,23 @@ function validateInput(input) {
   };
 }
 
-function curatedScopeFingerprint(family, facts) {
+function curatedScopeFingerprint(family, facts, datedTalks = false) {
   const selectors = facts.map((fact) => family === "talks"
-    ? { id: fact.id, kind: fact.kind, status: fact.status, language: fact.language }
+    ? {
+      id: fact.id,
+      kind: fact.kind,
+      status: fact.status,
+      language: fact.language,
+      ...(datedTalks ? { delivery: fact.delivery } : {})
+    }
     : { id: fact.id, status: fact.status, language: fact.language })
     .sort((left, right) => left.id.localeCompare(right.id));
   const scope = {
     definitionVersion: 1,
     family,
-    policy: family === "talks" ? "delivered-speaking-inventory-v1" : "published-books-inventory-v1",
+    policy: family === "talks"
+      ? datedTalks ? "delivered-speaking-inventory-v2" : "delivered-speaking-inventory-v1"
+      : "published-books-inventory-v1",
     supportedLanguages: ["en", "es"],
     sources: [CURATED_SOURCE],
     facts: selectors
@@ -789,17 +804,18 @@ function makeBuilderArticleViewsGroup(source, observation) {
   };
 }
 
-function validateCuratedFacts(family, value) {
+function validateCuratedFacts(family, value, deliveryCutoff) {
   if (!Array.isArray(value)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+  const datedTalks = deliveryCutoff !== null;
   const facts = [];
   const ids = new Set();
   for (const fact of value) {
     const expectedKeys = family === "talks"
-      ? ["id", "kind", "status", "language"]
+      ? ["id", "kind", "status", "language", ...(datedTalks ? ["delivery"] : [])]
       : ["id", "status", "language"];
     if (!exactKeys(fact, expectedKeys)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
     const id = requireString(fact.id, `CURATED_${family.toUpperCase()}_INVALID`);
-    if (ids.has(id)) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
+    if (ids.has(id) || datedTalks && id !== fact.id) throw fail(`CURATED_${family.toUpperCase()}_INVALID`);
     ids.add(id);
 
     const status = requireString(fact.status, `CURATED_${family.toUpperCase()}_INVALID`);
@@ -813,16 +829,31 @@ function validateCuratedFacts(family, value) {
     const language = fact.language === null
       ? null
       : requireString(fact.language, `CURATED_${family.toUpperCase()}_INVALID`);
+    let delivery = null;
+    if (datedTalks) {
+      if (fact.delivery !== null && (!exactKeys(fact.delivery, ["earliest", "latest"]) ||
+          !isRealIsoDate(fact.delivery.earliest) || !isRealIsoDate(fact.delivery.latest) ||
+          fact.delivery.earliest > fact.delivery.latest ||
+          status === "delivered" && fact.delivery.earliest > deliveryCutoff)) {
+        throw fail("CURATED_TALKS_INVALID");
+      }
+      delivery = fact.delivery === null ? null : {
+        earliest: fact.delivery.earliest,
+        latest: fact.delivery.latest
+      };
+    }
     facts.push(family === "talks"
-      ? { id, kind, status, language }
+      ? { id, kind, status, language, ...(datedTalks ? { delivery } : {}) }
       : { id, status, language });
   }
   return facts;
 }
 
-function deriveCuratedGroup(family, value, collectedAt) {
-  const facts = validateCuratedFacts(family, value);
+function deriveCuratedGroup(family, value, collectedAt, { datedTalks = false } = {}) {
+  const deliveryCutoff = datedTalks ? localDateAt(EDITORIAL_TIME_ZONE, collectedAt) : null;
+  const facts = validateCuratedFacts(family, value, deliveryCutoff);
   const counts = { all: 0, en: 0, es: 0 };
+  const occurrences = [];
   for (const fact of facts) {
     const eligible = family === "talks"
       ? fact.status === "delivered" && SPEAKING_KINDS.has(fact.kind)
@@ -830,13 +861,34 @@ function deriveCuratedGroup(family, value, collectedAt) {
     if (!eligible || !SUPPORTED_LANGUAGES.has(fact.language)) continue;
     counts[fact.language] += 1;
     counts.all += 1;
+    if (datedTalks) occurrences.push({ language: fact.language, delivery: fact.delivery });
   }
-  return makeGroup({
+  const group = makeGroup({
     sources: [CURATED_SOURCE],
     counts,
     collectedAt,
-    scopeId: curatedScopeFingerprint(family, facts)
+    scopeId: curatedScopeFingerprint(family, facts, datedTalks)
   });
+  return datedTalks
+    ? { ...group, definitionVersion: 2, occurrences }
+    : group;
+}
+
+function validateBuilderArticleDates(value, now) {
+  if (!Array.isArray(value)) throw fail("BUILDER_ARTICLE_DATES_INVALID");
+  const datesByArticleId = new Map();
+  for (const fact of value) {
+    if (!exactKeys(fact, ["articleId", "publishedAt"]) ||
+        typeof fact.articleId !== "string" || !/^\/content\/[^/?#]+$/.test(fact.articleId) ||
+        /%(?:2f|5c)/i.test(fact.articleId) ||
+        new URL(fact.articleId, "https://builder.aws.com").pathname !== fact.articleId ||
+        typeof fact.publishedAt !== "string" || articleInventoryInstant(fact.publishedAt) === null ||
+        articleDateIsAfter(fact.publishedAt, now) || datesByArticleId.has(fact.articleId)) {
+      throw fail("BUILDER_ARTICLE_DATES_INVALID");
+    }
+    datesByArticleId.set(fact.articleId, fact.publishedAt);
+  }
+  return datesByArticleId;
 }
 
 function validateNewsletterSelection(value) {
@@ -1169,7 +1221,7 @@ function scopeFingerprint(sources) {
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
 
-function articleInventoryScopeFingerprint(sources, articleInventory) {
+function articleInventoryScopeFingerprint(sources, articleInventory, builderArticleDates) {
   const publications = articleInventory.publications.map(({ sourceId, identityTitle, language, publishedAt, url }) => ({
     title: identityTitle,
     language,
@@ -1186,7 +1238,12 @@ function articleInventoryScopeFingerprint(sources, articleInventory) {
   const scope = {
     definitionVersion: 1,
     sourceScopeId: scopeFingerprint(sources),
-    articleInventory: { publications, exclusions }
+    articleInventory: { publications, exclusions },
+    ...(builderArticleDates === undefined ? {} : {
+      builderArticleDates: [...builderArticleDates.entries()]
+        .map(([articleId, publishedAt]) => ({ articleId, publishedAt }))
+        .sort((left, right) => left.articleId.localeCompare(right.articleId))
+    })
   };
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
@@ -1794,7 +1851,7 @@ async function collectArticleSearchClicks(searchConsole, accessToken, collectedA
 async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const supportsDirectoryAnalytics = configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
     configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
-    configuration.schemaVersion === 12;
+    configuration.schemaVersion === 12 || configuration.schemaVersion === 13;
   const directoryEnabled = supportsDirectoryAnalytics && configuration.directoryAnalytics !== undefined;
   const directoryOutboundClicksEnabled = configuration.directoryOutboundClicks === true && directoryEnabled;
   const articleViewsEnabled = configuration.analytics !== undefined;
@@ -1806,7 +1863,7 @@ async function collectGoogleMetrics(configuration, env, collectedAt, now) {
   const outboundClickEligiblePeriods = outboundClickRanges.map(({ period }) => period);
   const searchRanges = (configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
     configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
-    configuration.schemaVersion === 12) &&
+    configuration.schemaVersion === 12 || configuration.schemaVersion === 13) &&
     configuration.searchConsole !== undefined
     ? supportedGoogleSearchRanges(configuration.searchConsole, now)
     : [];
@@ -2625,9 +2682,14 @@ function normalizedCaylentUrl(value) {
   return `https://caylent.com${pathname}`;
 }
 
-function normalizedBuilderUrl(articleIdValue, uriValue) {
-  const articleId = requireString(articleIdValue, "ELIGIBLE_RECORD_INVALID");
+function normalizedBuilderArticleId(value) {
+  const articleId = requireString(value, "ELIGIBLE_RECORD_INVALID");
   if (!/^\/content\/[^/?#]+$/.test(articleId)) throw fail("ELIGIBLE_RECORD_INVALID");
+  return articleId;
+}
+
+function normalizedBuilderUrl(articleIdValue, uriValue) {
+  const articleId = normalizedBuilderArticleId(articleIdValue);
   const uri = requireString(uriValue, "ELIGIBLE_RECORD_INVALID");
   let parsed;
   try {
@@ -2684,7 +2746,7 @@ function eligibleCaylentPublication(record, source, now) {
   };
 }
 
-function eligibleBuilderPublication(record, source, now) {
+function eligibleBuilderPublication(record, source, now, builderArticleDates) {
   if (!isObject(record)) throw fail("SOURCE_RECORD_INVALID");
   const status = requireString(record.status, "BUILDER_RECORD_INVALID");
   if (status !== "LIVE") return null;
@@ -2699,13 +2761,14 @@ function eligibleBuilderPublication(record, source, now) {
   if (publishedAt > now) return null;
 
   const identityTitle = normalizedTitle(record.title);
-  const url = normalizedBuilderUrl(record.articleId, record.uri);
+  const articleId = normalizedBuilderArticleId(record.articleId);
+  const url = normalizedBuilderUrl(articleId, record.uri);
   return {
     sourceId: source.id,
     title: record.title,
     identityTitle,
     language,
-    publishedAt: null,
+    publishedAt: builderArticleDates?.get(articleId) ?? null,
     url,
     emailOnly: false
   };
@@ -2726,7 +2789,7 @@ async function collectCaylent(source, now) {
   throw fail("SOURCE_PAGE_CAP_REACHED");
 }
 
-async function collectBuilderCenter(source, now) {
+async function collectBuilderCenter(source, now, builderArticleDates) {
   const publications = [];
   const requestedCursors = new Set();
   let cursor = "";
@@ -2736,7 +2799,7 @@ async function collectBuilderCenter(source, now) {
     requestedCursors.add(cursor);
     const { articles, nextCursor } = await fetchBuilderPage(source, cursor, page + 1);
     for (const record of articles) {
-      const publication = eligibleBuilderPublication(record, source, now);
+      const publication = eligibleBuilderPublication(record, source, now, builderArticleDates);
       if (publication) publications.push(publication);
     }
 
@@ -2862,14 +2925,14 @@ function articleCatalogRecords(publications) {
   return records.sort((left, right) => compareArticleStrings(left.id, right.id));
 }
 
-async function collectPublications(sources, now, env, articleInventory) {
+async function collectPublications(sources, now, env, articleInventory, builderArticleDates) {
   const automaticPublications = [];
   const pagesBySource = {};
   for (const source of sources) {
     let result;
     try {
       if (source.id === "caylent") result = await collectCaylent(source, now);
-      else if (source.id === "builder-center") result = await collectBuilderCenter(source, now);
+      else if (source.id === "builder-center") result = await collectBuilderCenter(source, now, builderArticleDates);
       else if (source.id === "simple-aws") {
         result = await collectSimpleAws(source, now, env, { catalogMetadata: articleInventory !== undefined });
       }
@@ -3104,8 +3167,46 @@ function isValidArticleCatalogGroup(group) {
   return derivedCounts.en === group.counts.en && derivedCounts.es === group.counts.es;
 }
 
+function isValidTalksV2Group(group) {
+  if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "sources", "counts", "occurrences"]) ||
+      group.definitionVersion !== 2 || group.basis !== "cumulative" || !Array.isArray(group.occurrences)) {
+    return false;
+  }
+  if (typeof group.collectedAt !== "string") return false;
+  const collected = Date.parse(group.collectedAt);
+  if (!Number.isFinite(collected) || new Date(collected).toISOString() !== group.collectedAt ||
+      typeof group.scopeId !== "string" || !/^[a-f0-9]{64}$/.test(group.scopeId) ||
+      !validSourceList(group.sources, "talks") || !exactKeys(group.counts, ["all", "en", "es"])) {
+    return false;
+  }
+  if (!Object.values(group.counts).every((count) => Number.isSafeInteger(count) && count >= 0) ||
+      !Number.isSafeInteger(group.counts.en + group.counts.es) ||
+      group.counts.all !== group.counts.en + group.counts.es ||
+      group.counts.all !== group.occurrences.length) {
+    return false;
+  }
+
+  const occurrenceCounts = { en: 0, es: 0 };
+  const deliveryCutoff = localDateAt(EDITORIAL_TIME_ZONE, collected);
+  for (const occurrence of group.occurrences) {
+    if (!exactKeys(occurrence, ["language", "delivery"]) || !SUPPORTED_LANGUAGES.has(occurrence.language)) {
+      return false;
+    }
+    if (occurrence.delivery !== null &&
+        (!exactKeys(occurrence.delivery, ["earliest", "latest"]) ||
+          !isRealIsoDate(occurrence.delivery.earliest) || !isRealIsoDate(occurrence.delivery.latest) ||
+          occurrence.delivery.earliest > occurrence.delivery.latest ||
+          occurrence.delivery.earliest > deliveryCutoff)) {
+      return false;
+    }
+    occurrenceCounts[occurrence.language] += 1;
+  }
+  return occurrenceCounts.en === group.counts.en && occurrenceCounts.es === group.counts.es;
+}
+
 function isValidGroup(group, family) {
   if (family === "articles" && isValidArticleCatalogGroup(group)) return true;
+  if (family === "talks" && isValidTalksV2Group(group)) return true;
   if (!exactKeys(group, ["definitionVersion", "basis", "collectedAt", "scopeId", "sources", "counts"])) {
     return false;
   }
@@ -3610,6 +3711,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   const builderSource = configuration.sources.find(({ id }) => id === "builder-center");
   let articleCollection;
   let articleInventory;
+  let builderArticleDates;
   let currentArticleScopeId;
   let articleViewsResult;
   let directoryViewsResult;
@@ -3618,10 +3720,13 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let newsletterEmailOpensResult;
   let newsletterEmailVerifiedClicksResult;
   try {
-    if (configuration.schemaVersion === 12) {
+    if (configuration.schemaVersion === 12 || configuration.schemaVersion === 13) {
       articleInventory = validateArticleInventory(configuration.articleInventory, now);
-      currentArticleScopeId = articleInventoryScopeFingerprint(configuration.sources, articleInventory);
-      articleCollection = await collectPublications(configuration.sources, now, env, articleInventory);
+      if (configuration.schemaVersion === 13) {
+        builderArticleDates = validateBuilderArticleDates(configuration.builderArticleDates, now);
+      }
+      currentArticleScopeId = articleInventoryScopeFingerprint(configuration.sources, articleInventory, builderArticleDates);
+      articleCollection = await collectPublications(configuration.sources, now, env, articleInventory, builderArticleDates);
       const articleGroup = makeArticleGroup(configuration.sources, articleCollection.counts, collectedAt, {
         scopeId: currentArticleScopeId,
         manualSourceIds: articleCollection.manualSourceIds,
@@ -3641,7 +3746,9 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
 
   for (const family of ["talks", "books"]) {
     try {
-      groups[family] = deriveCuratedGroup(family, configuration.curated[family], collectedAt);
+      groups[family] = deriveCuratedGroup(family, configuration.curated[family], collectedAt, {
+        datedTalks: configuration.schemaVersion === 13 && family === "talks"
+      });
     } catch (error) {
       if (!(error instanceof CollectorError)) throw error;
       failures[family] = error.code;
@@ -3649,7 +3756,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   }
 
   if (configuration.schemaVersion === 11 ||
-      configuration.schemaVersion === 12 && configuration.builderArticleViews !== undefined) {
+      (configuration.schemaVersion === 12 || configuration.schemaVersion === 13) && configuration.builderArticleViews !== undefined) {
     try {
       const observation = validateManualBuilderArticleViews(configuration.builderArticleViews, now);
       groups.builderArticleViews = makeBuilderArticleViewsGroup(builderSource, observation);
@@ -3662,7 +3769,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   if (configuration.schemaVersion === 4 || configuration.schemaVersion === 5 || configuration.schemaVersion === 6 ||
       ((configuration.schemaVersion === 7 || configuration.schemaVersion === 8 || configuration.schemaVersion === 9 || configuration.schemaVersion === 10) &&
         configuration.newsletter !== undefined) ||
-      (configuration.schemaVersion === 11 || configuration.schemaVersion === 12) && configuration.newsletter !== undefined) {
+      (configuration.schemaVersion === 11 || configuration.schemaVersion === 12 || configuration.schemaVersion === 13) && configuration.newsletter !== undefined) {
     let newsletterSelection;
     try {
       newsletterSelection = validateNewsletterSelection(configuration.newsletter);
@@ -3774,7 +3881,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
 
   let previousGroups = null;
   const retainUnselectedBuilderViews = configuration.schemaVersion >= 3 && configuration.schemaVersion <= 10 ||
-    configuration.schemaVersion === 12 && configuration.builderArticleViews === undefined;
+    (configuration.schemaVersion === 12 || configuration.schemaVersion === 13) && configuration.builderArticleViews === undefined;
   if (Object.keys(failures).length > 0 || retainUnselectedBuilderViews) {
     const invalidPreviousFamilies = [];
     previousGroups = await readPreviousAggregate(env.bucket, env.outputKey, invalidPreviousFamilies);
@@ -3815,11 +3922,16 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
           }
           if (Object.keys(records).length > 0) groups[family] = { definitionVersion: 1, records };
         } else if (previousGroups[family]) {
-          if (family === "articles" && configuration.schemaVersion === 12) {
+          if (family === "articles" && (configuration.schemaVersion === 12 || configuration.schemaVersion === 13)) {
             if (currentArticleScopeId !== undefined && previousGroups.articles.scopeId === currentArticleScopeId) {
               groups.articles = previousGroups.articles;
               retainedFamilies.add(family);
             }
+          } else if (family === "talks" && configuration.schemaVersion === 13) {
+            // Invalid input13 delivery facts cannot prove that a prior Talks projection is compatible.
+          } else if (family === "talks" && configuration.schemaVersion < 13 &&
+              previousGroups.talks.definitionVersion !== 1) {
+            // Legacy inputs emit Talks v1 and must not retain a newer dated projection.
           } else if (family === "articles" && configuration.schemaVersion < 12 &&
               (previousGroups.articles.definitionVersion !== 1 ||
                 previousGroups.articles.sources.some(({ id }) => ARTICLE_MANUAL_SOURCE_IDS.includes(id)))) {
@@ -3871,7 +3983,7 @@ async function handler() {
     return configuration.schemaVersion === 3 || configuration.schemaVersion === 4 || configuration.schemaVersion === 5 ||
       configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
       configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
-      configuration.schemaVersion === 12
+      configuration.schemaVersion === 12 || configuration.schemaVersion === 13
       ? await collectIndependentGroups(configuration, env, collectedAt, now)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {
