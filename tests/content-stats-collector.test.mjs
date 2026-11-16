@@ -12642,6 +12642,57 @@ test("phase 1 date scopes retain only unchanged prior evidence and allow input12
     "the existing Builder list adapter remains the source in input13 and input12");
 });
 
+test("malformed input12 Talks never retains an incompatible input13 Talks v2 group", async () => {
+  const manualViews = manualBuilderArticleViewsInput({
+    observedAt: "2026-10-16T10:00:00.000Z",
+    views: { en: 41, es: 9 }
+  });
+  const input13 = phaseThirteenPeriodInput({ builderArticleViews: manualViews });
+  const clock = createClock("2026-10-16T12:00:00.000Z");
+  const harness = createHarness({
+    input: input13,
+    clock,
+    fetchFn: periodArticleFetch({
+      caylentPages: new Map([[0, { results: [] }]]),
+      builderPages: new Map([["", { articles: [], resultsSize: 0 }]])
+    })
+  });
+
+  await harness.handler({}, {});
+  const dated = await readPut(harness.putCalls[0]);
+  assert.equal(dated.groups.talks.definitionVersion, 2);
+
+  const malformedInput12 = phaseTwelveArticleInventoryInput({
+    baseInput: phaseThreeInput({ curated: {
+      talks: [{ id: "legacy-malformed-talk", kind: "talk", status: "finished", language: "en" }],
+      books: [bookFact("legacy-healthy-book")]
+    } }),
+    articleInventory: { publications: [], exclusions: [] },
+    builderArticleViews: manualViews
+  });
+  harness.setInput(malformedInput12);
+  clock.set("2026-10-17T12:00:00.000Z");
+  await harness.handler({}, {});
+  const malformed = await readPut(harness.putCalls[1]);
+  assert.equal(Object.hasOwn(malformed.groups, "talks"), false,
+    "malformed input12 Talks cannot retain the prior input13 Talks v2 projection");
+  assert.notEqual(malformed.groups.articles.collectedAt, dated.groups.articles.collectedAt,
+    "healthy Articles refresh while malformed Talks are omitted");
+  assert.notEqual(malformed.groups.books.collectedAt, dated.groups.books.collectedAt,
+    "healthy Books refresh while malformed Talks are omitted");
+
+  const validInput12 = structuredClone(malformedInput12);
+  validInput12.curated.talks = [talkFact("legacy-valid-talk", "talk", "delivered", "en")];
+  harness.setInput(validInput12);
+  clock.set("2026-10-18T12:00:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.equal(recovered.groups.talks.definitionVersion, 1,
+    "a subsequent valid input12 run publishes the legacy Talks v1 shape");
+  assert.equal(Object.hasOwn(recovered.groups.talks, "occurrences"), false);
+  assert.deepEqual(recovered.groups.talks.counts, { all: 1, en: 1, es: 0 });
+});
+
 test("fully selected input13 keeps optional provider and manual Builder families identical to input12", async () => {
   const collectedAt = "2026-10-16T12:00:00.000Z";
   const builderViews = manualBuilderArticleViewsInput({

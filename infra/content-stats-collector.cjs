@@ -3915,6 +3915,9 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
             }
           } else if (family === "talks" && configuration.schemaVersion === 13) {
             // Invalid input13 delivery facts cannot prove that a prior Talks projection is compatible.
+          } else if (family === "talks" && configuration.schemaVersion < 13 &&
+              previousGroups.talks.definitionVersion !== 1) {
+            // Legacy inputs emit Talks v1 and must not retain a newer dated projection.
           } else if (family === "articles" && configuration.schemaVersion < 12 &&
               (previousGroups.articles.definitionVersion !== 1 ||
                 previousGroups.articles.sources.some(({ id }) => ARTICLE_MANUAL_SOURCE_IDS.includes(id)))) {

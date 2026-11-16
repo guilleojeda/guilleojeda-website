@@ -1014,10 +1014,11 @@ function renderEditorialGroup(group, locale, language, elements, kind, period) {
     ? { count: group.counts[language], uncertain: 0 }
     : countEditorialPeriod(group, kind, language, bounds);
   const coverage = group.sources.map((source) => localizeSource(source, locale)).join(', ');
-  renderCount(result.count, coverage, group.collectedAt, locale, elements);
+  const collectionDate = formatDateOnly(bounds.end, locale);
+  renderCount(result.count, coverage, collectionDate, locale, elements);
   const intervalLabel = period === 'total'
-    ? `${editorialUnavailableCopy[locale].recordedTotal} · ${formatDateOnly(bounds.end, locale)}`
-    : `${formatDateOnly(bounds.start, locale)} – ${formatDateOnly(bounds.end, locale)}`;
+    ? `${editorialUnavailableCopy[locale].recordedTotal} · ${collectionDate}`
+    : `${formatDateOnly(bounds.start, locale)} – ${collectionDate}`;
   elements.countLabel.textContent = `${elements.baseCountLabel} · ${intervalLabel}`;
   const uncertaintyText = result.uncertain > 0
     ? (kind === 'articles'
@@ -1036,14 +1037,15 @@ function renderGroup(group, locale, language, elements, kind, period) {
     return;
   }
   const count = group.counts[language];
-  renderCount(count, group.sources.map((source) => localizeSource(source, locale)).join(', '), group.collectedAt, locale, elements);
+  const coverage = group.sources.map((source) => localizeSource(source, locale)).join(', ');
+  renderCount(count, coverage, formatCollectedDate(group.collectedAt, locale), locale, elements);
 }
 
-function renderCount(count, coverage, collectedAt, locale, elements) {
+function renderCount(count, coverage, collectionDate, locale, elements) {
   elements.card.hidden = false;
   elements.count.textContent = new Intl.NumberFormat(locale).format(count);
   elements.coverage.textContent = coverage;
-  elements.collectedDate.textContent = formatCollectedDate(collectedAt, locale);
+  elements.collectedDate.textContent = collectionDate;
   elements.results.hidden = false;
   elements.status.hidden = true;
   elements.status.textContent = '';
@@ -1096,7 +1098,8 @@ function renderNewsletter(snapshot, locale, language, elements) {
   const subscriberApplies = subscriber
     && (language === 'all' || subscriber.publication.language === language);
   if (subscriberApplies) {
-    renderCount(subscriber.subscribers, subscriber.publication.label, subscriber.collectedAt, locale, elements);
+    renderCount(subscriber.subscribers, subscriber.publication.label,
+      formatCollectedDate(subscriber.collectedAt, locale), locale, elements);
   } else if (subscriber) {
     clearNewsletterSubscriber(elements, true);
     elements.card.setAttribute('aria-busy', 'false');
@@ -1642,8 +1645,9 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
   clicks.status.textContent = '';
 }
 
-function renderActivity(snapshot, locale, language, elements) {
+function renderReport(snapshot, locale, language, elements) {
   updateRecordedTotalAvailability(snapshot, language, elements);
+  renderAll(snapshot, locale, language, elements);
   renderNewsletterSent(snapshot, locale, language, elements.newsletterEmailsSent, elements.cards.newsletter?.card);
   renderNewsletterEmail(snapshot, locale, language, elements);
   renderBuilderViews(snapshot, locale, language, elements);
@@ -1682,32 +1686,17 @@ async function loadContentStats(section) {
   const snapshot = await loadSharedSnapshot(section.dataset.statsSource);
 
   renderOverview(snapshot, locale, elements);
-  const hasEditorialGroups = Boolean(snapshot?.groups?.articles || snapshot?.groups?.talks);
-  if (snapshot && (hasEditorialGroups
+  const hasPeriodControl = elements.periodSelector && (snapshot?.groups?.articles || snapshot?.groups?.talks
     || newsletterEmailElementsReady(elements.newsletterEmailOpens)
     || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
     || viewsElementsReady(elements) || searchElementsReady(elements)
-    || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements))) {
-    elements.periodSelector.disabled = false;
-  }
-  else if (elements.totalOption) elements.totalOption.disabled = true;
-  updateRecordedTotalAvailability(snapshot, elements.selector.value, elements);
-  renderAll(snapshot, locale, elements.selector.value, elements);
-  renderActivity(snapshot, locale, elements.selector.value, elements);
-  elements.selector.addEventListener('change', () => {
-    updateRecordedTotalAvailability(snapshot, elements.selector.value, elements);
-    renderAll(snapshot, locale, elements.selector.value, elements);
-    renderActivity(snapshot, locale, elements.selector.value, elements);
-  });
-  if (hasEditorialGroups || newsletterEmailElementsReady(elements.newsletterEmailOpens)
-    || newsletterEmailElementsReady(elements.newsletterEmailVerifiedClicks)
-    || viewsElementsReady(elements) || searchElementsReady(elements)
-    || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements)) {
-    elements.periodSelector.addEventListener('change', () => {
-      updateRecordedTotalAvailability(snapshot, elements.selector.value, elements);
-      renderAll(snapshot, locale, elements.selector.value, elements);
-      renderActivity(snapshot, locale, elements.selector.value, elements);
-    });
+    || directoryViewsElementsReady(elements) || directoryOutboundClicksElementsReady(elements));
+  const renderSelection = () => renderReport(snapshot, locale, elements.selector.value, elements);
+  renderSelection();
+  elements.selector.addEventListener('change', renderSelection);
+  if (hasPeriodControl) {
+    elements.periodSelector.disabled = !snapshot;
+    elements.periodSelector.addEventListener('change', renderSelection);
   }
 }
 

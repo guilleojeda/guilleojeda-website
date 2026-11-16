@@ -6813,6 +6813,10 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.talks.count.textContent, '1');
     assertEditorialInterval(page, locale, 'articles', '2026-11-03', '2026-11-09');
     assertEditorialInterval(page, locale, 'talks', '2026-11-10', '2026-11-16');
+    assert.equal(page.cards.articles.collectedDate.textContent, expectedDateOnly(locale, '2026-11-09'),
+      'retained Articles show the same local date in Source & dates and at the end of the interval');
+    assert.equal(page.cards.talks.collectedDate.textContent, expectedDateOnly(locale, '2026-11-16'),
+      'Talks show their own local collection date in Source & dates');
 
     page.periodSelector.value = 'total';
     page.periodSelector.dispatch('change');
