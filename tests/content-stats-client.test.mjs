@@ -685,14 +685,18 @@ const newsletterEmailCopy = {
 
 const newsletterSentCopy = {
   en: {
-    label: 'Emails sent · cumulative total',
+    heading: 'Emails sent',
+    totalLabel: 'Beehiiv cumulative total',
     loading: 'Loading emails sent…',
-    unavailable: 'Emails sent are unavailable.'
+    unavailable: 'Emails sent are unavailable.',
+    periodUnavailable: 'Sends for this period are unavailable.'
   },
   es: {
-    label: 'Emails enviados · total acumulado',
+    heading: 'Emails enviados',
+    totalLabel: 'Acumulado de Beehiiv',
     loading: 'Cargando emails enviados…',
-    unavailable: 'No se pueden mostrar los emails enviados.'
+    unavailable: 'No se pueden mostrar los emails enviados.',
+    periodUnavailable: 'Envíos del período no disponibles.'
   }
 };
 
@@ -861,19 +865,31 @@ function makeNewsletterEmailMetric(kind, locale, card) {
 function makeNewsletterSentMetric(locale, card) {
   const copy = newsletterSentCopy[locale];
   const region = card.appendChild(new SemanticElement({
-    dataset: { statsNewsletterSent: '', statsNewsletterSentUnavailable: copy.unavailable }
+    dataset: {
+      statsNewsletterSent: '',
+      statsNewsletterSentUnavailable: copy.unavailable,
+      statsNewsletterSentPeriodUnavailable: copy.periodUnavailable
+    },
+    attributes: { 'aria-labelledby': 'content-stats-newsletter-sent-title' }
   }));
-  const label = region.appendChild(new SemanticElement({ textContent: copy.label }));
+  const heading = region.appendChild(new SemanticElement({
+    attributes: { id: 'content-stats-newsletter-sent-title' },
+    textContent: copy.heading
+  }));
   const status = region.appendChild(new SemanticElement({
     dataset: { statsNewsletterSentStatus: '' },
     textContent: copy.loading,
     hidden: true
   }));
   const results = region.appendChild(new SemanticElement({ dataset: { statsNewsletterSentResults: '' }, hidden: true }));
+  const label = results.appendChild(new SemanticElement({
+    dataset: { statsNewsletterSentLabel: '' },
+    textContent: copy.totalLabel
+  }));
   const value = results.appendChild(new SemanticElement({ dataset: { statsNewsletterSentValue: '' } }));
   const coverage = results.appendChild(new SemanticElement({ dataset: { statsNewsletterSentCoverage: '' } }));
   const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsNewsletterSentCollectedDate: '' } }));
-  return { region, label, status, results, value, coverage, collectedDate };
+  return { region, heading, label, status, results, value, coverage, collectedDate };
 }
 
 function makeBuilderArticleViews(locale, card) {
@@ -1691,7 +1707,7 @@ function assertViewsVisible(page, locale, period) {
   }
 }
 
-function assertNewsletterSentUnavailable(page, locale, { hidden = false } = {}) {
+function assertNewsletterSentUnavailable(page, locale, { hidden = false, finite = false } = {}) {
   const sent = page.cards.newsletter.sent;
   assert.equal(sent.region.hidden, hidden, 'sent-total row follows content-language visibility');
   assert.equal(sent.results.hidden, true, 'unavailable sent-total results stay hidden');
@@ -1700,20 +1716,36 @@ function assertNewsletterSentUnavailable(page, locale, { hidden = false } = {}) 
   assert.equal(sent.collectedDate.textContent, '', 'unavailable sent total clears its collection date');
   assert.equal(sent.status.hidden, hidden, 'sent-total status follows content-language visibility');
   if (!hidden) {
-    if (locale === 'en') assert.match(sent.status.textContent, /unavailable|not available/i);
-    else assert.match(sent.status.textContent, /no disponible|no disponibles|no se pueden/i);
+    if (finite) {
+      assert.equal(sent.status.textContent, newsletterSentCopy[locale].periodUnavailable,
+        'finite sends are unavailable with the localized period-specific copy');
+      assert.doesNotMatch(sent.status.textContent, /\d|simple\s+aws|beehiiv/i,
+        'finite sends do not expose a number, stale source, or inferred date');
+    } else {
+      assert.notEqual(sent.status.textContent, newsletterSentCopy[locale].periodUnavailable,
+        'an unavailable total or snapshot has a different message from an unsupported period');
+      if (locale === 'en') assert.match(sent.status.textContent, /unavailable|not available/i);
+      else assert.match(sent.status.textContent, /no disponible|no disponibles|no se pueden/i);
+    }
   } else {
     assert.equal(sent.status.textContent, '', 'hidden sent-total status clears its message');
   }
 }
 
+function assertNewsletterSentPeriodUnavailable(page, locale) {
+  assertNewsletterSentUnavailable(page, locale, { finite: true });
+}
+
 function assertNewsletterSentVisible(page, locale, expectedValue, collectedAt) {
   const sent = page.cards.newsletter.sent;
   assert.equal(sent.region.hidden, false, 'valid sent total is independently visible');
+  assert.equal(sent.heading.textContent, newsletterSentCopy[locale].heading,
+    'the sent row keeps a neutral localized metric heading');
   assert.equal(sent.status.hidden, true, 'valid sent total clears its loading or unavailable status');
   assert.equal(sent.results.hidden, false, 'valid sent total reveals its result');
   assert.equal(sent.value.textContent, new Intl.NumberFormat(locale).format(expectedValue));
-  assert.match(sent.label.textContent, locale === 'en' ? /emails sent.*cumulative total/i : /emails enviados.*total acumulado/i);
+  assert.equal(sent.label.textContent, newsletterSentCopy[locale].totalLabel,
+    'the total-only label identifies the Beehiiv cumulative total');
   assert.equal(sent.coverage.textContent, 'Simple AWS');
   assert.equal(sent.collectedDate.textContent, expectedDate(locale, collectedAt));
 }
@@ -3882,34 +3914,85 @@ for (const locale of ['en', 'es']) {
   }
 }
 
-test('English newsletter sent total remains cumulative across five periods and Recorded total', async () => {
-  const collectedAt = '2024-02-15T00:00:00.000Z';
-  const data = snapshotWithNewsletterSent({
-    data: snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() }),
-    group: newsletterSentGroup({ sent: 4321, collectedAt })
-  });
-  const page = createPage({ locale: 'en', data });
-  await page.settle();
+for (const locale of ['en', 'es']) {
+  test(`${locale} sends are unavailable in every finite window and render only as a Beehiiv cumulative total`, async () => {
+    const collectedAt = '2024-02-15T00:00:00.000Z';
+    const data = snapshotWithNewsletterSent({
+      data: snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() }),
+      group: newsletterSentGroup({ sent: 4321, collectedAt })
+    });
+    const page = createPage({ locale, data });
+    await page.settle();
 
-  assert.equal(page.periodSelector.disabled, false, 'existing activity families own the shared period selector');
-  assert.equal(page.periodOptions.total.disabled, false, 'article views, not sent totals, support Recorded total');
-  for (const period of [...newsletterEmailPeriods, 'total']) {
-    page.periodSelector.value = period;
-    page.periodSelector.dispatch('change');
-    assert.equal(page.periodSelector.value, period, 'the sent total does not reset a shared activity-period selection');
-    assertNewsletterSentVisible(page, 'en', 4321, collectedAt);
-    assert.equal(page.cards.newsletter.count.textContent, '27', 'current subscribers stay independent of sent totals');
-    if (period === 'total') {
-      assertViewsVisible(page, 'en', 'total');
-      for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailUnavailable(page, 'en', spec);
-    } else {
-      assertViewsVisible(page, 'en', period);
-      for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, 'en', spec, period);
+    const overview = phase7OverviewValues(page);
+    const subscriber = data.groups.newsletter;
+    const subscriberValue = page.cards.newsletter.count.textContent;
+    const subscriberCoverage = page.cards.newsletter.coverage.textContent;
+    const subscriberDate = page.cards.newsletter.collectedDate.textContent;
+    assert.equal(page.periodSelector.value, '12m', 'the period report defaults to the last 12 months');
+    assert.equal(subscriberValue, new Intl.NumberFormat(locale).format(subscriber.subscribers),
+      'the subscriber value comes from the current-subscriber snapshot');
+    assert.equal(subscriberCoverage, subscriber.publication.label,
+      'the subscriber source comes from its own snapshot record');
+    assert.equal(subscriberDate, expectedDate(locale, subscriber.collectedAt),
+      'the subscriber date comes from its own query timestamp');
+    assert.equal(page.periodSelector.disabled, false, 'the shared activity selector is available');
+    assert.equal(page.periodOptions.total.disabled, false, 'a validated sends total supports Recorded total');
+    assertNewsletterSentPeriodUnavailable(page, locale);
+    assert.ok(page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
+      'the persistent report status announces the unavailable period');
+
+    for (const period of newsletterEmailPeriods) {
+      page.periodSelector.focus();
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assert.equal(page.periodSelector.value, period, `${period}: the selected finite window remains active`);
+      assert.equal(page.document.activeElement, page.periodSelector, `${period}: changing period keeps focus on the control`);
+      assertNewsletterSentPeriodUnavailable(page, locale);
+      assert.equal(page.cards.newsletter.count.textContent, subscriberValue,
+        `${period}: current subscribers remain fixed while sends are unavailable`);
+      assert.equal(page.cards.newsletter.coverage.textContent, subscriberCoverage,
+        `${period}: subscriber source remains its own source`);
+      assert.equal(page.cards.newsletter.collectedDate.textContent, subscriberDate,
+        `${period}: subscriber query date remains its own date`);
+      assertViewsVisible(page, locale, period);
+      for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, locale, spec, period);
+      assertPhase7OverviewUnchanged(page, overview);
     }
-  }
-  assert.equal(page.fetchCount, 1, 'the cumulative total and existing period metrics use one aggregate request');
-  assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
-});
+
+    page.periodSelector.focus();
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'switching to Recorded total keeps the valid selection');
+    assert.equal(page.document.activeElement, page.periodSelector, 'switching to Recorded total keeps focus on the control');
+    assertNewsletterSentVisible(page, locale, 4321, collectedAt);
+    const formattedSent = new Intl.NumberFormat(locale).format(4321);
+    assert.equal(page.reportStatus.hidden, false, 'the report status remains available to assistive technology');
+    assert.ok(page.reportStatus.textContent.includes(formattedSent) && page.reportStatus.textContent.includes(newsletterSentCopy[locale].totalLabel),
+      'the persistent report status announces the number and its cumulative basis');
+    assert.ok(!page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
+      'the total announcement clears the period status');
+    assert.equal(page.cards.newsletter.count.textContent, subscriberValue, 'subscribers remain fixed in Recorded total');
+    assert.equal(page.cards.newsletter.coverage.textContent, subscriberCoverage);
+    assert.equal(page.cards.newsletter.collectedDate.textContent, subscriberDate);
+    assertViewsVisible(page, locale, 'total');
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailUnavailable(page, locale, spec);
+    assertPhase7OverviewUnchanged(page, overview);
+
+    page.periodSelector.focus();
+    page.periodSelector.value = '12m';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.document.activeElement, page.periodSelector, 'returning to a finite window keeps focus on the control');
+    assertNewsletterSentPeriodUnavailable(page, locale);
+    assert.ok(page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
+      'the report status announces the finite window again');
+    assert.ok(!page.reportStatus.textContent.includes(formattedSent), 'the report status clears the previous total');
+    assertViewsVisible(page, locale, '12m');
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, locale, spec, '12m');
+    assert.equal(page.fetchCount, 1, 'period changes reuse the single aggregate snapshot request');
+    assert.deepEqual(page.fetchCalls.map((call) => call.url), ['https://guilleojeda.com/content-stats/v1/current.json']);
+  });
+}
 
 for (const locale of ['en', 'es']) {
   test(`${locale} sent-only zero keeps Newsletter visible for All and English, then clears under Spanish filtering`, async () => {
@@ -3922,19 +4005,32 @@ for (const locale of ['en', 'es']) {
     delete data.groups.talks;
     const page = createPage({ locale, data });
     await page.settle();
+    assert.equal(page.periodSelector.disabled, false, 'a sent-only snapshot still exposes the shared period selector');
+    assertNewsletterSentPeriodUnavailable(page, locale);
     assert.equal(page.cards.newsletter.card.hidden, false, 'a valid sent total keeps the Newsletter card visible by itself');
     assertNewsletterUnavailable(page, locale);
+    assert.equal(page.periodOptions.total.disabled, false, 'a valid sent-only total enables Recorded total');
+
+    page.periodSelector.focus();
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'the sent-only page accepts an explicit Recorded total selection');
+    assert.equal(page.document.activeElement, page.periodSelector, 'explicit total selection keeps focus on the control');
     assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
-    assert.equal(page.periodOptions.total.disabled, true, 'the sent total does not enable shared Recorded total');
+    assertNewsletterUnavailable(page, locale);
 
     page.selector.value = 'en';
     page.selector.dispatch('change');
     assert.equal(page.cards.newsletter.card.hidden, false, 'English content includes the sent total');
     assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
+    assert.equal(page.periodSelector.value, 'total', 'English keeps the explicit total selection');
+    assert.equal(page.periodOptions.total.disabled, false, 'English keeps the sent-only total applicable');
 
     page.selector.value = 'es';
     page.selector.dispatch('change');
     assert.equal(page.cards.newsletter.card.hidden, true, 'the English sent total is hidden for Spanish content');
+    assert.equal(page.periodOptions.total.disabled, true, 'Spanish has no applicable total in a sent-only snapshot');
+    assert.equal(page.periodSelector.value, '12m', 'losing the only applicable total falls back to 12 months');
     assert.equal(page.cards.newsletter.results.hidden, true);
     assert.equal(page.cards.newsletter.count.textContent, '', 'filtering clears the missing subscriber count');
     assert.equal(page.cards.newsletter.coverage.textContent, '', 'filtering clears subscriber coverage');
@@ -3944,9 +4040,106 @@ for (const locale of ['en', 'es']) {
     page.selector.value = 'all';
     page.selector.dispatch('change');
     assert.equal(page.cards.newsletter.card.hidden, false, 'All restores the sent-only Newsletter card');
+    assert.equal(page.periodOptions.total.disabled, false, 'All restores the sent-only total option');
+    assert.equal(page.periodSelector.value, '12m', 'restoring All does not auto-select the total');
     assertNewsletterUnavailable(page, locale);
+    assertNewsletterSentPeriodUnavailable(page, locale);
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.periodOptions.total.disabled, false, 'English re-enables the sent-only total');
+    assert.equal(page.periodSelector.value, '12m', 'English restoration does not auto-select the total');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
     assertNewsletterSentVisible(page, locale, 0, '2026-01-04T00:00:00.000Z');
     assert.equal(page.fetchCount, 1, 'content-language changes reuse the one aggregate request');
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} independent Spanish totals preserve Recorded total while sent data hides`, async () => {
+    const collectedAt = '2026-01-04T00:00:00.000Z';
+    const data = snapshotWithNewsletterSent({
+      data: snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() }),
+      group: newsletterSentGroup({ sent: 4321, collectedAt })
+    });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertNewsletterSentVisible(page, locale, 4321, collectedAt);
+    assert.equal(page.periodOptions.total.disabled, false);
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodOptions.total.disabled, false, 'Spanish editorial totals keep Recorded total applicable');
+    assert.equal(page.periodSelector.value, 'total', 'an independent Spanish total preserves the valid selection');
+    assertNewsletterSentUnavailable(page, locale, { hidden: true });
+    assert.equal(page.cards.newsletter.card.hidden, true, 'the English-only Newsletter card is hidden for Spanish content');
+    assert.equal(page.cards.talks.count.textContent, '4', 'the independent Spanish inventory remains visible');
+    assert.ok(!page.reportStatus.textContent.includes(newsletterSentCopy[locale].totalLabel),
+      'the report status clears the sent total when it loses language coverage');
+
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'returning to All keeps the valid total selection');
+    assertNewsletterSentVisible(page, locale, 4321, collectedAt);
+    assert.equal(page.fetchCount, 1, 'language changes reuse the one aggregate request');
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} valid zero differs from missing or invalid sends at Recorded total`, async () => {
+    const base = snapshotWithNewsletterEngagements({ data: snapshotWithArticleViews() });
+    const zeroData = snapshotWithNewsletterSent({
+      data: base,
+      group: newsletterSentGroup({ sent: 0, collectedAt: '2026-01-04T00:00:00.000Z' })
+    });
+    const zeroPage = createPage({ locale, data: zeroData });
+    await zeroPage.settle();
+    zeroPage.periodSelector.value = 'total';
+    zeroPage.periodSelector.dispatch('change');
+    assertNewsletterSentVisible(zeroPage, locale, 0, '2026-01-04T00:00:00.000Z');
+    assertViewsVisible(zeroPage, locale, 'total');
+    assert.equal(zeroPage.cards.newsletter.count.textContent, '27', 'a zero sends total does not rewrite current subscribers');
+
+    for (const [description, mutate] of [
+      ['missing', (data) => { delete data.groups.newsletterEmailsSent; }],
+      ['invalid', (data) => { data.groups.newsletterEmailsSent.sent = -1; }]
+    ]) {
+      const data = structuredClone(base);
+      mutate(data);
+      const page = createPage({ locale, data });
+      await page.settle();
+      assertNewsletterSentPeriodUnavailable(page, locale);
+      assert.equal(page.periodOptions.total.disabled, false, `${description}: a healthy Views total remains independently applicable`);
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      assertNewsletterSentUnavailable(page, locale);
+      assertViewsVisible(page, locale, 'total');
+      assert.equal(page.cards.newsletter.count.textContent, '27', `${description}: subscribers remain unchanged`);
+      assert.equal(page.fetchCount, 1, `${description}: no retry occurs for an invalid family`);
+    }
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} a subscriber with absent or invalid sends cannot enable Recorded total`, async () => {
+    for (const group of [undefined, newsletterSentGroup({ sent: -1 })]) {
+      const data = snapshotWithNewsletter();
+      delete data.groups.articles;
+      delete data.groups.talks;
+      delete data.groups.books;
+      if (group) data.groups.newsletterEmailsSent = group;
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      assert.equal(page.periodOptions.total.disabled, true, 'a subscriber and no valid sends cannot enable Recorded total');
+      assertNewsletterSentPeriodUnavailable(page, locale);
+      assert.equal(page.cards.newsletter.count.textContent, '27', 'current subscribers remain visible');
+      assert.equal(page.fetchCount, 1);
+    }
   });
 }
 
@@ -3956,7 +4149,7 @@ test('missing newsletter sent data stays unavailable without hiding healthy news
   await page.settle();
 
   assert.equal(page.cards.newsletter.card.hidden, false);
-  assertNewsletterSentUnavailable(page, 'en');
+  assertNewsletterSentPeriodUnavailable(page, 'en');
   assert.equal(page.cards.newsletter.count.textContent, '27');
   for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, 'en', spec, '12m');
   assertViewsVisible(page, 'en', '12m');
@@ -3999,11 +4192,14 @@ for (const [description, mutate] of invalidNewsletterSentGroups) {
     const page = createPage({ locale: 'en', data });
     await page.settle();
 
-    assertNewsletterSentUnavailable(page, 'en');
     assert.equal(page.cards.newsletter.card.hidden, false, 'invalid sent data does not hide the Newsletter card');
     assert.equal(page.cards.newsletter.count.textContent, '27', 'invalid sent data does not alter current subscribers');
     for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, 'en', spec, '12m');
     assertViewsVisible(page, 'en', '12m');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', 'another applicable total permits testing the invalid sends record');
+    assertNewsletterSentUnavailable(page, 'en');
     assert.equal(page.fetchCount, 1);
   });
 }
@@ -4039,11 +4235,15 @@ test('newsletter sent value and date reflect the reported snapshot when retained
   const retained = newsletterSentGroup({ sent: 3890, collectedAt: '2026-08-03T00:00:00.000Z' });
   const retainedPage = createPage({ locale: 'en', data: snapshotWithNewsletterSent({ group: retained }) });
   await retainedPage.settle();
+  retainedPage.periodSelector.value = 'total';
+  retainedPage.periodSelector.dispatch('change');
   assertNewsletterSentVisible(retainedPage, 'en', 3890, retained.collectedAt);
 
   const refreshed = newsletterSentGroup({ sent: 4321, collectedAt: '2026-09-16T00:00:00.000Z' });
   const refreshedPage = createPage({ locale: 'en', data: snapshotWithNewsletterSent({ group: refreshed }) });
   await refreshedPage.settle();
+  refreshedPage.periodSelector.value = 'total';
+  refreshedPage.periodSelector.dispatch('change');
   assertNewsletterSentVisible(refreshedPage, 'en', 4321, refreshed.collectedAt);
   assert.equal(retainedPage.fetchCount, 1);
   assert.equal(refreshedPage.fetchCount, 1);
