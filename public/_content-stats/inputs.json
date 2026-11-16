@@ -38,6 +38,25 @@
     "observedAt": "2026-11-16T16:55:37.000Z",
     "views": { "en": 242, "es": 3198 }
   },
+  "builderArticleDates": [
+    { "articleId": "/content/2fYvNUTkbYKH0i6QDwEa2Al11eg", "publishedAt": "2024-04-24T20:47:27.510Z" },
+    { "articleId": "/content/34TzjGmCIBLhnT1b5tn6bgttlI1", "publishedAt": "2025-10-23T20:55:43.719Z" },
+    { "articleId": "/content/3EHM1ca18V2OYNvJLwvPF6LxuSj", "publishedAt": "2026-08-18T16:14:13.962Z" },
+    { "articleId": "/content/3IEDABWzGoPIaFk5EZfMmqH48Yl", "publishedAt": "2026-08-21T15:09:26.067Z" },
+    { "articleId": "/content/3IPWFnNV9aoS3l9Zu1psNS6ufua", "publishedAt": "2026-08-25T14:10:41.048Z" },
+    { "articleId": "/content/3IV0avsbSbCFLSmDCOH9vuuSSqw", "publishedAt": "2026-08-27T12:44:53.854Z" },
+    { "articleId": "/content/3IsUCxmYVx98Cn4lZxIhWCZvaB3", "publishedAt": "2026-09-04T20:12:06.297Z" },
+    { "articleId": "/content/3J36fSoBajaVfGwSEDCx66M5aNt", "publishedAt": "2026-09-08T14:27:14.162Z" },
+    { "articleId": "/content/3JNOEBF2ZfcsGFtDGbNkmvIkCST", "publishedAt": "2026-09-15T18:49:41.693Z" },
+    { "articleId": "/content/3JpRs6Jl4vquTspwKWvemZPH0OV", "publishedAt": "2026-09-25T17:11:13.545Z" },
+    { "articleId": "/content/3K9Naab3lGZWgRQ72tSmjsHwjbU", "publishedAt": "2026-10-02T18:36:32.372Z" },
+    { "articleId": "/content/3KjhszBgaRDsQ2MaHuHZ19N9hCZ", "publishedAt": "2026-10-15T15:29:44.279Z" },
+    { "articleId": "/content/3Kvvo7wlhNb3EUPcfTaA6Ns6twQ", "publishedAt": "2026-10-19T23:06:37.805Z" },
+    { "articleId": "/content/3L3c7vyjB0fDfLfqnQCnZjNC7bm", "publishedAt": "2026-10-22T16:24:29.624Z" },
+    { "articleId": "/content/3LEqleSvMBqNSJ05dKK961fM0et", "publishedAt": "2026-10-26T15:51:45.828Z" },
+    { "articleId": "/content/3LEu2kxkCBJXddRWhYn3aAHjbEJ", "publishedAt": "2026-10-26T16:21:01.155Z" },
+    { "articleId": "/content/3LyZUXOqLmm6iRHznnAiUBOMsrS", "publishedAt": "2026-11-11T20:19:13.666Z" }
+  ],
   "analytics": {
     "id": "simple-aws",
     "propertyId": "373694636",

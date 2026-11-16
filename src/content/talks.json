@@ -27,7 +27,7 @@
   {
     "id": "student-community-day-utn-2026",
     "occurrences": [
-      { "id": "main", "kind": "workshop", "status": "scheduled", "language": "es" }
+      { "id": "main", "kind": "workshop", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-11-14", "latest": "2026-11-14" } }
     ],
     "year": 2026,
     "event": {
@@ -83,7 +83,7 @@
   {
     "id": "student-community-day-unc-2026",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-11-07", "latest": "2026-11-07" } }
     ],
     "year": 2026,
     "event": {
@@ -111,8 +111,8 @@
   {
     "id": "cordoba-agent-economics-2026",
     "occurrences": [
-      { "id": "talk", "kind": "talk", "status": "delivered", "language": "es" },
-      { "id": "certification-panel", "kind": "panel", "status": "delivered", "language": "es" }
+      { "id": "talk", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-10-22", "latest": "2026-10-22" } },
+      { "id": "certification-panel", "kind": "panel", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-10-22", "latest": "2026-10-22" } }
     ],
     "year": 2026,
     "event": {
@@ -140,7 +140,7 @@
   {
     "id": "nerdearla-2026-aws-booth-agent",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-09-26", "latest": "2026-09-26" } }
     ],
     "year": 2026,
     "event": {
@@ -191,7 +191,7 @@
   {
     "id": "mexico-agent-authorization",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-08-12", "latest": "2026-08-12" } }
     ],
     "year": 2026,
     "event": {
@@ -219,7 +219,7 @@
   {
     "id": "aws-sbg-utn-agent",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-08-01", "latest": "2026-08-01" } }
     ],
     "year": 2026,
     "event": {
@@ -247,7 +247,7 @@
   {
     "id": "aws-ai-meetup-1-agent",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-07-23", "latest": "2026-07-23" } }
     ],
     "year": 2026,
     "event": {
@@ -303,7 +303,7 @@
   {
     "id": "unit-economics-ai-agents",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en", "delivery": { "earliest": "2026-06-10", "latest": "2026-06-10" } }
     ],
     "year": 2026,
     "event": {
@@ -336,7 +336,7 @@
   {
     "id": "tribu-production-genai",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2026-03-18", "latest": "2026-03-18" } }
     ],
     "year": 2026,
     "event": {
@@ -392,7 +392,7 @@
   {
     "id": "reinvent-know-before-you-go",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en", "delivery": { "earliest": "2025-11-24", "latest": "2025-11-24" } }
     ],
     "year": 2025,
     "event": {
@@ -420,7 +420,7 @@
   {
     "id": "valkey-recommendations",
     "occurrences": [
-      { "id": "main", "kind": "workshop", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "workshop", "status": "delivered", "language": "en", "delivery": { "earliest": "2025-09-24", "latest": "2025-09-24" } }
     ],
     "year": 2025,
     "event": {
@@ -448,7 +448,7 @@
   {
     "id": "valkey-cache",
     "occurrences": [
-      { "id": "main", "kind": "workshop", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "workshop", "status": "delivered", "language": "en", "delivery": { "earliest": "2025-09-24", "latest": "2025-09-24" } }
     ],
     "year": 2025,
     "event": {
@@ -476,7 +476,7 @@
   {
     "id": "community-programs-panel",
     "occurrences": [
-      { "id": "main", "kind": "panel", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "panel", "status": "delivered", "language": "es", "delivery": { "earliest": "2025-09-13", "latest": "2025-09-13" } }
     ],
     "year": 2025,
     "event": {
@@ -499,7 +499,7 @@
   {
     "id": "tribu-llm-evaluations",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2025-09-03", "latest": "2025-09-03" } }
     ],
     "year": 2025,
     "event": {
@@ -583,7 +583,7 @@
   {
     "id": "agentful-architectures",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en", "delivery": { "earliest": "2025-05-28", "latest": "2025-05-28" } }
     ],
     "year": 2025,
     "event": {
@@ -611,7 +611,7 @@
   {
     "id": "summit-la-llm-evaluations",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en", "delivery": { "earliest": "2025-09-17", "latest": "2025-09-17" } }
     ],
     "year": 2025,
     "event": {
@@ -634,7 +634,7 @@
   {
     "id": "beerai-llm-evaluations",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "en", "delivery": { "earliest": "2025-05-21", "latest": "2025-05-21" } }
     ],
     "year": 2025,
     "event": {
@@ -657,7 +657,7 @@
   {
     "id": "summit-mexico-clown-architect",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2025-08-06", "latest": "2025-08-06" } }
     ],
     "year": 2025,
     "event": {
@@ -685,7 +685,7 @@
   {
     "id": "clown-architect",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2024-09-27", "latest": "2024-09-27" } }
     ],
     "year": 2024,
     "event": {
@@ -714,7 +714,7 @@
   {
     "id": "dynamodb-data-modeling",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "es", "delivery": { "earliest": "2024-07-18", "latest": "2024-07-18" } }
     ],
     "year": 2024,
     "event": {
@@ -743,7 +743,7 @@
   {
     "id": "uruguay-dynamodb",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2024-06-26", "latest": "2024-06-26" } }
     ],
     "year": 2024,
     "event": {
@@ -771,7 +771,7 @@
   {
     "id": "testing-generative-ai",
     "occurrences": [
-      { "id": "main", "kind": "session", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "session", "status": "delivered", "language": "en", "delivery": { "earliest": "2024-05-22", "latest": "2024-05-22" } }
     ],
     "year": 2024,
     "event": {
@@ -856,7 +856,7 @@
   {
     "id": "cordoba-security-ci-cd",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2024-05-16", "latest": "2024-05-16" } }
     ],
     "year": 2024,
     "event": {
@@ -884,7 +884,7 @@
   {
     "id": "basta-bastion-host",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2023-09-16", "latest": "2023-09-16" } }
     ],
     "year": 2023,
     "event": {
@@ -907,7 +907,7 @@
   {
     "id": "cordoba-dynamodb",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2023-06-01", "latest": "2023-06-01" } }
     ],
     "year": 2023,
     "event": {
@@ -935,7 +935,7 @@
   {
     "id": "practitioner-serverless",
     "occurrences": [
-      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es", "delivery": { "earliest": "2023-06-21", "latest": "2023-06-21" } }
     ],
     "year": 2023,
     "event": {
@@ -963,7 +963,7 @@
   {
     "id": "practitioner-billing",
     "occurrences": [
-      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es", "delivery": { "earliest": "2023-07-05", "latest": "2023-07-05" } }
     ],
     "year": 2023,
     "event": {
@@ -991,7 +991,7 @@
   {
     "id": "practitioner-databases",
     "occurrences": [
-      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es", "delivery": { "earliest": "2023-06-14", "latest": "2023-06-14" } }
     ],
     "year": 2023,
     "event": {
@@ -1019,7 +1019,7 @@
   {
     "id": "practitioner-kickoff",
     "occurrences": [
-      { "id": "main", "kind": "training", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "training", "status": "delivered", "language": "es", "delivery": { "earliest": "2023-04-26", "latest": "2023-04-26" } }
     ],
     "year": 2023,
     "event": {
@@ -1047,7 +1047,7 @@
   {
     "id": "cordoba-low-cost",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "es" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "es", "delivery": { "earliest": "2022-08-11", "latest": "2022-08-11" } }
     ],
     "year": 2022,
     "event": {
@@ -1075,7 +1075,7 @@
   {
     "id": "carameltalks-getting-started",
     "occurrences": [
-      { "id": "main", "kind": "talk", "status": "delivered", "language": "en" }
+      { "id": "main", "kind": "talk", "status": "delivered", "language": "en", "delivery": { "earliest": "2021-04-30", "latest": "2021-04-30" } }
     ],
     "year": 2021,
     "event": {
