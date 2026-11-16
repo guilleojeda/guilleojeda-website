@@ -137,6 +137,18 @@ function checkUpcomingAppearances(page, html) {
   const fallback = agenda.html.replace(/<template\b[^>]*>[\s\S]*?<\/template>/gi, '')
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
   assert.doesNotMatch(fallback, /<h3\b/i, `${locale} uninitialized agenda does not announce stale event cards`);
+  const agendaDataMatch = agenda.html.match(/<script\b[^>]*\bid=["']appearances-data["'][^>]*>([\s\S]*?)<\/script>/i);
+  assert.ok(agendaDataMatch, `${locale} embeds agenda facts for the client resolver`);
+  const agendaData = JSON.parse(agendaDataMatch[1]);
+  const utnAppearance = agendaData.entries?.find((entry) => entry.id === 'utn-2026');
+  assert.ok(utnAppearance, `${locale} agenda facts retain the UTN occurrence`);
+  assert.equal(utnAppearance.status, 'delivered', `${locale} UTN facts carry delivered status`);
+  assert.equal(utnAppearance.when.date, '2026-11-14', `${locale} UTN facts retain the original agenda date`);
+  assert.equal(Object.hasOwn(utnAppearance, 'titleNote'), false, `${locale} delivered UTN facts omit the stale title note`);
+  mustNotContain(agenda.html, locale === 'en' ? 'Title to be confirmed' : 'Título por confirmar',
+    `${locale} delivered UTN agenda has no stale title note`);
+  mustNotContain(fallback, talks.find((talk) => talk.id === 'student-community-day-utn-2026').title[locale],
+    `${locale} delivered UTN occurrence is absent from the uninitialized upcoming agenda`);
   mustContain(fallback, profile.site.linkedin, `${locale} fallback offers LinkedIn`);
   assert.match(normalizedText(fallback), locale === 'en' ? /unavailable|enable javascript|javascript is required/
     : /no disponible|no se pudo|activa[r]? javascript|habilita[r]? javascript/,
@@ -151,7 +163,17 @@ function checkUpcomingAppearances(page, html) {
   mustContain(agenda.html, 'https://builder.aws.com/', `${locale} re:Invent public destination`);
   mustContain(agenda.html, 'https://aws-experience.com/', `${locale} OpenSearch public destination`);
   mustContainText(agenda.html, locale === 'en' ? 'Time to be confirmed' : 'Horario por confirmar', `${locale} UTN time is not invented`);
-  mustContainText(agenda.html, locale === 'en' ? 'Title to be confirmed' : 'Título por confirmar', `${locale} UTN title precision is explicit and brief`);
+  const talksSection = extractElement(html, 'section', 'id', 'talks');
+  assert.ok(talksSection, `${locale} homepage keeps its Talks archive for delivered-date checks`);
+  const talkArchive = extractElement(talksSection.html, 'details', 'class', 'talk-archive');
+  assert.ok(talkArchive, `${locale} Talks archive is available for delivered-date checks`);
+  const utnTitle = talks.find((talk) => talk.id === 'student-community-day-utn-2026').title[locale];
+  const utnArchiveArticle = [...talkArchive.html.matchAll(/<article\b[^>]*\bclass=["']talk-archive-item["'][^>]*>[\s\S]*?<\/article>/gi)]
+    .map(([article]) => article)
+    .find((article) => normalizedText(article).includes(normalizedText(utnTitle)));
+  assert.ok(utnArchiveArticle, `${locale} Talks archive contains the UTN title`);
+  mustContainText(utnArchiveArticle, locale === 'en' ? 'Delivered: Nov 14, 2026' : 'Realizada: 14 nov 2026',
+    `${locale} UTN archive article shows the localized delivered date`);
   mustContainText(agenda.html, locale === 'en' ? 'Breakfast hours' : 'Horario del desayuno', `${locale} OpenSearch hours are the event interval`);
   assert.match(normalizedText(agenda.html), /partner/, `${locale} OpenSearch access restriction stays visible`);
   for (const forbidden of ['Stripe Hangout', 'Redis Welcome Party', 'Caylent & Partners LIVE!', 'mail.google.com', 'google.com/calendar/event', 'invite.ics']) {

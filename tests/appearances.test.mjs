@@ -382,7 +382,7 @@ test('appearance data resolves and produces the approved upcoming agenda', async
     assert.throws(() => resolveAppearances([badSpeaker], talks));
   });
 
-  await t.test('the published inventory resolves four canonical scheduled occurrences without copying presentation facts', () => {
+  await t.test('the published inventory keeps dated delivered archive facts out of the upcoming agenda', () => {
     const appearances = JSON.parse(readFileSync(new URL('../src/content/appearances.json', import.meta.url), 'utf8'));
     const talks = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
     const sourceSnapshot = JSON.stringify({ appearances, talks });
@@ -390,8 +390,10 @@ test('appearance data resolves and produces the approved upcoming agenda', async
     const groups = upcomingAppearances(resolved, new Date('2026-11-11T15:00:00.000Z'));
 
     assert.equal(resolved.length, 4);
-    assert.equal(groups.length, 3);
-    assert.equal(groups.reduce((sum, group) => sum + group.occurrences.length, 0), 4);
+    assert.equal(groups.length, 2);
+    assert.equal(groups.reduce((sum, group) => sum + group.occurrences.length, 0), 3);
+    assert.equal(groups.some((group) => group.talkId === 'student-community-day-utn-2026'), false,
+      'the delivered UTN occurrence is absent from upcoming agenda results');
     assert.equal(JSON.stringify({ appearances, talks }), sourceSnapshot, 'resolving data does not mutate either source file');
     assert.equal(appearances.every((row) => !Object.hasOwn(row, 'event') && !Object.hasOwn(row, 'title') && !Object.hasOwn(row, 'status')), true,
       'talk event, title, and editorial status stay in talks.json');
@@ -404,6 +406,9 @@ test('appearance data resolves and produces the approved upcoming agenda', async
     assert.equal(reinvent.title.en, 'Ship Reliable AI Agents with Strands Evaluation and AgentCore Evaluations');
     assert.ok(!utn.featured);
     assert.ok(!unc.featured);
+    assert.equal(utn.occurrences[0].status, 'delivered');
+    assert.equal(utn.occurrences[0].language, 'es');
+    assert.deepEqual(utn.occurrences[0].delivery, { earliest: '2026-11-14', latest: '2026-11-14' });
     assert.equal(opensearch.occurrences[0].status, 'scheduled');
     assert.equal(opensearch.occurrences[0].language, null);
     assert.equal(opensearch.title.en, 'OpenSearch Partner Breakfast');
@@ -411,7 +416,18 @@ test('appearance data resolves and produces the approved upcoming agenda', async
 
     const utnRow = resolved.find((row) => row.id === 'utn-2026');
     const breakfast = resolved.find((row) => row.id === 'opensearch-partner-breakfast-2026');
-    assert.equal(utnRow.titleNote.es, 'Título por confirmar');
+    assert.equal(utnRow.when.date, '2026-11-14', 'the original agenda date remains the delivered archive date');
+    assert.equal(utnRow.titleNote, undefined, 'a stale upcoming title note is omitted after delivery');
+    const archiveLabels = {
+      scheduled: { en: 'Scheduled', es: 'Programada' },
+      delivered: { en: 'Delivered', es: 'Realizada' },
+      unknown: { en: 'Delivery unconfirmed', es: 'Realización sin confirmar' }
+    };
+    const appearanceByOccurrence = new Map(resolved
+      .filter((appearance) => appearance.talkId && appearance.occurrenceId)
+      .map((appearance) => [`${appearance.talkId}/${appearance.occurrenceId}`, appearance]));
+    assert.deepEqual(formatTalkArchiveStatuses(utn, appearanceByOccurrence, archiveLabels, 'en'), ['Delivered: Nov 14, 2026']);
+    assert.deepEqual(formatTalkArchiveStatuses(utn, appearanceByOccurrence, archiveLabels, 'es'), ['Realizada: 14 nov 2026']);
     assert.equal(breakfast.timeNote.en, 'Breakfast hours');
     assert.equal(breakfast.when.scope, 'event');
     assert.equal(breakfast.accessNote.es, 'Exclusivo para partners · requiere inscripción');

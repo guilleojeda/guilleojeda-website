@@ -1996,27 +1996,35 @@ test("the real inventory counts delivered appearances without counting the agend
   const { buildContentStatsInputs } = await import('../scripts/build-content-stats-inputs.mjs');
   const talks = JSON.parse(readFileSync(new URL('../src/content/talks.json', import.meta.url), 'utf8'));
   const books = JSON.parse(readFileSync(new URL('../src/content/books.json', import.meta.url), 'utf8'));
-  const input = buildContentStatsInputs({ articleConfig: phaseTwoInput(), talks, books });
+  const input = buildContentStatsInputs({
+    articleConfig: phaseTwoInput(), talks, books, articles: { publications: [], exclusions: [] }
+  });
+  assert.equal(input.schemaVersion, 13);
   assert.equal(talks.length, 40, 'OpenSearch adds one archive record while repeated sessions remain grouped');
+  const meetupDay = { earliest: '2026-10-22', latest: '2026-10-22' };
   assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('cordoba-agent-economics-2026/')), [
-    talkFact('cordoba-agent-economics-2026/talk', 'talk', 'delivered', 'es'),
-    talkFact('cordoba-agent-economics-2026/certification-panel', 'panel', 'delivered', 'es')
+    periodTalkFact('cordoba-agent-economics-2026/talk', 'talk', 'delivered', 'es', meetupDay),
+    periodTalkFact('cordoba-agent-economics-2026/certification-panel', 'panel', 'delivered', 'es', meetupDay)
   ]);
   assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('reinvent-2026-agent-evaluations/')), [
-    talkFact('reinvent-2026-agent-evaluations/com317-r', 'session', 'scheduled', 'en'),
-    talkFact('reinvent-2026-agent-evaluations/com317-r1', 'session', 'scheduled', 'en')
+    periodTalkFact('reinvent-2026-agent-evaluations/com317-r', 'session', 'scheduled', 'en', null),
+    periodTalkFact('reinvent-2026-agent-evaluations/com317-r1', 'session', 'scheduled', 'en', null)
   ]);
   assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('student-community-day-utn-2026/')), [
-    talkFact('student-community-day-utn-2026/main', 'workshop', 'scheduled', 'es')
+    periodTalkFact('student-community-day-utn-2026/main', 'workshop', 'delivered', 'es', {
+      earliest: '2026-11-14', latest: '2026-11-14'
+    })
   ]);
   assert.deepEqual(input.curated.talks.filter(({ id }) => id.startsWith('opensearch-partner-breakfast-2026/')), [
-    talkFact('opensearch-partner-breakfast-2026/main', 'session', 'scheduled', null)
+    periodTalkFact('opensearch-partner-breakfast-2026/main', 'session', 'scheduled', null, null)
   ]);
-  const harness = createHarness({ input, fetchFn: builderApiFetch() });
+  const harness = createHarness({ input, fetchFn: builderApiFetch(), clock: createClock('2026-11-16T12:00:00.000Z') });
   await harness.handler({}, {});
   assert.equal(harness.putCalls.length, 1);
   const output = await readPut(harness.putCalls[0]);
-  assert.deepEqual(output.groups.talks.counts, { all: 31, en: 9, es: 22 });
+  assert.equal(output.groups.talks.definitionVersion, 2);
+  assert.deepEqual(output.groups.talks.counts, { all: 32, en: 9, es: 23 });
+  assert.equal(output.groups.talks.occurrences.filter(({ delivery }) => delivery !== null).length, 32);
   assert.deepEqual(output.groups.books.counts, { all: 2, en: 2, es: 0 });
 });
 
