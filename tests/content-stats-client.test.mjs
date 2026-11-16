@@ -4152,7 +4152,7 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} invalid Search family leaves valid Views and counts available`, async () => {
-    const data = snapshotWithArticleSearchClicks({ definitionVersion: 2 });
+    const data = snapshotWithArticleSearchClicks({ definitionVersion: 3 });
     const page = createPage({ locale, data });
     await page.settle();
 

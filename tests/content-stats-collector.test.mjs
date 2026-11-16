@@ -3980,6 +3980,14 @@ test("Search Console drops an incompatible history total and restores v1 when th
   assert.equal(Object.hasOwn(wrongScope.groups.articleSearchClicks.records, "total"), false,
     "a matching interval with a different valid scope hash cannot be retained");
 
+  const partialHistory = structuredClone(first);
+  partialHistory.groups.articleSearchClicks.records.total.startDate = "2025-07-17";
+  harness.objects.set(outputKey, JSON.stringify(partialHistory));
+  await harness.handler({}, {});
+  const wrongInterval = await readPut(harness.putCalls[3]);
+  assert.equal(Object.hasOwn(wrongInterval.groups.articleSearchClicks.records, "total"), false,
+    "a matching scope with a shortened history interval cannot be retained");
+
   const rollbackLog = [];
   const rollback = createHarness({
     input: phaseTwoSearchInput(),
