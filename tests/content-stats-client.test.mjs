@@ -384,6 +384,31 @@ function articleSearchRecords() {
   return Object.fromEntries(articleSearchPeriods.map((period) => [period, articleSearchRecord(period)]));
 }
 
+function snapshotWithArticleSearchHistory({ records = articleSearchRecords(), withoutEditorialTotals = false } = {}) {
+  const data = snapshotWithArticleSearchClicks({ includeViews: false });
+  if (withoutEditorialTotals) {
+    delete data.groups.articles;
+    delete data.groups.talks;
+  }
+  data.groups.articleSearchClicks = {
+    definitionVersion: 2,
+    records: {
+      ...records,
+      total: {
+        basis: 'available-history',
+        collectedAt: '2026-11-16T20:30:00.000Z',
+        scopeId: 'a'.repeat(64),
+        publication: { ...simpleAws, language: 'en' },
+        timeZone: 'America/Los_Angeles',
+        startDate: '2025-07-16',
+        endDate: '2026-11-13',
+        clicks: 5680
+      }
+    }
+  };
+  return data;
+}
+
 function snapshotWithArticleSearchClicks({ records = articleSearchRecords(), definitionVersion = 1, includeViews = true } = {}) {
   const data = includeViews ? snapshotWithArticleViews() : snapshotWithNewsletter();
   data.groups.articleSearchClicks = { definitionVersion, records };
@@ -588,12 +613,14 @@ const searchCopy = {
   en: {
     loading: 'Loading Search clicks…',
     unavailable: 'Search click data are unavailable.',
-    unit: 'clicks'
+    unit: 'clicks',
+    collected: 'Last updated'
   },
   es: {
     loading: 'Cargando clics de búsqueda…',
     unavailable: 'No hay datos disponibles de clics de búsqueda.',
-    unit: 'clics'
+    unit: 'clics',
+    collected: 'Última actualización'
   }
 };
 
@@ -744,11 +771,15 @@ function makeArticleSearch(card, locale) {
   }));
   const results = region.appendChild(new SemanticElement({ dataset: { statsSearchResults: '' }, hidden: true }));
   const value = results.appendChild(new SemanticElement({ dataset: { statsSearchValue: '' } }));
-  const unit = results.appendChild(new SemanticElement({ textContent: searchCopy[locale].unit }));
+  const unit = results.appendChild(new SemanticElement({ dataset: { statsSearchUnit: '' }, textContent: searchCopy[locale].unit }));
   const coverage = results.appendChild(new SemanticElement({ dataset: { statsSearchCoverage: '' } }));
   const interval = results.appendChild(new SemanticElement({ dataset: { statsSearchInterval: '' } }));
+  const collectedLabel = results.appendChild(new SemanticElement({
+    dataset: { statsSearchCollectedLabel: '' },
+    textContent: searchCopy[locale].collected
+  }));
   const collectedDate = results.appendChild(new SemanticElement({ dataset: { statsSearchCollectedDate: '' } }));
-  return { region, status, results, value, unit, coverage, interval, collectedDate };
+  return { region, status, results, value, unit, coverage, interval, collectedLabel, collectedDate };
 }
 
 function makeDirectoryViews(locale) {
@@ -1146,8 +1177,8 @@ function expectedInventoryDate(locale, timestamp = collectedAt) {
     .format(new Date(timestamp));
 }
 
-function expectedDate(locale, timestamp = collectedAt) {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+function expectedDate(locale, timestamp = collectedAt, timeZone = 'UTC') {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone }).format(new Date(timestamp));
 }
 
 function expectedDateOnly(locale, date) {
@@ -1717,7 +1748,7 @@ function assertBuilderViewsVisible(page, locale, language, group = page.data.gro
   assert.match(builder.label.textContent, locale === 'en' ? /Builder Center views.*recorded total/i : /Vistas en Builder Center.*total registrado/i);
 }
 
-function assertSearchUnavailable(page, locale) {
+function assertSearchUnavailable(page, locale, message) {
   const search = page.cards.articles.search;
   assert.equal(search.results.hidden, true, 'unavailable Search clicks must not reveal an old value');
   assert.equal(search.value.textContent, '', 'unavailable Search clicks must clear the old value');
@@ -1725,7 +1756,8 @@ function assertSearchUnavailable(page, locale) {
   assert.equal(search.interval.textContent, '', 'unavailable Search clicks must clear the old interval');
   assert.equal(search.collectedDate.textContent, '', 'unavailable Search clicks must clear the old collection date');
   assert.equal(search.status.hidden, false, 'unavailable Search clicks need a visible status');
-  assertActivityUnavailableMessage(search.status.textContent, locale);
+  if (message) assert.match(search.status.textContent, message);
+  else assertActivityUnavailableMessage(search.status.textContent, locale);
 }
 
 function assertLocalizedSearchUnit(page, locale) {
@@ -1748,6 +1780,25 @@ function assertSearchVisible(page, locale, period) {
   assert.ok(search.interval.textContent.includes(formatDateOnly(record.endDate)), 'Search interval uses its retained localized end date');
   assert.notEqual(search.interval.textContent.trim(), '', 'the Search interval should be visible');
   assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'Search retains its own collection date');
+}
+
+function assertSearchHistoryVisible(page, locale) {
+  const record = page.data.groups.articleSearchClicks.records.total;
+  const search = page.cards.articles.search;
+  assert.equal(search.results.hidden, false, 'available Search history renders as the recorded total');
+  assert.equal(search.status.hidden, true);
+  assert.equal(search.value.textContent, new Intl.NumberFormat(locale).format(record.clicks));
+  assertLocalizedSearchUnit(page, locale);
+  assert.equal(search.coverage.textContent, record.publication.label, 'Search history keeps its source label');
+  assert.match(search.unit.textContent, locale === 'es' ? /historial disponible en search console/i : /available search console history/i,
+    'Search history identifies its available-history scope');
+  assert.ok(search.interval.textContent.includes(record.timeZone), 'Search history interval includes Pacific time');
+  assert.ok(search.interval.textContent.includes(expectedDateOnly(locale, record.startDate)), 'Search history shows its available start date');
+  assert.ok(search.interval.textContent.includes(expectedDateOnly(locale, record.endDate)), 'Search history shows its actual end date');
+  assert.match(search.collectedLabel.textContent, locale === 'es' ? /última consulta válida/i : /last valid query/i,
+    'Search history identifies the last valid query date');
+  assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt, record.timeZone),
+    'Search history shows the last valid query on the Pacific calendar');
 }
 
 function assertDirectoryViewsUnavailable(page, locale, { hidden = false } = {}) {
@@ -4102,7 +4153,7 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} invalid Search family leaves valid Views and counts available`, async () => {
-    const data = snapshotWithArticleSearchClicks({ definitionVersion: 2 });
+    const data = snapshotWithArticleSearchClicks({ definitionVersion: 3 });
     const page = createPage({ locale, data });
     await page.settle();
 
@@ -4218,6 +4269,118 @@ for (const locale of ['en', 'es']) {
     assertSearchUnavailable(page, locale);
     assert.equal(page.cards.articles.count.textContent, '11');
     assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Search Console available history is a selectable scoped total`, async () => {
+    const records = articleSearchRecords();
+    records['7d'] = articleSearchRecord('7d', {
+      clicks: 0, collectedAt: '2026-11-17T20:30:00.000Z', startDate: '2026-11-08', endDate: '2026-11-14'
+    });
+    const page = createPage({
+      locale,
+      data: snapshotWithArticleSearchHistory({ records, withoutEditorialTotals: true })
+    });
+    await page.settle();
+
+    assert.equal(page.periodOptions.total.disabled, false, 'Search history alone enables Recorded total');
+    page.periodSelector.focus();
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertSearchVisible(page, locale, '7d');
+    assert.equal(page.cards.articles.search.value.textContent, '0', 'an ordinary Search zero remains visible in v2');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertSearchHistoryVisible(page, locale);
+    assert.equal(page.document.activeElement, page.periodSelector, 'period changes keep focus on the period control');
+    assert.equal(page.cards.articles.search.results.hidden, false);
+
+    page.selector.focus();
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertSearchHistoryVisible(page, locale);
+    assert.equal(page.document.activeElement, page.selector, 'language changes keep focus on the language control');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assertSearchUnavailable(page, locale, locale === 'es' ? /solo cubre.*en inglés/i : /only covers.*in English/i);
+    assert.equal(page.periodSelector.value, '12m', 'losing the only applicable total falls back to 12 months');
+    assert.equal(page.periodOptions.total.disabled, true, 'English-only Search history disables Recorded total in Spanish');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.periodOptions.total.disabled, false);
+    assert.equal(page.periodSelector.value, '12m', 'returning to All preserves the fallback selection');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertSearchHistoryVisible(page, locale);
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertSearchVisible(page, locale, '7d');
+    assert.equal(page.cards.articles.search.unit.textContent, searchCopy[locale].unit);
+    assert.equal(page.cards.articles.search.collectedLabel.textContent, searchCopy[locale].collected);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Search history does not override a valid Spanish total from another family`, async () => {
+    const page = createPage({ locale, data: snapshotWithArticleSearchHistory() });
+    await page.settle();
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertSearchHistoryVisible(page, locale);
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodOptions.total.disabled, false, 'a valid Spanish inventory keeps Recorded total available');
+    assertSearchUnavailable(page, locale, locale === 'es' ? /solo cubre.*en inglés/i : /only covers.*in English/i);
+    assert.equal(page.periodSelector.value, 'total');
+    assert.equal(page.cards.articles.count.textContent, '4');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Search history can be the only selectable total while missing ordinary periods stay unavailable`, async () => {
+    const data = snapshotWithArticleSearchHistory({ records: {}, withoutEditorialTotals: true });
+    data.groups.articleSearchClicks.records.total.clicks = 0;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.periodOptions.total.disabled, false, 'the history record keeps Recorded total enabled');
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertSearchHistoryVisible(page, locale);
+    page.periodSelector.value = '12m';
+    page.periodSelector.dispatch('change');
+    assertSearchUnavailable(page, locale, locale === 'es' ? /sin datos para este per[ií]odo/i : /no data for this period/i);
+    assert.equal(page.periodSelector.value, '12m', 'a missing ordinary period does not silently become a total');
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} Search history uses the Pacific day when UTC has reached the next month`, async () => {
+    const data = snapshotWithArticleSearchHistory();
+    Object.assign(data.groups.articleSearchClicks.records.total, {
+      collectedAt: '2026-04-01T06:30:00.000Z', startDate: '2024-11-30', endDate: '2026-03-28'
+    });
+    const page = createPage({ locale, data });
+    await page.settle();
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertSearchHistoryVisible(page, locale);
+    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDateOnly(locale, '2026-03-31'));
+  });
+
+  test(`${locale} malformed Search history stays unavailable while ordinary windows remain usable`, async () => {
+    for (const invalidHistory of [{ clicks: -1 }, { startDate: '2025-07-15' }, { endDate: '2026-11-14' }]) {
+      const data = snapshotWithArticleSearchHistory();
+      Object.assign(data.groups.articleSearchClicks.records.total, invalidHistory);
+      const page = createPage({ locale, data });
+      await page.settle();
+
+      page.periodSelector.value = '12m';
+      page.periodSelector.dispatch('change');
+      assertSearchVisible(page, locale, '12m');
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      assertSearchUnavailable(page, locale, locale === 'es' ? /total no disponible/i : /total (?:is )?unavailable/i);
+      assert.equal(page.cards.articles.count.textContent, '11');
+      assert.equal(page.fetchCount, 1);
+    }
   });
 }
 

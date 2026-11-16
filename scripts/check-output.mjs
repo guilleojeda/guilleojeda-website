@@ -1251,7 +1251,7 @@ function checkContentStatsShell(page, html) {
   if (locale === 'en') assert.match(unavailableText, /unavailable|not available/i, 'English views unavailable copy is meaningful');
   else assert.match(unavailableText, /no disponibles?|no disponible|no se pueden/i, 'Spanish views unavailable copy is meaningful');
 
-  for (const field of ['status', 'results', 'value', 'coverage', 'interval', 'collected-date']) {
+  for (const field of ['status', 'results', 'value', 'unit', 'coverage', 'interval', 'collected-label', 'collected-date']) {
     const attribute = `data-stats-search-${field}`;
     assert.ok(new RegExp(`\\b${attribute}(?:\\s|=|>)`, 'i').test(searchRegion.html), `${locale} Search region needs ${field}`);
   }
@@ -1268,6 +1268,14 @@ function checkContentStatsShell(page, html) {
     assert.match(searchRegionText, /clics?/, 'Spanish Search region labels its unit');
     assert.match(normalizedText(searchStatus.html), /cargando[\s\S]{0,50}(search console|busqueda)[\s\S]{0,30}clics?|cargando[\s\S]{0,50}clics?/, 'Spanish Search status has a localized loading message');
   }
+  const searchUnit = extractElement(searchRegion.html, null, 'data-stats-search-unit');
+  assert.ok(searchUnit, `${locale} Search region needs a localized unit hook`);
+  assert.equal(normalizedText(searchUnit.html), locale === 'en' ? 'clicks' : 'clics',
+    `${locale} Search unit starts with localized clicks copy`);
+  const searchCollectedLabel = extractElement(searchRegion.html, null, 'data-stats-search-collected-label');
+  assert.ok(searchCollectedLabel, `${locale} Search region needs a localized collection-label hook`);
+  assert.equal(normalizedText(searchCollectedLabel.html), locale === 'en' ? 'last updated' : 'ultima actualizacion',
+    `${locale} Search collection label starts with localized ordinary-period copy`);
   mustContain(searchRegion.html, 'data-stats-search-unavailable=', `${locale} Search region needs localized unavailable copy`);
   const searchUnavailableAttribute = searchRegion.html.match(/\bdata-stats-search-unavailable=["']([^"']+)["']/i)?.[1] ?? '';
   const searchUnavailableText = normalizedText(searchUnavailableAttribute);
@@ -1535,7 +1543,14 @@ if (hasAnalyticsSelection) {
 if (hasSearchConsoleSelection) {
   assert.ok(hasNewsletterSelection && hasAnalyticsSelection, 'Search Console input6 must retain both input5 selections');
   assert.ok(sourceConfig.searchConsole, 'Search Console input must come from a maintained selector');
-  assert.deepEqual(Object.keys(sourceConfig.searchConsole).sort(), ['articleUrlPattern', 'availableSince', 'id', 'language', 'siteUrl'], 'maintained Search Console selection must contain only its source and interval configuration');
+  const expectedSearchConsoleKeys = ['articleUrlPattern', 'availableSince', 'id', 'language', 'siteUrl'];
+  if (Object.hasOwn(sourceConfig.searchConsole, 'historyMonths')) {
+    assert.equal(sourceConfig.searchConsole.historyMonths, 16, 'Search Console history setting must use the approved 16-month value');
+    assert.equal(inputs.schemaVersion, 13, 'Search Console history setting must be projected by input13');
+    expectedSearchConsoleKeys.push('historyMonths');
+  }
+  assert.deepEqual(Object.keys(sourceConfig.searchConsole).sort(), expectedSearchConsoleKeys.sort(),
+    'maintained Search Console selection must contain only its source, interval configuration, and optional history setting');
   assert.equal(sourceConfig.searchConsole.id, 'simple-aws', 'Search Console selection must name Simple AWS');
   assert.equal(sourceConfig.searchConsole.siteUrl, 'sc-domain:simpleaws.dev', 'Search Console selection must name the approved domain property');
   assert.equal(sourceConfig.searchConsole.language, 'en', 'Simple AWS Search Console content-language policy');

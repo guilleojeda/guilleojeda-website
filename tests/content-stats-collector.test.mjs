@@ -111,9 +111,17 @@ function phaseSixSearchConsole({
   siteUrl = googleSearchSiteUrl,
   language = "en",
   articleUrlPattern = googleSearchArticleUrlPattern,
-  availableSince = "2025-06-20"
+  availableSince = "2025-06-20",
+  historyMonths
 } = {}) {
-  return { id, siteUrl, language, articleUrlPattern, availableSince };
+  return {
+    id,
+    siteUrl,
+    language,
+    articleUrlPattern,
+    availableSince,
+    ...(historyMonths === undefined ? {} : { historyMonths })
+  };
 }
 
 function phaseSixInput({ sources, curated, newsletter, analytics, searchConsole } = {}) {
@@ -312,7 +320,6 @@ function priorArticleViewsGroup(records = {
 
 function priorArticleSearchRecord({
   collectedAt = "2026-10-14T04:30:00.000Z",
-  scopeId = "a".repeat(64),
   startDate = "2026-10-06",
   endDate = "2026-10-12",
   clicks = 17
@@ -320,7 +327,7 @@ function priorArticleSearchRecord({
   return {
     basis: "period",
     collectedAt,
-    scopeId,
+    scopeId: "cc870c36695ca293b31ce1e0314bf9e62bcab8dc0a5f093d430e8a2664a16185",
     publication: { id: "simple-aws", label: "Simple AWS", language: "en" },
     timeZone: googleSearchTimeZone,
     startDate,
@@ -330,11 +337,11 @@ function priorArticleSearchRecord({
 }
 
 function priorArticleSearchClicksGroup(records = {
-  "7d": priorArticleSearchRecord({ scopeId: "a".repeat(64), startDate: "2026-10-06", endDate: "2026-10-12", clicks: 17 }),
-  "30d": priorArticleSearchRecord({ scopeId: "b".repeat(64), startDate: "2026-09-13", endDate: "2026-10-12", clicks: 30 }),
-  "90d": priorArticleSearchRecord({ scopeId: "c".repeat(64), startDate: "2026-07-15", endDate: "2026-10-12", clicks: 90 }),
-  "12m": priorArticleSearchRecord({ scopeId: "d".repeat(64), startDate: "2025-10-13", endDate: "2026-10-12", clicks: 120 }),
-  ytd: priorArticleSearchRecord({ scopeId: "e".repeat(64), startDate: "2026-01-01", endDate: "2026-10-12", clicks: 200 })
+  "7d": priorArticleSearchRecord({ startDate: "2026-10-06", endDate: "2026-10-12", clicks: 17 }),
+  "30d": priorArticleSearchRecord({ startDate: "2026-09-13", endDate: "2026-10-12", clicks: 30 }),
+  "90d": priorArticleSearchRecord({ startDate: "2026-07-15", endDate: "2026-10-12", clicks: 90 }),
+  "12m": priorArticleSearchRecord({ startDate: "2025-10-13", endDate: "2026-10-12", clicks: 120 }),
+  ytd: priorArticleSearchRecord({ startDate: "2026-01-01", endDate: "2026-10-12", clicks: 200 })
 }) {
   return { definitionVersion: 1, records };
 }
@@ -3669,7 +3676,6 @@ test("Search Console uses Pacific calendar windows, keeps full history windows, 
   const previous = priorFullOutput();
   const previousSearchRecords = priorArticleSearchClicksGroup().records;
   previousSearchRecords.ytd = priorArticleSearchRecord({
-    scopeId: "f".repeat(64),
     startDate: "2025-01-01",
     endDate: "2025-12-29",
     clicks: 500
@@ -3719,6 +3725,292 @@ test("Search Console uses Pacific calendar windows, keeps full history windows, 
   const leapTwelveMonthQuery = googleRequests(leapLog, "google-search").find((request) => request.json.startDate === "2023-02-28");
   assert.ok(leapTwelveMonthQuery, "12-month Search range subtracts calendar months and clamps leap day to Feb 28");
   assert.deepEqual([leapTwelveMonthQuery.json.startDate, leapTwelveMonthQuery.json.endDate], ["2023-02-28", "2024-02-28"]);
+});
+
+test("Search Console publishes a bounded available-history total without changing ordinary windows", async () => {
+  const clock = createClock("2026-11-16T20:30:00.000Z");
+  const requestLog = [];
+  const historyInput = phaseTwoSearchInput({ historyMonths: 16 });
+  const harness = createHarness({
+    input: historyInput,
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => request.json.startDate === "2025-07-16"
+        ? jsonResponse(searchConsoleResponse({ clicks: 0 }))
+        : jsonResponse(searchConsoleResponse({ clicks: 42 }))
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const searches = googleRequests(requestLog, "google-search");
+  assert.equal(searches.length, 6, "history adds one bounded aggregate query to the five ordinary periods");
+  assert.deepEqual(searches.map((request) => [request.json.startDate, request.json.endDate]).sort(), [
+    ["2025-07-16", "2026-11-13"],
+    ["2025-11-14", "2026-11-13"],
+    ["2026-01-01", "2026-11-13"],
+    ["2026-08-16", "2026-11-13"],
+    ["2026-10-15", "2026-11-13"],
+    ["2026-11-07", "2026-11-13"],
+  ], "history uses the Pacific query day minus sixteen calendar months and three closed days");
+  const historyRequest = searches.find((request) => request.json.startDate === "2025-07-16");
+  assertSearchRequest(historyRequest);
+  assert.equal(historyRequest.url, `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(googleSearchSiteUrl)}/searchAnalytics/query`);
+  assert.deepEqual(historyRequest.json, {
+    startDate: "2025-07-16",
+    endDate: "2026-11-13",
+    type: "web",
+    dataState: "final",
+    aggregationType: "auto",
+    dimensionFilterGroups: [{
+      groupType: "and",
+      filters: [{
+        dimension: "page",
+        operator: "includingRegex",
+        expression: googleSearchArticleUrlPattern
+      }]
+    }]
+  });
+
+  const output = await readPut(harness.putCalls[0]);
+  const search = output.groups.articleSearchClicks;
+  assert.equal(search.definitionVersion, 2, "history uses the versioned Search group");
+  assert.deepEqual(Object.keys(search.records).sort(), ["12m", "30d", "7d", "90d", "total", "ytd"]);
+  assert.match(search.records.total.scopeId, /^[a-f0-9]{64}$/);
+  assert.notEqual(search.records.total.scopeId, search.records["12m"].scopeId,
+    "bounded history has a separate scope from ordinary windows");
+  assert.deepEqual(search.records.total, {
+    basis: "available-history",
+    collectedAt: "2026-11-16T20:30:00.000Z",
+    scopeId: search.records.total.scopeId,
+    publication: { id: "simple-aws", label: "Simple AWS", language: "en" },
+    timeZone: googleSearchTimeZone,
+    startDate: "2025-07-16",
+    endDate: "2026-11-13",
+    clicks: 0
+  }, "an explicit zero is a measured history total with its own interval and fetch time");
+  for (const period of ["7d", "30d", "90d", "12m", "ytd"]) {
+    assert.deepEqual(
+      { basis: search.records[period].basis, endDate: search.records[period].endDate, clicks: search.records[period].clicks },
+      { basis: "period", endDate: "2026-11-13", clicks: 42 },
+      `${period} remains an ordinary Search record alongside history`
+    );
+  }
+});
+
+test("Search Console does not publish an empty history response without a prior total", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseTwoSearchInput({ historyMonths: 16 }),
+    clock: createClock("2026-11-16T20:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => request.json.startDate === "2025-07-16"
+        ? jsonResponse({ rows: [], responseAggregationType: "byPage" })
+        : jsonResponse(searchConsoleResponse({ clicks: 42 }))
+    })
+  });
+
+  await harness.handler({}, {});
+
+  const output = await readPut(harness.putCalls[0]);
+  const search = output.groups.articleSearchClicks;
+  assert.equal(search.definitionVersion, 2);
+  assert.equal(Object.hasOwn(search.records, "total"), false,
+    "an empty history response is unavailable rather than a zero total");
+  assert.deepEqual(Object.keys(search.records).sort(), ["12m", "30d", "7d", "90d", "ytd"],
+    "ordinary Search periods remain publishable when history is empty");
+
+  const invalidHarness = createHarness({
+    input: phaseTwoSearchInput({ historyMonths: 16 }),
+    clock: createClock("2026-11-16T20:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      searchResponder: ({ request }) => request.json.startDate === "2025-07-16"
+        ? jsonResponse(searchConsoleResponse({ aggregationType: "byProperty", clicks: 42 }))
+        : jsonResponse(searchConsoleResponse({ clicks: 42 }))
+    })
+  });
+  await invalidHarness.handler({}, {});
+  const invalidSearch = (await readPut(invalidHarness.putCalls[0])).groups.articleSearchClicks;
+  assert.equal(Object.hasOwn(invalidSearch.records, "total"), false,
+    "an invalid grouped history response is unavailable rather than a fabricated total");
+});
+
+test("Search Console history uses the Pacific query day and clamps a month-end start", async () => {
+  const requestLog = [];
+  const harness = createHarness({
+    input: phaseTwoSearchInput({
+      historyMonths: 16,
+      searchConsole: phaseSixSearchConsole({ historyMonths: 16, availableSince: "2024-11-01" })
+    }),
+    // UTC is already April 1 while Pacific is still March 31.
+    clock: createClock("2026-04-01T06:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({ requestLog })
+  });
+
+  await harness.handler({}, {});
+
+  const history = googleRequests(requestLog, "google-search").find((request) => request.json.startDate === "2024-11-30");
+  assert.ok(history, "history starts on the clamped November 30 date from a March 31 Pacific query day");
+  assert.deepEqual([history.json.startDate, history.json.endDate], ["2024-11-30", "2026-03-28"]);
+});
+
+test("Search Console history retains compatible totals and accepts a lower recovered total", async () => {
+  const clock = createClock("2026-11-16T20:30:00.000Z");
+  const requestLog = [];
+  let historyEnabled = false;
+  let historyFails = false;
+  let ordinaryPeriodFails = false;
+  let ordinaryPeriodStart;
+  let historyClicks = 5_680;
+  const harness = createHarness({
+    input: phaseTwoSearchInput(),
+    clock,
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => {
+        const isHistory = request.json.startDate <= "2025-08-01";
+        if (historyEnabled && isHistory && historyFails) {
+          return jsonResponse({ error: googleResponseCanary }, 503);
+        }
+        if (ordinaryPeriodFails && request.json.startDate === ordinaryPeriodStart) {
+          return jsonResponse({ error: googleResponseCanary }, 503);
+        }
+        return jsonResponse(searchConsoleResponse({ clicks: historyEnabled && isHistory ? historyClicks : 42 }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.equal(first.groups.articleSearchClicks.definitionVersion, 1);
+  assert.equal(Object.hasOwn(first.groups.articleSearchClicks.records, "total"), false);
+
+  historyEnabled = true;
+  ordinaryPeriodFails = true;
+  ordinaryPeriodStart = "2026-10-16";
+  harness.setInput(phaseTwoSearchInput({ historyMonths: 16 }));
+  harness.clock.set("2026-11-17T20:30:00.000Z");
+  await harness.handler({}, {});
+  const retained = await readPut(harness.putCalls[1]);
+  assert.equal(retained.groups.articleSearchClicks.definitionVersion, 2,
+    "enabling history upgrades a compatible legacy Search group");
+  assert.equal(retained.groups.articleSearchClicks.records.total.clicks, 5_680);
+  assert.deepEqual(retained.groups.articleSearchClicks.records["30d"], first.groups.articleSearchClicks.records["30d"],
+    "a failed ordinary period carries its compatible v1 record into the versioned group");
+  assert.equal(retained.groups.articleSearchClicks.records["7d"].collectedAt, "2026-11-17T20:30:00.000Z",
+    "healthy ordinary Search periods refresh during the upgrade");
+  assert.equal(retained.groups.articleSearchClicks.records["7d"].scopeId, first.groups.articleSearchClicks.records["7d"].scopeId,
+    "the version upgrade preserves ordinary period scope");
+
+  ordinaryPeriodFails = false;
+  historyFails = true;
+  harness.clock.set("2026-11-18T20:30:00.000Z");
+  await harness.handler({}, {});
+  const retainedHistory = await readPut(harness.putCalls[2]);
+  assert.deepEqual(retainedHistory.groups.articleSearchClicks.records.total, retained.groups.articleSearchClicks.records.total,
+    "a failed history query retains the exact compatible total");
+  assert.equal(retainedHistory.groups.articleSearchClicks.records["7d"].collectedAt, "2026-11-18T20:30:00.000Z",
+    "healthy Search periods refresh beside a retained history total");
+  assert.equal(retainedHistory.groups.articleViews.records["7d"].collectedAt, "2026-11-18T20:30:00.000Z",
+    "the independent GA4 family refreshes beside a retained Search total");
+
+  historyFails = false;
+  historyClicks = 5_500;
+  harness.clock.set("2026-11-19T20:30:00.000Z");
+  await harness.handler({}, {});
+  const recovered = await readPut(harness.putCalls[3]);
+  assert.equal(recovered.groups.articleSearchClicks.records.total.clicks, 5_500,
+    "a fresh lower provider total replaces the retained history value");
+  assert.equal(recovered.groups.articleSearchClicks.records.total.collectedAt, "2026-11-19T20:30:00.000Z");
+  assert.equal(recovered.groups.articleSearchClicks.records.total.startDate, "2025-07-19");
+  assert.equal(recovered.groups.articleSearchClicks.records.total.endDate, "2026-11-16");
+});
+
+test("Search Console drops an incompatible history total and restores v1 when the history option is removed", async () => {
+  const requestLog = [];
+  let historyFails = false;
+  let ordinaryPeriodFails = false;
+  const harness = createHarness({
+    input: phaseTwoSearchInput({ historyMonths: 16 }),
+    clock: createClock("2026-11-16T20:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog,
+      searchResponder: ({ request }) => {
+        const isHistory = request.json.startDate <= "2025-08-01";
+        if (isHistory && historyFails) {
+          return jsonResponse({ error: googleResponseCanary }, 403);
+        }
+        if (ordinaryPeriodFails && request.json.startDate === "2026-10-15") {
+          return jsonResponse({ error: googleResponseCanary }, 503);
+        }
+        return jsonResponse(searchConsoleResponse({ clicks: isHistory ? 5_700 : 42 }));
+      }
+    })
+  });
+
+  await harness.handler({}, {});
+  const first = await readPut(harness.putCalls[0]);
+  assert.equal(first.groups.articleSearchClicks.definitionVersion, 2);
+
+  historyFails = true;
+  ordinaryPeriodFails = true;
+  harness.setInput(phaseTwoSearchInput({
+    searchConsole: phaseSixSearchConsole({ historyMonths: 16, availableSince: "2025-08-01" })
+  }));
+  await harness.handler({}, {});
+  const incompatible = await readPut(harness.putCalls[1]);
+  assert.ok(googleRequests(requestLog, "google-search").some((request) => request.json.startDate === "2025-08-01"),
+    "a later provider availableSince moves the history lower bound forward");
+  assert.equal(Object.hasOwn(incompatible.groups.articleSearchClicks.records, "total"), false,
+    "a history record outside the configured available boundary cannot be retained");
+  assert.deepEqual(incompatible.groups.articleSearchClicks.records["30d"], first.groups.articleSearchClicks.records["30d"],
+    "advancing the available history boundary does not change the scope of a covered ordinary period");
+
+  harness.setInput(phaseTwoSearchInput({ historyMonths: 16 }));
+  for (const [override, reason] of [
+    [{ scopeId: first.groups.articleSearchClicks.records["12m"].scopeId }, "a different valid scope hash"],
+    [{ startDate: "2025-07-17" }, "a shortened history interval"],
+    [{ collectedAt: "2026-11-17T20:30:00.000Z", startDate: "2025-07-17", endDate: "2026-11-14" }, "a future query time"]
+  ]) {
+    const badPrior = structuredClone(first);
+    Object.assign(badPrior.groups.articleSearchClicks.records.total, override);
+    harness.objects.set(outputKey, JSON.stringify(badPrior));
+    const writeIndex = harness.putCalls.length;
+    await harness.handler({}, {});
+    const updated = await readPut(harness.putCalls[writeIndex]);
+    assert.equal(Object.hasOwn(updated.groups.articleSearchClicks.records, "total"), false,
+      `history with ${reason} cannot be retained`);
+  }
+
+  const rollbackLog = [];
+  const rollback = createHarness({
+    input: phaseTwoSearchInput(),
+    clock: createClock("2026-11-17T20:30:00.000Z"),
+    fetchFn: phaseFiveApiFetch({
+      requestLog: rollbackLog,
+      searchResponder: ({ request }) => ["2026-10-16", "2026-08-17"].includes(request.json.startDate)
+        ? jsonResponse({ error: googleResponseCanary }, 403)
+        : jsonResponse(searchConsoleResponse({ clicks: 42 }))
+    })
+  });
+  const rollbackPrior = structuredClone(first);
+  const rollbackRecords = rollbackPrior.groups.articleSearchClicks.records;
+  rollbackRecords["90d"].scopeId = rollbackRecords.total.scopeId;
+  rollback.objects.set(outputKey, JSON.stringify(rollbackPrior));
+  await rollback.handler({}, {});
+  const restored = await readPut(rollback.putCalls[0]);
+  assert.equal(restored.groups.articleSearchClicks.definitionVersion, 1,
+    "removing the history option restores the legacy Search group");
+  assert.equal(Object.hasOwn(restored.groups.articleSearchClicks.records, "total"), false,
+    "the legacy Search group has only its five ordinary periods");
+  assert.deepEqual(restored.groups.articleSearchClicks.records["30d"], first.groups.articleSearchClicks.records["30d"],
+    "v1 rollback preserves the compatible ordinary record from a v2 output with history");
+  assert.equal(Object.hasOwn(restored.groups.articleSearchClicks.records, "90d"), false,
+    "rollback rejects a failed ordinary period with the history scope");
+  assert.equal(googleRequests(rollbackLog, "google-search").length, 5,
+    "restored input does not issue the history query");
 });
 
 test("Search Console distinguishes explicit zero from empty, malformed, grouped, and incomplete responses", async () => {
@@ -12296,6 +12588,7 @@ function periodTalkFact(id, kind, status, language, delivery) {
 }
 
 function phaseThirteenPeriodInput({
+  baseInput,
   builderArticleDates = [{ articleId: "/content/period-builder-one", publishedAt: "2024-05-06" }],
   builderArticleViews = manualBuilderArticleViewsInput({
     observedAt: "2026-10-16T10:00:00.000Z",
@@ -12310,9 +12603,9 @@ function phaseThirteenPeriodInput({
   )],
   books = [bookFact("phase1-period-book")]
 } = {}) {
-  const baseInput = phaseThreeInput({ curated: { talks, books } });
+  const sourceInput = baseInput ?? phaseThreeInput({ curated: { talks, books } });
   const input = phaseTwelveArticleInventoryInput({
-    baseInput,
+    baseInput: sourceInput,
     articleInventory: { publications: [], exclusions: [] },
     builderArticleViews
   });
@@ -12326,6 +12619,16 @@ function periodArticleFetch({ requestLog = [], caylentPages, builderPages } = {}
     requestLog,
     ...(caylentPages ? { caylentPages } : {}),
     ...(builderPages ? { builderPages } : {})
+  });
+}
+
+function phaseTwoSearchInput({ historyMonths, searchConsole = phaseSixSearchConsole({ historyMonths }) } = {}) {
+  return phaseThirteenPeriodInput({
+    baseInput: phaseSixInput({ searchConsole }),
+    builderArticleViews: manualBuilderArticleViewsInput({
+      observedAt: "2026-10-16T10:00:00.000Z",
+      views: { en: 41, es: 9 }
+    })
   });
 }
 

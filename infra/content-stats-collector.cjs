@@ -64,6 +64,7 @@ const GOOGLE_ANALYTICS_ENDPOINT = "https://analyticsdata.googleapis.com/v1beta/p
 const GOOGLE_VIEWS_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd", "total"]);
 const DIRECTORY_VIEWS_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd", "total"]);
 const GOOGLE_SEARCH_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd"]);
+const GOOGLE_SEARCH_HISTORY_MONTHS = 16;
 const NEWSLETTER_ENGAGEMENT_PERIODS = Object.freeze(["7d", "30d", "90d", "12m", "ytd"]);
 const GOOGLE_VIEW_QUALIFICATIONS = new Set(["sampled", "thresholding", "other-row"]);
 const GOOGLE_ANALYTICS_PUBLICATION = Object.freeze({ id: "simple-aws", label: "Simple AWS" });
@@ -438,13 +439,19 @@ function validateAnalyticsSelection(value) {
   };
 }
 
-function validateSearchConsoleSelection(value) {
-  if (!exactKeys(value, ["id", "siteUrl", "language", "articleUrlPattern", "availableSince"]) ||
+function validateSearchConsoleSelection(value, { allowHistoryMonths = false } = {}) {
+  const hasHistoryMonths = isObject(value) && Object.hasOwn(value, "historyMonths");
+  const expectedKeys = ["id", "siteUrl", "language", "articleUrlPattern", "availableSince"];
+  if (allowHistoryMonths && hasHistoryMonths) expectedKeys.push("historyMonths");
+  if (!exactKeys(value, expectedKeys) ||
+      !allowHistoryMonths && hasHistoryMonths ||
       value.id !== GOOGLE_ANALYTICS_PUBLICATION.id ||
       value.siteUrl !== GOOGLE_SEARCH_SITE_URL ||
       value.language !== "en" ||
       value.articleUrlPattern !== GOOGLE_SEARCH_ARTICLE_URL_PATTERN ||
-      !isRealIsoDate(value.availableSince)) {
+      !isRealIsoDate(value.availableSince) ||
+      hasHistoryMonths && (!Number.isSafeInteger(value.historyMonths) ||
+        value.historyMonths !== GOOGLE_SEARCH_HISTORY_MONTHS)) {
     throw fail("SEARCH_CONSOLE_CONFIGURATION_INVALID");
   }
   return {
@@ -452,7 +459,8 @@ function validateSearchConsoleSelection(value) {
     siteUrl: GOOGLE_SEARCH_SITE_URL,
     language: "en",
     articleUrlPattern: GOOGLE_SEARCH_ARTICLE_URL_PATTERN,
-    availableSince: value.availableSince
+    availableSince: value.availableSince,
+    ...(hasHistoryMonths ? { historyMonths: GOOGLE_SEARCH_HISTORY_MONTHS } : {})
   };
 }
 
@@ -708,7 +716,11 @@ function validateInput(input) {
       ...(hasNewsletter ? { newsletter } : {}),
       ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
       ...(hasAnalytics ? { analytics: validateAnalyticsSelection(input.analytics) } : {}),
-      ...(hasSearchConsole ? { searchConsole: validateSearchConsoleSelection(input.searchConsole) } : {}),
+      ...(hasSearchConsole ? {
+        searchConsole: validateSearchConsoleSelection(input.searchConsole, {
+          allowHistoryMonths: input.schemaVersion === 13
+        })
+      } : {}),
       ...(hasDirectoryAnalytics ? {
         directoryAnalytics: validateDirectoryAnalyticsSelection(input.directoryAnalytics,
           outboundClicksEnabled, recordedSinceEnabled),
@@ -1404,10 +1416,20 @@ function supportedGoogleSearchRanges(searchConsole, now) {
   const yearStart = `${collectionDate.slice(0, 4)}-01-01`;
   if (yearStart <= endDate) rangeByPeriod.ytd = { startDate: yearStart, endDate };
 
-  return GOOGLE_SEARCH_PERIODS
+  const ordinaryRanges = GOOGLE_SEARCH_PERIODS
     .filter((period) => Object.hasOwn(rangeByPeriod, period))
     .filter((period) => rangeByPeriod[period].startDate >= searchConsole.availableSince)
     .map((period) => ({ period, ...rangeByPeriod[period] }));
+
+  const history = googleSearchHistoryRange(searchConsole, collectionDate, endDate);
+  return history ? [...ordinaryRanges, history] : ordinaryRanges;
+}
+
+function googleSearchHistoryRange(searchConsole, collectionDate, endDate) {
+  if (searchConsole.historyMonths === undefined) return null;
+  const earliestStart = addCalendarMonths(collectionDate, -searchConsole.historyMonths);
+  const startDate = searchConsole.availableSince > earliestStart ? searchConsole.availableSince : earliestStart;
+  return startDate <= endDate ? { period: "total", startDate, endDate } : null;
 }
 
 async function readGoogleOAuthCredentials(env) {
@@ -1544,6 +1566,35 @@ function articleSearchClicksScopeFingerprint(searchConsole) {
     timeZone: GOOGLE_SEARCH_TIME_ZONE
   };
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function articleSearchHistoryScopeFingerprint(searchConsole) {
+  const scope = {
+    definitionVersion: 2,
+    family: "articleSearchClicks",
+    metric: "clicks",
+    publication: {
+      id: searchConsole.id,
+      siteUrl: searchConsole.siteUrl,
+      language: searchConsole.language,
+      articleUrlPattern: searchConsole.articleUrlPattern
+    },
+    searchType: "web",
+    dataState: "final",
+    aggregationType: "auto",
+    historyMonths: searchConsole.historyMonths,
+    timeZone: GOOGLE_SEARCH_TIME_ZONE
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
+function isCompatibleSearchHistoryRecord(record, searchConsole) {
+  if (record.scopeId !== articleSearchHistoryScopeFingerprint(searchConsole)) return false;
+  const collected = Date.parse(record.collectedAt);
+  if (collected > Date.now()) return false;
+  const collectionDate = localDateAt(GOOGLE_SEARCH_TIME_ZONE, collected);
+  const range = googleSearchHistoryRange(searchConsole, collectionDate, addCalendarDays(collectionDate, -3));
+  return range !== null && record.startDate === range.startDate && record.endDate === range.endDate;
 }
 
 function validateGoogleReport(response, analytics, expectedMetricName) {
@@ -1739,7 +1790,7 @@ async function requestDirectoryOutboundClickReport(analytics, accessToken, range
   };
 }
 
-async function collectGooglePeriods(ranges, requestRecord) {
+async function collectGooglePeriods(ranges, requestRecord, { definitionVersion = 1 } = {}) {
   const eligiblePeriods = ranges.map(({ period }) => period);
   if (ranges.length === 0) return { group: null, failedPeriods: [], eligiblePeriods };
   // Keep concurrency within one fixed, bounded family; callers still run families sequentially.
@@ -1761,7 +1812,7 @@ async function collectGooglePeriods(ranges, requestRecord) {
   }
 
   return {
-    group: Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null,
+    group: Object.keys(records).length > 0 ? { definitionVersion, records } : null,
     failedPeriods,
     eligiblePeriods,
     ...(failureCode ? { failureCode } : {})
@@ -1830,10 +1881,13 @@ async function requestGoogleSearchReport(searchConsole, accessToken, range, coll
     redirect: "error"
   });
   const result = validateSearchConsoleResponse(response);
+  const history = range.period === "total";
   return {
-    basis: "period",
+    basis: history ? "available-history" : "period",
     collectedAt,
-    scopeId: articleSearchClicksScopeFingerprint(searchConsole),
+    scopeId: history
+      ? articleSearchHistoryScopeFingerprint(searchConsole)
+      : articleSearchClicksScopeFingerprint(searchConsole),
     publication: { ...GOOGLE_ANALYTICS_PUBLICATION, language: searchConsole.language },
     timeZone: GOOGLE_SEARCH_TIME_ZONE,
     startDate: range.startDate,
@@ -1843,8 +1897,11 @@ async function requestGoogleSearchReport(searchConsole, accessToken, range, coll
 }
 
 async function collectArticleSearchClicks(searchConsole, accessToken, collectedAt, now) {
+  const historyEnabled = searchConsole.historyMonths !== undefined;
   const ranges = supportedGoogleSearchRanges(searchConsole, now);
-  return collectGooglePeriods(ranges, (range) => requestGoogleSearchReport(searchConsole, accessToken, range, collectedAt));
+  return collectGooglePeriods(ranges, (range) => requestGoogleSearchReport(searchConsole, accessToken, range, collectedAt), {
+    definitionVersion: historyEnabled ? 2 : 1
+  });
 }
 
 async function collectGoogleMetrics(configuration, env, collectedAt, now) {
@@ -3510,7 +3567,7 @@ function isValidArticleSearchRecord(record, period) {
   if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", "clicks"])) {
     return false;
   }
-  if (period === "total" || record.basis !== "period") return false;
+  if (period === "total" ? record.basis !== "available-history" : record.basis !== "period") return false;
   if (typeof record.collectedAt !== "string") return false;
   const collected = Date.parse(record.collectedAt);
   if (!Number.isFinite(collected) || new Date(collected).toISOString() !== record.collectedAt) return false;
@@ -3529,7 +3586,8 @@ function isValidArticleSearchRecord(record, period) {
 }
 
 function sanitizeArticleSearchClicksGroup(group) {
-  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 || !isObject(group.records)) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) ||
+      ![1, 2].includes(group.definitionVersion) || !isObject(group.records)) {
     return null;
   }
   const records = {};
@@ -3538,16 +3596,21 @@ function sanitizeArticleSearchClicksGroup(group) {
       records[period] = group.records[period];
     }
   }
-  return Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null;
+  if (group.definitionVersion === 2 && Object.hasOwn(group.records, "total") &&
+      isValidArticleSearchRecord(group.records.total, "total")) {
+    records.total = group.records.total;
+  }
+  return Object.keys(records).length > 0 ? { definitionVersion: group.definitionVersion, records } : null;
 }
 
 function isValidArticleSearchClicksGroup(group) {
-  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 ||
+  if (!exactKeys(group, ["definitionVersion", "records"]) || ![1, 2].includes(group.definitionVersion) ||
       !isObject(group.records) || Object.keys(group.records).length === 0) {
     return false;
   }
   return Object.entries(group.records).every(([period, record]) =>
-    GOOGLE_SEARCH_PERIODS.includes(period) && isValidArticleSearchRecord(record, period));
+    (GOOGLE_SEARCH_PERIODS.includes(period) || group.definitionVersion === 2 && period === "total") &&
+      isValidArticleSearchRecord(record, period));
 }
 
 function validateOutput(output) {
@@ -3913,13 +3976,28 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
           const currentYtdStart = `${(timeZone === "UTC" ? new Date(now).toISOString().slice(0, 10)
             : localDateAt(timeZone, now)).slice(0, 4)}-01-01`;
           const records = { ...(groups[family]?.records ?? {}) };
+          const search = family === "articleSearchClicks" ? configuration.searchConsole : undefined;
+          const searchHistoryEnabled = search?.historyMonths !== undefined;
+          const searchPeriodScope = search && articleSearchClicksScopeFingerprint(search);
           for (const period of result?.failedPeriods ?? []) {
             if (!eligiblePeriods.has(period) || !prior || !Object.hasOwn(prior.records, period)) continue;
-            if (period === "ytd" && prior.records[period].startDate !== currentYtdStart) continue;
-            if (family === "articleSearchClicks" && prior.records[period].startDate < configuration.searchConsole.availableSince) continue;
-            records[period] = prior.records[period];
+            const priorRecord = prior.records[period];
+            if (search && period === "total") {
+              if (!searchHistoryEnabled || !isCompatibleSearchHistoryRecord(priorRecord, search)) {
+                continue;
+              }
+            } else {
+              if (period === "ytd" && priorRecord.startDate !== currentYtdStart) continue;
+              if (search && (priorRecord.scopeId !== searchPeriodScope || priorRecord.startDate < search.availableSince)) continue;
+            }
+            records[period] = priorRecord;
           }
-          if (Object.keys(records).length > 0) groups[family] = { definitionVersion: 1, records };
+          if (Object.keys(records).length > 0) {
+            groups[family] = {
+              definitionVersion: searchHistoryEnabled ? 2 : 1,
+              records
+            };
+          }
         } else if (previousGroups[family]) {
           if (family === "articles" && (configuration.schemaVersion === 12 || configuration.schemaVersion === 13)) {
             if (currentArticleScopeId !== undefined && previousGroups.articles.scopeId === currentArticleScopeId) {

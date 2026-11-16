@@ -367,7 +367,7 @@ function validateTalksGroupV2(value) {
     || !Array.isArray(value.occurrences)) return null;
 
   const counts = { all: value.occurrences.length, en: 0, es: 0 };
-  const deliveryCutoff = cordobaDate(value.collectedAt);
+  const deliveryCutoff = dateInTimeZone(value.collectedAt, 'America/Argentina/Cordoba');
   for (const occurrence of value.occurrences) {
     if (!hasOnlyKeys(occurrence, allowedKeys.talkOccurrence)
       || !['en', 'es'].includes(occurrence.language)) return null;
@@ -496,9 +496,9 @@ function validateArticleViews(value) {
   ]));
 }
 
-function validateArticleSearchClicksRecord(value) {
+function validateArticleSearchClicksRecord(value, expectedBasis = 'period') {
   if (!hasOnlyKeys(value, allowedKeys.articleSearchClicksRecord)
-    || value.basis !== 'period'
+    || value.basis !== expectedBasis
     || !isSupportedTimestamp(value.collectedAt)
     || !isSha256(value.scopeId)
     || !hasOnlyKeys(value.publication, allowedKeys.publication)
@@ -511,18 +511,26 @@ function validateArticleSearchClicksRecord(value) {
     || value.startDate > value.endDate
     || !isNonnegativeCount(value.clicks)) return null;
 
+  if (expectedBasis === 'available-history') {
+    const queryDay = dateOnlyToUtc(dateInTimeZone(value.collectedAt, value.timeZone));
+    if (!queryDay || value.endDate !== utcDateOnly(addUtcDays(queryDay, -3))
+      || value.startDate < utcDateOnly(addUtcMonths(queryDay, -16))) return null;
+  }
   return value;
 }
 
 function validateArticleSearchClicks(value) {
   if (!hasOnlyKeys(value, allowedKeys.articleSearchClicksGroup)
-    || value.definitionVersion !== 1
-    || !isRecord(value.records)
-    || !hasAllowedKeys(value.records, knownSearchPeriods)) return null;
+    || ![1, 2].includes(value.definitionVersion)
+    || !isRecord(value.records)) return null;
 
-  return Object.fromEntries(knownSearchPeriods.map((period) => [
+  const periods = value.definitionVersion === 2 ? [...knownSearchPeriods, 'total'] : knownSearchPeriods;
+  if (!hasAllowedKeys(value.records, periods)) return null;
+  return Object.fromEntries(periods.map((period) => [
     period,
-    Object.hasOwn(value.records, period) ? validateArticleSearchClicksRecord(value.records[period]) : null
+    Object.hasOwn(value.records, period)
+      ? validateArticleSearchClicksRecord(value.records[period], period === 'total' ? 'available-history' : 'period')
+      : null
   ]));
 }
 
@@ -758,8 +766,12 @@ function getElements(section) {
     status: searchRegion.querySelector('[data-stats-search-status]'),
     results: searchRegion.querySelector('[data-stats-search-results]'),
     value: searchRegion.querySelector('[data-stats-search-value]'),
+    unit: searchRegion.querySelector('[data-stats-search-unit]'),
+    baseUnit: searchRegion.querySelector('[data-stats-search-unit]')?.textContent ?? '',
     coverage: searchRegion.querySelector('[data-stats-search-coverage]'),
     interval: searchRegion.querySelector('[data-stats-search-interval]'),
+    collectedLabel: searchRegion.querySelector('[data-stats-search-collected-label]'),
+    baseCollectedLabel: searchRegion.querySelector('[data-stats-search-collected-label]')?.textContent ?? '',
     collectedDate: searchRegion.querySelector('[data-stats-search-collected-date]')
   } : null;
 
@@ -814,8 +826,8 @@ function getLocale(section) {
   return section.dataset.statsLocale === 'es' ? 'es' : 'en';
 }
 
-function formatCollectedDate(timestamp, locale) {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(timestamp));
+function formatCollectedDate(timestamp, locale, timeZone = 'UTC') {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone }).format(new Date(timestamp));
 }
 
 async function loadSharedSnapshot(source) {
@@ -848,9 +860,9 @@ function formatDateOnly(date, locale) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
-function cordobaDate(timestamp) {
+function dateInTimeZone(timestamp, timeZone) {
   const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'America/Argentina/Cordoba',
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
@@ -874,8 +886,15 @@ function addUtcDays(date, days) {
   return result;
 }
 
+function addUtcMonths(date, months) {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + months;
+  const day = Math.min(date.getUTCDate(), new Date(Date.UTC(year, month + 1, 0)).getUTCDate());
+  return new Date(Date.UTC(year, month, day));
+}
+
 function inventoryPeriodBounds(collectedAt, period) {
-  const end = cordobaDate(collectedAt);
+  const end = dateInTimeZone(collectedAt, 'America/Argentina/Cordoba');
   if (period === 'total') return { start: null, end };
   if (period === 'ytd') return { start: `${end.slice(0, 4)}-01-01`, end };
 
@@ -887,10 +906,7 @@ function inventoryPeriodBounds(collectedAt, period) {
   }
   if (period === '12m') {
     const dayAfter = addUtcDays(endDate, 1);
-    const year = dayAfter.getUTCFullYear() - 1;
-    const month = dayAfter.getUTCMonth();
-    const day = Math.min(dayAfter.getUTCDate(), new Date(Date.UTC(year, month + 1, 0)).getUTCDate());
-    const start = new Date(Date.UTC(year, month, day));
+    const start = addUtcMonths(dayAfter, -12);
     return { start: utcDateOnly(start), end };
   }
   return null;
@@ -1369,6 +1385,15 @@ function classifyActivityAvailability(records, language, period, supportedPeriod
   return null;
 }
 
+function classifySearchAvailability(records, language, period) {
+  if (period === 'total' && records && Object.hasOwn(records, 'total')) {
+    if (records.total) return classifyActivityAvailability(records, language, period, ['total']);
+    const availability = classifyActivityAvailability(records, language, period, knownSearchPeriods);
+    return availability.reason === 'missing' ? { reason: 'unsupported-total' } : availability;
+  }
+  return classifyActivityAvailability(records, language, period, knownSearchPeriods);
+}
+
 function activityUnavailableCopy(locale, availability, genericCopy) {
   if (availability?.reason === 'language') {
     const publication = availability.publication;
@@ -1422,9 +1447,11 @@ function updateRecordedTotalAvailability(snapshot, language, elements) {
   const articlesTotalSupported = Number.isSafeInteger(snapshot?.groups?.articles?.counts?.[language]);
   const talksTotalSupported = Number.isSafeInteger(snapshot?.groups?.talks?.counts?.[language]);
   const articleTotalSupported = language !== 'es' && Boolean(snapshot?.articleViews?.total);
+  const searchTotalSupported = language !== 'es' && Boolean(snapshot?.articleSearchClicks?.total);
   const directoryTotalSupported = language !== 'en'
     && Boolean(snapshot?.directoryViews?.total || snapshot?.directoryOutboundClicks?.total);
-  const totalSupported = articlesTotalSupported || talksTotalSupported || articleTotalSupported || directoryTotalSupported;
+  const totalSupported = articlesTotalSupported || talksTotalSupported || articleTotalSupported
+    || searchTotalSupported || directoryTotalSupported;
   totalOption.disabled = !totalSupported;
   if (!totalSupported && periodSelector.value === 'total') periodSelector.value = '12m';
 }
@@ -1463,7 +1490,8 @@ function renderViews(snapshot, locale, language, elements) {
 function searchElementsReady(elements) {
   const search = elements.search;
   return Boolean(elements.periodSelector && search?.region && search.status && search.results
-    && search.value && search.coverage && search.interval && search.collectedDate);
+    && search.value && search.unit && search.coverage && search.interval
+    && search.collectedLabel && search.collectedDate);
 }
 
 function clearSearchResult(search) {
@@ -1473,15 +1501,53 @@ function clearSearchResult(search) {
   search.collectedDate.textContent = '';
 }
 
-function renderSearchUnavailable(elements, locale, availability) {
+function searchHistoryCopy(locale, search) {
+  const history = search.region.dataset.statsSearchHistoryUnit?.trim()
+    || (locale === 'es' ? 'Historial disponible en Search Console' : 'Available Search Console history');
+  const unit = search.baseUnit || (locale === 'es' ? 'clics' : 'clicks');
+  return {
+    unit: `${unit} · ${history}`,
+    collectedLabel: search.region.dataset.statsSearchLastValidQuery?.trim()
+      || (locale === 'es' ? 'Última consulta válida' : 'Last valid query')
+  };
+}
+
+function searchPeriodCopy(locale, search) {
+  return {
+    unit: search.baseUnit || (locale === 'es' ? 'clics' : 'clicks'),
+    collectedLabel: search.baseCollectedLabel || (locale === 'es' ? 'Última actualización' : 'Last updated')
+  };
+}
+
+function renderSearchLabels(locale, search, history) {
+  const copy = history ? searchHistoryCopy(locale, search) : searchPeriodCopy(locale, search);
+  if (search.unit) search.unit.textContent = copy.unit;
+  if (search.collectedLabel) search.collectedLabel.textContent = copy.collectedLabel;
+}
+
+function searchUnavailableCopy(locale, availability, genericCopy, versioned) {
+  if (availability?.reason === 'missing') {
+    if (!versioned) return genericCopy;
+    return locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.';
+  }
+  if (availability?.reason === 'unsupported-total') {
+    if (!versioned) return activityUnavailableCopy(locale, availability, genericCopy);
+    return locale === 'es' ? 'Total no disponible.' : 'Total unavailable.';
+  }
+  return activityUnavailableCopy(locale, availability, genericCopy);
+}
+
+function renderSearchUnavailable(elements, locale, availability, versioned) {
   const { search } = elements;
   search.results.hidden = true;
   clearSearchResult(search);
-  search.status.textContent = activityUnavailableCopy(
+  renderSearchLabels(locale, search, false);
+  search.status.textContent = searchUnavailableCopy(
     locale,
     availability,
     search.region.dataset.statsSearchUnavailable?.trim()
-      || (locale === 'es' ? 'Datos de clics de búsqueda: no disponibles.' : 'Search click data are unavailable.')
+      || (locale === 'es' ? 'Datos de clics de búsqueda: no disponibles.' : 'Search click data are unavailable.'),
+    versioned
   );
   search.status.hidden = false;
 }
@@ -1500,19 +1566,21 @@ function renderSearch(snapshot, locale, language, elements) {
   const period = periodSelector.value === 'total'
     ? 'total'
     : knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const availability = classifyActivityAvailability(records, language, period, knownSearchPeriods);
+  const availability = classifySearchAvailability(records, language, period);
   if (availability) {
-    renderSearchUnavailable(elements, locale, availability);
+    renderSearchUnavailable(elements, locale, availability, Boolean(records && Object.hasOwn(records, 'total')));
     return;
   }
   const record = records?.[period];
+  const isHistory = period === 'total' && record?.basis === 'available-history';
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
+  renderSearchLabels(locale, search, isHistory);
   search.value.textContent = new Intl.NumberFormat(locale).format(record.clicks);
   search.coverage.textContent = record.publication.label;
   search.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
-  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
+  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale, isHistory ? record.timeZone : undefined);
   search.results.hidden = false;
   search.status.hidden = true;
   search.status.textContent = '';

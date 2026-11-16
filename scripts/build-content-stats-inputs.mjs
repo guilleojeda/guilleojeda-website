@@ -380,11 +380,12 @@ function projectAnalytics(analytics) {
   return result;
 }
 
-function projectSearchConsole(searchConsole) {
+function projectSearchConsole(searchConsole, allowHistory = false) {
   assertObject(searchConsole, 'searchConsole');
   const keys = Object.keys(searchConsole).sort();
-  const expectedKeys = ['availableSince', 'articleUrlPattern', 'id', 'language', 'siteUrl'].sort();
-  if (keys.join(',') !== expectedKeys.join(',')) {
+  const baseKeys = ['availableSince', 'articleUrlPattern', 'id', 'language', 'siteUrl'].sort();
+  const historyKeys = [...baseKeys, 'historyMonths'].sort();
+  if (keys.join(',') !== baseKeys.join(',') && (!allowHistory || keys.join(',') !== historyKeys.join(','))) {
     invalid('searchConsole must contain only the supported selectors and history boundary');
   }
   if (searchConsole.id !== 'simple-aws') invalid('unsupported searchConsole publication id');
@@ -396,14 +397,19 @@ function projectSearchConsole(searchConsole) {
   if (!isRealDate(searchConsole.availableSince)) {
     invalid('searchConsole availableSince must be a real YYYY-MM-DD date');
   }
+  if (allowHistory && Object.hasOwn(searchConsole, 'historyMonths') && searchConsole.historyMonths !== 16) {
+    invalid('searchConsole historyMonths must be the literal 16-month opt-in');
+  }
 
-  return {
+  const result = {
     id: searchConsole.id,
     siteUrl: searchConsole.siteUrl,
     language: searchConsole.language,
     articleUrlPattern: searchConsole.articleUrlPattern,
     availableSince: searchConsole.availableSince
   };
+  if (allowHistory && Object.hasOwn(searchConsole, 'historyMonths')) result.historyMonths = 16;
+  return result;
 }
 
 function projectDirectoryAnalytics(directoryAnalytics) {
@@ -595,7 +601,9 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
     ...(newsletter ? { newsletter } : {}),
     ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
-    ...(hasSearchConsole ? { searchConsole: projectSearchConsole(articleConfig.searchConsole) } : {}),
+    ...(hasSearchConsole ? {
+      searchConsole: projectSearchConsole(articleConfig.searchConsole, hasDatedInventory)
+    } : {}),
     ...(directoryAnalytics ? { directoryAnalytics } : {}),
     ...(builderArticleViews ? { builderArticleViews } : {}),
     ...(articleInventory ? { articleInventory } : {}),
