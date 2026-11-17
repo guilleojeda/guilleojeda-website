@@ -11,10 +11,13 @@
   },
   {
     "kind": "talk",
-    "id": "unit-economics-ai-agents",
+    "id": {
+      "en": "unit-economics-ai-agents",
+      "es": "cordoba-agent-economics-2026"
+    },
     "text": {
       "en": "Understand workflow costs and value per outcome.",
-      "es": "Entendé los costos de un flujo y el valor de cada resultado."
+      "es": "Cuánto cuesta que un agente resuelva una tarea y cómo calcularlo antes de llevarlo a producción."
     }
   },
   {

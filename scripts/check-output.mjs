@@ -191,12 +191,12 @@ function checkHomeIntroduction(page, html) {
   const { lang } = page;
   const expectedByLocale = {
     en: {
-      headline: 'Cloud, AI,\nand the why.',
-      intro: 'I’m Guille Ojeda, Principal Innovation Architect at Caylent. I build, write, and speak about AWS and applied AI, with a practical point of view from Córdoba, Argentina.'
+      headline: 'AWS architecture and AI agents in production.',
+      intro: 'I’m Guille Ojeda, Principal Innovation Architect at Caylent. I design systems on AWS and work with AI agents. I focus on evaluating their quality, understanding their costs, and bringing them into production. I share those decisions through articles, talks, and projects.'
     },
     es: {
-      headline: 'Cloud, IA,\ny el porqué.',
-      intro: 'Soy Guille Ojeda, Principal Innovation Architect en Caylent. Construyo, escribo y doy charlas sobre AWS e IA aplicada, con una mirada práctica desde Córdoba, Argentina.'
+      headline: 'Arquitectura AWS y agentes de IA en producción.',
+      intro: 'Soy Guille Ojeda, Principal Innovation Architect en Caylent. Diseño sistemas sobre AWS y trabajo con agentes de IA. Me enfoco en cómo evaluar su calidad, entender sus costos y llevarlos a producción. Comparto esas decisiones en artículos, charlas y proyectos.'
     }
   };
   const heroSections = [...html.matchAll(/<section\b(?=[^>]*\baria-labelledby=["']hero-title["'])[^>]*>/gi)];
@@ -374,9 +374,15 @@ function checkWorkHighlights(page, html) {
   assert.ok(highlights.end <= newsletter.start && newsletter.end <= supporting.start,
     `${lang} direct choices precede the newsletter and broader work`);
 
-  const selectedTalk = talks.find((talk) => talk.id === 'unit-economics-ai-agents');
+  const selectedTalkId = lang === 'en' ? 'unit-economics-ai-agents' : 'cordoba-agent-economics-2026';
+  const selectedTalk = talks.find((talk) => talk.id === selectedTalkId);
   const selectedProject = projects.find((project) => project.id === 'prompt-runner-game');
-  assert.ok(selectedTalk && selectedProject, 'approved talk and project records remain available');
+  assert.ok(selectedTalk && selectedProject, `${lang} selected talk and game records remain available`);
+  const expectedTalkHref = lang === 'en'
+    ? 'https://www.youtube.com/watch?v=QKM876A_AM4'
+    : 'https://www.youtube.com/live/QLt6OAZhNxw?t=5325s';
+  assert.equal(selectedTalk.recording?.href, expectedTalkHref, `${lang} selected talk has its direct recording URL`);
+  assert.equal(selectedTalk.recording?.language, lang, `${lang} selected talk records its confirmed speech language`);
   const expected = [
     {
       title: 'From Prompt Edits to Performance Loops: Hands-On with Amazon Bedrock AgentCore Optimization',
@@ -386,9 +392,12 @@ function checkWorkHighlights(page, html) {
     },
     {
       title: selectedTalk.title[lang],
-      href: 'https://www.youtube.com/watch?v=QKM876A_AM4',
-      label: lang === 'en' ? 'Watch · English' : 'Ver · Inglés',
-      purpose: lang === 'en' ? /cost[\s\S]*value|value[\s\S]*cost/ : /cost[\s\S]*valor|valor[\s\S]*cost/
+      href: expectedTalkHref,
+      label: lang === 'en' ? 'Watch · English' : 'Ver · Español',
+      description: lang === 'en'
+        ? 'Understand workflow costs and value per outcome.'
+        : 'Cuánto cuesta que un agente resuelva una tarea y cómo calcularlo antes de llevarlo a producción.',
+      purpose: lang === 'en' ? /cost[\s\S]*value|value[\s\S]*cost/ : /cuanto[\s\S]*agente[\s\S]*tarea[\s\S]*calcularlo[\s\S]*produccion/
     },
     {
       title: selectedProject.title[lang],
@@ -412,8 +421,8 @@ function checkWorkHighlights(page, html) {
     const description = body.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? '';
     assert.match(normalizedText(description), item.purpose,
       `${lang} highlight ${index + 1} explains its relevant purpose`);
-    if (index === 1) assert.match(normalizedText(description), lang === 'en' ? /outcome/ : /resultado/,
-      `${lang} recording recommendation connects cost and value to outcomes`);
+    if (index === 1) assert.equal(normalizedText(description), normalizedText(item.description),
+      `${lang} recording recommendation keeps its approved cost, outcome and production purpose`);
     if (index === 2) assert.match(normalizedText(body), lang === 'en' ? /desktop/ : /computadora|escritorio/,
       `${lang} game recommendation states desktop play before navigation`);
   }

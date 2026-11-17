@@ -119,12 +119,12 @@
       "es": "Arquitecto / Autor / Conferencista"
     },
     "title": {
-      "en": "Cloud, AI,\nand the why.",
-      "es": "Cloud, IA,\ny el porqué."
+      "en": "AWS architecture and AI agents in production.",
+      "es": "Arquitectura AWS y agentes de IA en producción."
     },
     "intro": {
-      "en": "I’m Guille Ojeda, Principal Innovation Architect at Caylent. I build, write, and speak about AWS and applied AI, with a practical point of view from Córdoba, Argentina.",
-      "es": "Soy Guille Ojeda, Principal Innovation Architect en Caylent. Construyo, escribo y doy charlas sobre AWS e IA aplicada, con una mirada práctica desde Córdoba, Argentina."
+      "en": "I’m Guille Ojeda, Principal Innovation Architect at Caylent. I design systems on AWS and work with AI agents. I focus on evaluating their quality, understanding their costs, and bringing them into production. I share those decisions through articles, talks, and projects.",
+      "es": "Soy Guille Ojeda, Principal Innovation Architect en Caylent. Diseño sistemas sobre AWS y trabajo con agentes de IA. Me enfoco en cómo evaluar su calidad, entender sus costos y llevarlos a producción. Comparto esas decisiones en artículos, charlas y proyectos."
     },
     "recognition": {
       "en": "AWS Builder of the Year · LATAM-ES 2025",

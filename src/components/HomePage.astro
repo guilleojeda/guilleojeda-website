@@ -65,7 +65,7 @@ const talkOccurrenceStatuses = (talk: (typeof content.talkArchive)[number]) => f
     </div>
 
     <div class="work-highlights">
-      {content.workHighlights.map((highlight) => (
+      {content.workHighlights[locale].map((highlight) => (
         <a class="support-card work-highlight" href={highlight.href} target="_blank" rel="noreferrer">
           <span class="work-kicker">{text(highlight.label, locale)}</span>
           <h3>{text(highlight.title, locale)}</h3>

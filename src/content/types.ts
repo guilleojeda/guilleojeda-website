@@ -190,7 +190,7 @@ export interface SiteContent {
   appearances: AppearanceCopy;
   hero: Record<'eyebrow' | 'title' | 'intro' | 'recognition' | 'primaryCta' | 'contactCta' | 'roleContext' | 'portraitNote', LocalizedText>;
   work: Record<'title' | 'newsletterKicker' | 'newsletterTitle' | 'newsletterText' | 'newsletterSubscribeCta' | 'newsletterReadCta' | 'sponsorshipCta' | 'visualTop' | 'visualBottom' | 'archiveLabel', LocalizedText>;
-  workHighlights: WorkHighlight[];
+  workHighlights: Record<Locale, WorkHighlight[]>;
   projects: ProjectRecord[];
   talks: Record<'title' | 'availabilityText' | 'availabilityCta' | 'archiveLabel', LocalizedText>;
   speakerResources: ResolvedSpeakerResources;
