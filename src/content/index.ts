@@ -62,6 +62,14 @@ function requiredString(value: unknown, field: string): string {
   return value;
 }
 
+function localizedHighlightText(value: LocalizedText | undefined, field: string): LocalizedText {
+  if (!value) throw new Error(`Work highlight is missing ${field}.`);
+  return {
+    en: requiredString(value.en, `${field} in English`),
+    es: requiredString(value.es, `${field} in Spanish`)
+  };
+}
+
 function requiredLanguage(value: unknown, kind: string): Locale {
   if (value === 'en' || value === 'es') return value;
   throw new Error(`Work highlight ${kind} has an unsupported or missing content language.`);
@@ -77,8 +85,7 @@ function resolveWorkHighlight(selection: HighlightSelection, locale: Locale): Wo
     if (!('title' in selection) || !('href' in selection) || !('language' in selection)) {
       throw new Error('Article work highlight is missing its title, URL, or content language.');
     }
-    const articleTitle = requiredString(selection.title, 'article title');
-    title = { en: articleTitle, es: articleTitle };
+    title = localizedHighlightText(selection.title, 'article title');
     href = requiredString(selection.href, 'article URL');
     language = requiredLanguage(selection.language, 'article');
     actionLabel = actionLabels.article;
@@ -108,6 +115,10 @@ function resolveWorkHighlight(selection: HighlightSelection, locale: Locale): Wo
     throw new Error(`Work highlight has an unsupported kind "${selection.kind}".`);
   }
 
+  const detail = selection.kind === 'article' && 'detail' in selection
+    ? localizedHighlightText(selection.detail, 'article detail')
+    : undefined;
+
   return {
     label: {
       en: `${actionLabel.en} · ${languageLabels[language].en}`,
@@ -115,6 +126,7 @@ function resolveWorkHighlight(selection: HighlightSelection, locale: Locale): Wo
     },
     title,
     href,
+    ...(detail ? { detail } : {}),
     text: selection.text
   };
 }

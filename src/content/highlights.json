@@ -1,7 +1,14 @@
 [
   {
     "kind": "article",
-    "title": "From Prompt Edits to Performance Loops: Hands-On with Amazon Bedrock AgentCore Optimization",
+    "title": {
+      "en": "How to improve an agent after the first prototype",
+      "es": "Cómo mejorar un agente después del primer prototipo"
+    },
+    "detail": {
+      "en": "Amazon Bedrock AgentCore Optimization",
+      "es": "Amazon Bedrock AgentCore Optimization"
+    },
     "href": "https://caylent.com/blog/from-prompt-edits-to-performance-loops-hands-on-with-amazon-bedrock-agentcore-optimization",
     "language": "en",
     "text": {

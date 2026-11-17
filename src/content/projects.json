@@ -39,7 +39,7 @@
       "en": "Visit robotrunner.guilleojeda.com",
       "es": "Visitá robotrunner.guilleojeda.com"
     },
-    "featured": true
+    "featured": false
   },
   {
     "id": "caylent-insights",
@@ -60,7 +60,7 @@
       "en": "Read the work",
       "es": "Leer el trabajo"
     },
-    "featured": true
+    "featured": false
   },
   {
     "id": "caylent-2026-generative-ai-outlook",
@@ -144,7 +144,7 @@
       "en": "Visit the site",
       "es": "Visitar el sitio"
     },
-    "featured": true
+    "featured": false
   },
   {
     "id": "cloudy-things",
@@ -165,7 +165,7 @@
       "en": "Read the notes",
       "es": "Leer las notas"
     },
-    "featured": true
+    "featured": false
   },
   {
     "id": "dev-community",
@@ -207,7 +207,7 @@
       "en": "Browse my articles",
       "es": "Explorar mis artículos"
     },
-    "featured": true
+    "featured": false
   },
   {
     "id": "linkedin-articles",
