@@ -1195,10 +1195,7 @@ function newsletterEmailElementsReady(elements) {
 
 function clearNewsletterEmailResult(elements) {
   elements.value.textContent = '';
-  if (elements.historyLabel) {
-    elements.historyLabel.textContent = '';
-    elements.historyLabel.hidden = true;
-  }
+  if (elements.historyLabel) elements.historyLabel.hidden = true;
   elements.coverage.textContent = '';
   elements.interval.textContent = '';
   elements.collectedDate.textContent = '';
@@ -1211,11 +1208,6 @@ function newsletterEmailUnavailableFallback(locale, valueField) {
   return locale === 'es'
     ? 'Datos de clics verificados en emails: no disponibles.'
     : 'Verified email click data are unavailable.';
-}
-
-function newsletterEmailHistoryLabel(locale, elements) {
-  return elements.historyLabel?.textContent?.trim()
-    || (locale === 'es' ? 'Historial reportado por Beehiiv' : 'History reported by Beehiiv');
 }
 
 function renderNewsletterEmailLoading(elements) {
@@ -1274,12 +1266,7 @@ function renderNewsletterEmailMetric(snapshot, locale, language, period, element
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
   const isHistory = period === 'total' && record.basis === 'reported-history';
-  if (elements.historyLabel) {
-    elements.historyLabel.textContent = isHistory
-      ? newsletterEmailHistoryLabel(locale, elements)
-      : '';
-    elements.historyLabel.hidden = !isHistory;
-  }
+  if (elements.historyLabel) elements.historyLabel.hidden = !isHistory;
   elements.region.hidden = false;
   const formattedValue = new Intl.NumberFormat(locale).format(record[elements.valueField]);
   elements.value.textContent = formattedValue;
@@ -1291,9 +1278,8 @@ function renderNewsletterEmailMetric(snapshot, locale, language, period, element
   elements.status.textContent = '';
   const label = elements.label?.textContent?.trim()
     || newsletterEmailMetricLabels[locale][elements.valueField];
-  const basis = isHistory
-    ? newsletterEmailHistoryLabel(locale, elements)
-    : record.publication.label;
+  const historyLabel = isHistory ? elements.historyLabel?.textContent?.trim() : '';
+  const basis = historyLabel || record.publication.label;
   return `${label}, ${formattedValue} (${basis})`;
 }
 
