@@ -1824,6 +1824,56 @@ test('phase 2 projects only the bounded Search history setting in dated input13'
   assert.deepEqual(build(source), before, 'removing history restores the exact compatible input');
 });
 
+test('phase 4 projects only the Beehiiv history start and restores input13 on opt-out', async () => {
+  const build = await inputBuilder();
+  const source = addInputSixSelections(fixture());
+  source.articles = individualArticleFacts();
+  source.articleConfig.builderArticleDates = builderArticleDatesSelection();
+  source.articleConfig.newsletterEngagements = true;
+  const before = build(source);
+  assert.equal(before.schemaVersion, 13);
+
+  source.articleConfig.newsletterEngagementRecordedSince = '2022-11-13';
+  assert.deepEqual(build(source), { ...before, newsletterEngagementRecordedSince: '2022-11-13' },
+    'history adds only the verified UTC start to the protected input');
+
+  delete source.articleConfig.newsletterEngagementRecordedSince;
+  assert.deepEqual(build(source), before, 'opt-out preserves ordinary engagement selection and the other input13 facts');
+});
+
+test('phase 4 rejects a malformed history start or history without its input13 prerequisites', async () => {
+  const build = await inputBuilder();
+  const configuredHistory = () => {
+    const source = fixture();
+    source.articles = individualArticleFacts();
+    source.articleConfig.builderArticleDates = builderArticleDatesSelection();
+    source.articleConfig.newsletter = newsletterSelection();
+    source.articleConfig.newsletterEngagements = true;
+    source.articleConfig.newsletterEngagementRecordedSince = '2022-11-13';
+    return source;
+  };
+
+  for (const value of [null, true, 20221113, '2022-2-03', '2023-02-29', '2022-11-13T00:00:00Z']) {
+    const source = configuredHistory();
+    source.articleConfig.newsletterEngagementRecordedSince = value;
+    assert.throws(() => build(source), /newsletterEngagementRecordedSince/i,
+      `history requires a real ISO UTC day, received ${JSON.stringify(value)}`);
+  }
+
+  const variants = [
+    ['input12', (source) => { delete source.articleConfig.builderArticleDates; }],
+    ['input10', (source) => { delete source.articleConfig.builderArticleDates; delete source.articles; }],
+    ['missing engagement flag', (source) => { delete source.articleConfig.newsletterEngagements; }],
+    ['missing publication', (source) => { delete source.articleConfig.newsletter; }],
+    ['Spanish publication', (source) => { source.articleConfig.newsletter.language = 'es'; }]
+  ];
+  for (const [description, change] of variants) {
+    const source = configuredHistory();
+    change(source);
+    assert.throws(() => build(source), /newsletter|history/i, `${description} cannot opt in to engagement history`);
+  }
+});
+
 test('phase 1 input13 adds verified Builder and talk dates while input12 remains compatible without date evidence', async () => {
   const build = await inputBuilder();
   const inventory = individualArticleFacts();

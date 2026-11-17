@@ -856,15 +856,25 @@ function checkContentStatsShell(page, html) {
     assert.ok(region, `${locale} newsletter needs its independent ${metric.attribute} region`);
     assert.ok(region.end <= subscriberResults.start || region.start >= subscriberResults.end,
       `${locale} ${metric.attribute} must be outside the subscriber results so missing subscribers cannot hide it`);
-    for (const field of ['status', 'results', 'value', 'unit', 'coverage', 'interval', 'collected-date']) {
+    for (const field of ['status', 'results', 'value', 'unit', 'history-label', 'coverage', 'interval', 'collected-date']) {
       mustContain(region.html, `${metric.attribute}-${field}`, `${locale} ${metric.attribute} needs its ${field} selector`);
     }
+    const results = extractElement(region.html, null, `${metric.attribute}-results`);
+    assert.ok(results, `${locale} ${metric.attribute} needs its result region`);
+    const historyLabel = extractElement(region.html, null, `${metric.attribute}-history-label`);
+    assert.ok(historyLabel, `${locale} ${metric.attribute} needs its reported-history label`);
+    assert.ok(historyLabel.start >= results.start && historyLabel.end <= results.end,
+      `${locale} ${metric.attribute} reported-history label is result-only`);
+    mustContainText(historyLabel.html,
+      locale === 'en' ? 'History reported by Beehiiv' : 'Historial reportado por Beehiiv',
+      `${locale} ${metric.attribute} reported-history label`);
+    assert.doesNotMatch(region.html, /\brole=["']status["']|\baria-live=/i,
+      `${locale} ${metric.attribute} has no duplicate row-level live roles`);
     const regionText = normalizedText(region.html);
     assert.match(regionText, metric.label, `${locale} ${metric.attribute} names its event metric`);
     const status = extractElement(region.html, null, `${metric.attribute}-status`);
     assert.ok(status, `${locale} ${metric.attribute} needs its own status`);
-    mustContain(status.html, 'role="status"', `${locale} ${metric.attribute} status has a status role`);
-    mustContain(status.html, 'aria-live="polite"', `${locale} ${metric.attribute} status announces changes politely`);
+    assert.match(status.html, /\shidden(?:\s|=|>)/i, `${locale} ${metric.attribute} loading status starts hidden`);
     assert.match(normalizedText(status.html), metric.loading, `${locale} ${metric.attribute} has a localized loading state`);
     const unavailableAttribute = `${metric.attribute}-unavailable`;
     mustContain(region.html, `${unavailableAttribute}=`, `${locale} ${metric.attribute} needs localized unavailable copy`);
@@ -960,6 +970,10 @@ function checkContentStatsShell(page, html) {
 
   const emailDisclosure = sourcesCopy;
   if (locale === 'en') {
+    assert.match(emailDisclosure, /activity\s+date|date\s+of\s+activity|by\s+the\s+date\s+of\s+activity/i,
+      'English methodology explains that email engagement is counted by activity date');
+    assert.match(emailDisclosure, /(?:omit|skip)\s+(?:some\s+)?(?:days?|dates?)|(?:days?|dates?)\s+(?:without|with no)\s+(?:rows?|data)|(?:rows?|data)[\s\S]{0,90}(?:missing|omitted|absent)\s+(?:for|on)\s+(?:days?|dates?)/i,
+      'English methodology explains that Beehiiv history can have missing days');
     assert.match(emailDisclosure, /opens?[\s\S]{0,250}tracking[- ]?pixels?[\s\S]{0,180}(?:privacy|machine|automated|prefetch)|tracking[- ]?pixels?[\s\S]{0,250}opens?[\s\S]{0,180}(?:privacy|machine|automated|prefetch)/i,
       'English disclosure qualifies tracking-pixel opens for privacy or machine loads');
     assert.match(emailDisclosure, /(?:miss|not detect|fail to register|not register|underestimate)[\s\S]{0,100}(?:reads?|opens?)|(?:reads?|opens?)[\s\S]{0,100}(?:miss|not detect|fail to register|not register|underestimate)/i,
@@ -974,11 +988,13 @@ function checkContentStatsShell(page, html) {
       'English disclosure says verified clicks are not unique people');
     assert.match(emailDisclosure, /(?:available|returned|provided)[\s\S]{0,120}history|history[\s\S]{0,120}(?:available|returned|provided)|currently available data|data (?:currently )?returned/i,
       'English disclosure limits figures to currently returned history');
-    assert.match(emailDisclosure, /(?:can|may|might)[\s\S]{0,60}(?:omit|miss|incomplete|gap|not include)[\s\S]{0,100}activity|activity[\s\S]{0,100}(?:can|may|might)[\s\S]{0,60}(?:omit|miss|missing|incomplete)/i,
-      'English disclosure avoids a completeness claim');
     assert.match(emailDisclosure, /(?:can|may|might)[\s\S]{0,60}(?:change|revise|update)[\s\S]{0,80}(?:later|again)|(?:later|again)[\s\S]{0,80}(?:change|revision|update)/i,
       'English disclosure warns reported figures may change');
   } else {
+    assert.match(emailDisclosure, /fecha\s+de\s+actividad|fecha[\s\S]{0,60}actividad|actividad[\s\S]{0,60}fecha/i,
+      'Spanish methodology explains that email engagement is counted by activity date');
+    assert.match(emailDisclosure, /(?:omitir|faltan)\s+(?:algunos?\s+|algunas?\s+)?(?:d[ií]as?|fechas?)|(?:d[ií]as?|fechas?)\s+sin\s+(?:filas?|datos?)|(?:filas?|datos?)[\s\S]{0,90}(?:faltan|faltantes?|omitid[oa]s?)[\s\S]{0,30}(?:d[ií]as?|fechas?)/i,
+      'Spanish methodology explains that Beehiiv history can have missing days');
     assert.match(emailDisclosure, /aperturas?[\s\S]{0,250}pixel(?:es)? de seguimiento[\s\S]{0,180}(?:privacidad|maquina|automatic|precarga)|pixel(?:es)? de seguimiento[\s\S]{0,250}aperturas?[\s\S]{0,180}(?:privacidad|maquina|automatic|precarga)/i,
       'Spanish disclosure qualifies tracking-pixel opens for privacy or machine loads');
     assert.match(emailDisclosure, /(?:no detect|no registr|no medir|subestim)[\s\S]{0,100}(?:lecturas?|aperturas?)|(?:lecturas?|aperturas?)[\s\S]{0,100}(?:no detect|no registr|no medir|subestim)/i,
@@ -993,8 +1009,6 @@ function checkContentStatsShell(page, html) {
       'Spanish disclosure says verified clicks are not unique people');
     assert.match(emailDisclosure, /(?:historial|historia|datos?|informacion)[\s\S]{0,120}(?:disponible|devuelt[oa]s?|proporcionad[oa]s?)|(?:disponible|devuelt[oa]s?|proporcionad[oa]s?)[\s\S]{0,120}(?:historial|historia|datos?|informacion)/i,
       'Spanish disclosure limits figures to currently returned history');
-    assert.match(emailDisclosure, /(?:puede|podria)[\s\S]{0,60}(?:faltar|omitirse|excluir|no incluir)[\s\S]{0,100}actividad|actividad[\s\S]{0,100}(?:puede|podria)[\s\S]{0,60}(?:faltar|omitirse|excluir|no incluir)/i,
-      'Spanish disclosure avoids a completeness claim');
     assert.match(emailDisclosure, /(?:puede|podria|pueden|podrian)[\s\S]{0,60}(?:cambiar|revisar|actualizar)[\s\S]{0,80}(?:despues|mas adelante|nuevamente)|(?:despues|mas adelante)[\s\S]{0,80}(?:cambiar|revision|actualizar)/i,
       'Spanish disclosure warns reported figures may change');
   }
