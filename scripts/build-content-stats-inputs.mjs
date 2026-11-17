@@ -541,6 +541,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
     && articleConfig.directoryAnalytics
     && Object.hasOwn(articleConfig.directoryAnalytics, 'outboundClicks');
   const hasNewsletterEngagements = Object.hasOwn(articleConfig, 'newsletterEngagements');
+  const hasNewsletterHistory = Object.hasOwn(articleConfig, 'newsletterEngagementRecordedSince');
   const hasBuilderArticleViews = Object.hasOwn(articleConfig, 'builderArticleViews');
   const hasArticleInventory = articles !== undefined;
   const hasBuilderArticleDates = Object.hasOwn(articleConfig, 'builderArticleDates');
@@ -566,6 +567,14 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
   }
   if (hasNewsletterEngagements && newsletter.language !== 'en') {
     invalid('newsletterEngagements requires an English newsletter selection');
+  }
+  if (hasNewsletterHistory) {
+    if (!isRealCalendarDate(articleConfig.newsletterEngagementRecordedSince)) {
+      invalid('newsletterEngagementRecordedSince must be a real ISO UTC day');
+    }
+    if (!hasDatedInventory || !hasNewsletterEngagements) {
+      invalid('newsletterEngagementRecordedSince requires input13 and English newsletter engagement');
+    }
   }
   if (sourceIds.has('simple-aws') && newsletter.language !== 'en') {
     invalid('Simple AWS article source requires an English newsletter selection');
@@ -600,6 +609,7 @@ export function buildContentStatsInputs({ articleConfig, talks, books, articles 
     },
     ...(newsletter ? { newsletter } : {}),
     ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
+    ...(hasNewsletterHistory ? { newsletterEngagementRecordedSince: articleConfig.newsletterEngagementRecordedSince } : {}),
     ...(hasAnalytics ? { analytics: projectAnalytics(articleConfig.analytics) } : {}),
     ...(hasSearchConsole ? {
       searchConsole: projectSearchConsole(articleConfig.searchConsole, hasDatedInventory)
