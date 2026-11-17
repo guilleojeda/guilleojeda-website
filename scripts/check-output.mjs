@@ -1463,6 +1463,7 @@ const hasAnalyticsSelection = Object.hasOwn(inputs, 'analytics');
 const hasSearchConsoleSelection = Object.hasOwn(inputs, 'searchConsole');
 const hasDirectoryAnalyticsSelection = Object.hasOwn(inputs, 'directoryAnalytics');
 const hasNewsletterEngagements = Object.hasOwn(sourceConfig, 'newsletterEngagements');
+const hasNewsletterEngagementHistory = Object.hasOwn(sourceConfig, 'newsletterEngagementRecordedSince');
 const hasManualBuilderObservation = Object.hasOwn(sourceConfig, 'builderArticleViews');
 const hasIndividualArticleInventory = Object.hasOwn(inputs, 'articleInventory');
 const hasDatedInventory = Object.hasOwn(sourceConfig, 'builderArticleDates')
@@ -1477,6 +1478,7 @@ assert.deepEqual(Object.keys(inputs).sort(), [
   'definitionVersion',
   ...(hasNewsletterSelection ? ['newsletter'] : []),
   ...(hasNewsletterEngagements ? ['newsletterEngagements'] : []),
+  ...(hasNewsletterEngagementHistory ? ['newsletterEngagementRecordedSince'] : []),
   ...(hasAnalyticsSelection ? ['analytics'] : []),
   ...(hasSearchConsoleSelection ? ['searchConsole'] : []),
   ...(hasDirectoryAnalyticsSelection ? ['directoryAnalytics'] : []),
@@ -1526,6 +1528,12 @@ if (hasNewsletterEngagements) {
   assert.equal(sourceConfig.schemaVersion, 2, 'the maintained source selector remains schema 2');
 } else {
   assert.equal(Object.hasOwn(inputs, 'newsletterEngagements'), false, 'protected input contains no engagement selector while email activity is disabled');
+}
+if (hasNewsletterEngagementHistory) {
+  assert.ok(hasDatedInventory && hasNewsletterEngagements,
+    'newsletter engagement history requires input13 and the existing engagement selection');
+  assert.equal(inputs.newsletterEngagementRecordedSince, sourceConfig.newsletterEngagementRecordedSince,
+    'protected input preserves the maintained newsletter engagement history start');
 }
 if (hasNewsletterSelection) {
   assert.ok(sourceConfig.newsletter, 'newsletter build input must come from a maintained newsletter selection');

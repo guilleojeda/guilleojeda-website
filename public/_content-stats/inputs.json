@@ -34,6 +34,7 @@
     "language": "en"
   },
   "newsletterEngagements": true,
+  "newsletterEngagementRecordedSince": "2022-11-13",
   "builderArticleViews": {
     "observedAt": "2026-11-16T16:55:37.000Z",
     "views": { "en": 242, "es": 3198 }
