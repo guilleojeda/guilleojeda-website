@@ -7558,6 +7558,30 @@ for (const locale of ['en', 'es']) {
     }
   });
 
+  test(`${locale} an omitted v2 engagement family inherits history activation from its validated sibling`, async () => {
+    const data = snapshotWithNewsletterReportedHistory();
+    delete data.groups.newsletterEmailVerifiedClicks;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    const message = newsletterHistoryMissingCopy(locale);
+    assertNewsletterEmailHistoryVisible(page, locale, newsletterEmailMetricSpecs[0]);
+    assertNewsletterEmailUnavailable(page, locale, newsletterEmailMetricSpecs[1], { message });
+    assertNewsletterHistoryReportStatus(page, locale, {
+      opensValue: 762757,
+      statuses: { clicks: message }
+    });
+    assert.equal(page.periodOptions.total.disabled, false, `${locale} the validated sibling keeps Recorded total enabled`);
+    page.periodSelector.value = '';
+    page.periodSelector.dispatch('change');
+    assertNewsletterEmailVisible(page, locale, newsletterEmailMetricSpecs[0], '12m');
+    assertNewsletterEmailUnavailable(page, locale, newsletterEmailMetricSpecs[1], { message });
+    assertNewsletterHistoryReportStatus(page, locale, { opensValue: 1200, statuses: { clicks: message } });
+    assert.equal(page.fetchCount, 1, `${locale} an omitted v2 family still uses one snapshot request`);
+  });
+
   test(`${locale} mixed history and legacy records distinguish unsupported total, missing period, and transport failure`, async () => {
     const [opensSpec, clicksSpec] = newsletterEmailMetricSpecs;
     const opens = newsletterEmailHistoryRecords('opens');

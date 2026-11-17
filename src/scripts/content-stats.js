@@ -672,7 +672,7 @@ function validateSnapshot(value) {
       'newsletterEmailVerifiedClicks'
     ])) return null;
 
-  return {
+  const snapshot = {
     groups: Object.fromEntries(knownKinds.map((kind) => [
       kind,
       Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
@@ -700,6 +700,11 @@ function validateSnapshot(value) {
       ? validateNewsletterEmailFamily(value.groups.newsletterEmailVerifiedClicks, 'clicks')
       : null
   };
+  snapshot.newsletterEmailFamiliesPresent = {
+    newsletterEmailOpens: Object.hasOwn(value.groups, 'newsletterEmailOpens'),
+    newsletterEmailVerifiedClicks: Object.hasOwn(value.groups, 'newsletterEmailVerifiedClicks')
+  };
+  return snapshot;
 }
 
 function getNewsletterEmailElements(section, attribute, family, valueField) {
@@ -1245,7 +1250,12 @@ function renderNewsletterEmailMetric(snapshot, locale, language, period, element
 
   const records = snapshot?.[elements.family];
   const hasHistoryRecord = records && Object.hasOwn(records, 'total');
-  const isHistoryFamily = records?.definitionVersion === 2;
+  const siblingFamily = elements.family === 'newsletterEmailOpens'
+    ? 'newsletterEmailVerifiedClicks'
+    : 'newsletterEmailOpens';
+  const familyIsMissing = snapshot?.newsletterEmailFamiliesPresent?.[elements.family] === false;
+  const isHistoryFamily = records?.definitionVersion === 2
+    || (familyIsMissing && snapshot?.[siblingFamily]?.definitionVersion === 2);
   const availability = period === 'total'
     ? (hasHistoryRecord && records.total
       ? classifyActivityAvailability(records, language, period, ['total'])
@@ -1291,8 +1301,7 @@ function renderNewsletterEmailMetric(snapshot, locale, language, period, element
   return `${label}, ${formattedValue} (${basis})`;
 }
 
-function renderNewsletterEmail(snapshot, locale, language, elements) {
-  const period = elements.periodSelector?.value ?? '12m';
+function renderNewsletterEmail(snapshot, locale, language, elements, period) {
   return [
     renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailOpens),
     renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailVerifiedClicks)
@@ -1828,7 +1837,7 @@ function renderReport(snapshot, locale, language, elements, { refreshFixed = tru
   if (refreshFixed) {
     renderBuilderViews(snapshot, locale, language, elements);
   }
-  const newsletterEmailStatuses = renderNewsletterEmail(snapshot, locale, language, elements);
+  const newsletterEmailStatuses = renderNewsletterEmail(snapshot, locale, language, elements, period);
   renderViews(snapshot, locale, language, elements);
   renderSearch(snapshot, locale, language, elements);
   renderDirectoryViews(snapshot, locale, language, elements);

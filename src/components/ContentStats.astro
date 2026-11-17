@@ -131,7 +131,7 @@ const copy = locale === 'en'
           unavailable: 'Verified email click data are unavailable.'
         },
         interval: 'Reporting interval',
-        collected: 'Last updated',
+        collected: 'Last valid query',
         historyLabel: 'History reported by Beehiiv'
       },
       sourcesExplanation: [
@@ -144,8 +144,8 @@ const copy = locale === 'en'
         'Dónde Aprendo AWS page views cover the full directory and can repeat for one person; they are separate from article views. Reports may be delayed or revised.',
         'Recorded traffic totals include only activity available since the start date shown under Source & dates; earlier activity or tracking gaps may be missing. View reports can be delayed or revised.',
         'External-link clicks recorded for Dónde Aprendo AWS cover links to the publication and social channels throughout the directory, including the footer. One person can click more than once; clicks are separate from directory views and incoming Search clicks.',
-        'Email opens are tracking-pixel events: privacy protections and automated loads can count as opens, while some reads may not register.',
-        'Verified email clicks are Beehiiv-filtered events counted by activity date in UTC; they can repeat and do not represent unique people or guarantee a human click. Beehiiv may omit days from the returned history, and reported values can change later.',
+        'Email engagement events are counted by each email’s activity date in UTC. Email opens are tracking-pixel events: privacy protections and automated loads can count as opens, while some reads may not register.',
+        'Verified email clicks are Beehiiv-filtered events; they can repeat and do not represent unique people or guarantee a human click. Beehiiv may omit days from the returned history, and reported values can change later.',
         'Emails sent are Beehiiv’s reported cumulative total for the Simple AWS publication, shown under Recorded total; one person may receive multiple emails. Beehiiv’s available history may be incomplete, and the reported total can change.',
         'Simple AWS is an English newsletter; the subscriber figure counts current active subscriptions.',
       ]
@@ -274,7 +274,7 @@ const copy = locale === 'en'
           unavailable: 'Datos de clics verificados en emails: no disponibles.'
         },
         interval: 'Intervalo informado',
-        collected: 'Última actualización',
+        collected: 'Última consulta válida',
         historyLabel: 'Historial reportado por Beehiiv'
       },
       sourcesExplanation: [
@@ -287,8 +287,8 @@ const copy = locale === 'en'
         'Las vistas de páginas de Dónde Aprendo AWS cubren el directorio completo y pueden repetirse para una persona; se informan aparte de las vistas de artículos. Los informes pueden tener demora o revisarse.',
         'Los totales de tráfico registrados solo incluyen actividad disponible desde la fecha de inicio indicada en “Fuente y fechas”; puede faltar actividad anterior o de períodos sin seguimiento. Los informes de vistas pueden tener demora o revisarse.',
         'Los clics registrados en enlaces externos de Dónde Aprendo AWS cubren enlaces a la publicación y a redes sociales en todo el directorio, incluido el pie de página. Una persona puede hacer más de un clic; se informan aparte de las vistas del directorio y de las búsquedas entrantes.',
-        'Las aperturas de emails son eventos de píxeles de seguimiento: las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, mientras que algunas lecturas pueden no registrarse.',
-        'Los clics verificados en emails son eventos filtrados por Beehiiv y se cuentan por fecha de actividad en UTC; pueden repetirse y no representan personas únicas ni garantizan que una persona haya hecho clic. Beehiiv puede omitir días del historial devuelto y los valores informados pueden cambiar más adelante.',
+        'La actividad de email se cuenta por la fecha de actividad de cada email en UTC. Las aperturas son eventos de píxeles de seguimiento: las protecciones de privacidad y las cargas automáticas pueden contarse como aperturas, mientras que algunas lecturas pueden no registrarse.',
+        'Los clics verificados en emails son eventos filtrados por Beehiiv; pueden repetirse y no representan personas únicas ni garantizan que una persona haya hecho clic. Beehiiv puede omitir días del historial devuelto y los valores informados pueden cambiar más adelante.',
         'Los emails enviados son el total acumulado informado por Beehiiv para la publicación Simple AWS, que se muestra en Total registrado; una persona puede recibir varios emails. El historial disponible de Beehiiv puede estar incompleto y el total informado puede cambiar.',
         'Simple AWS es un boletín en inglés; la cifra de suscriptores cuenta las suscripciones activas actuales.',
       ]
@@ -458,7 +458,7 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                           <dd data-stats-newsletter-email-opens-interval></dd>
                         </div>
                         <div>
-                          <dt>{copy.emailActivity.collected}</dt>
+                          <dt data-stats-newsletter-email-opens-collected-label>{copy.emailActivity.collected}</dt>
                           <dd data-stats-newsletter-email-opens-collected-date></dd>
                         </div>
                       </dl>
@@ -495,7 +495,7 @@ const cardKinds = ['articles', 'talks', 'books', 'newsletter'] as const;
                           <dd data-stats-newsletter-email-verified-clicks-interval></dd>
                         </div>
                         <div>
-                          <dt>{copy.emailActivity.collected}</dt>
+                          <dt data-stats-newsletter-email-verified-clicks-collected-label>{copy.emailActivity.collected}</dt>
                           <dd data-stats-newsletter-email-verified-clicks-collected-date></dd>
                         </div>
                       </dl>

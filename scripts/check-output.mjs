@@ -856,7 +856,7 @@ function checkContentStatsShell(page, html) {
     assert.ok(region, `${locale} newsletter needs its independent ${metric.attribute} region`);
     assert.ok(region.end <= subscriberResults.start || region.start >= subscriberResults.end,
       `${locale} ${metric.attribute} must be outside the subscriber results so missing subscribers cannot hide it`);
-    for (const field of ['status', 'results', 'value', 'unit', 'history-label', 'coverage', 'interval', 'collected-date']) {
+    for (const field of ['status', 'results', 'value', 'unit', 'history-label', 'coverage', 'interval', 'collected-label', 'collected-date']) {
       mustContain(region.html, `${metric.attribute}-${field}`, `${locale} ${metric.attribute} needs its ${field} selector`);
     }
     const results = extractElement(region.html, null, `${metric.attribute}-results`);
@@ -868,6 +868,11 @@ function checkContentStatsShell(page, html) {
     mustContainText(historyLabel.html,
       locale === 'en' ? 'History reported by Beehiiv' : 'Historial reportado por Beehiiv',
       `${locale} ${metric.attribute} reported-history label`);
+    const collectedLabel = extractElement(region.html, null, `${metric.attribute}-collected-label`);
+    assert.ok(collectedLabel, `${locale} ${metric.attribute} needs its last-valid-query label`);
+    mustContainText(collectedLabel.html,
+      locale === 'en' ? 'Last valid query' : 'Última consulta válida',
+      `${locale} ${metric.attribute} last-valid-query label`);
     assert.doesNotMatch(region.html, /\brole=["']status["']|\baria-live=/i,
       `${locale} ${metric.attribute} has no duplicate row-level live roles`);
     const regionText = normalizedText(region.html);
