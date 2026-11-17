@@ -1130,43 +1130,48 @@ function retainedNewsletterEngagementRow(row) {
   };
 }
 
+function evaluateNewsletterEngagementInterval({ startDate, endDate, rowsByDate, providerMetric,
+  failedChunks = [], complete = true }) {
+  const hasChunkFailure = !complete || failedChunks.some(({ startDate: chunkStart, endDate: chunkEnd }) =>
+    chunkStart <= endDate && startDate <= chunkEnd);
+  if (hasChunkFailure) return { failureCode: "BEEHIIV_ENGAGEMENT_REPORT_FAILED" };
+
+  let total = 0;
+  let rowCount = 0;
+  for (let date = startDate; date <= endDate; date = addCalendarDays(date, 1)) {
+    const row = rowsByDate.get(date);
+    if (!row) continue;
+    const value = row[providerMetric];
+    if (!isValidBeehiivEventCount(value)) {
+      return { failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
+    }
+    const next = total + value;
+    if (!Number.isSafeInteger(next)) {
+      return { failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
+    }
+    total = next;
+    rowCount += 1;
+  }
+  if (rowCount === 0) return { failureCode: "BEEHIIV_ENGAGEMENT_REPORT_EMPTY" };
+  return { total };
+}
+
 function makeNewsletterEngagementMetricResult({ selection, family, valueKey, providerMetric, ranges,
-  rowsByDate, invalidMetricDates, failedChunks, collectedAt, definitionVersion = 1 }) {
+  rowsByDate, failedChunks, collectedAt, definitionVersion = 1 }) {
   const records = {};
   const failedPeriods = [];
   let failureCode;
   for (const range of ranges) {
-    const hasChunkFailure = failedChunks.some(({ startDate, endDate }) =>
-      startDate <= range.endDate && range.startDate <= endDate);
-    let hasInvalidMetric = false;
-    let total = 0;
-    let rowCount = 0;
-    if (!hasChunkFailure) {
-      for (let date = range.startDate; date <= range.endDate; date = addCalendarDays(date, 1)) {
-        if (invalidMetricDates.has(date)) {
-          hasInvalidMetric = true;
-          continue;
-        }
-        const row = rowsByDate.get(date);
-        if (!row) continue;
-        const value = row[providerMetric];
-        if (!isValidBeehiivEventCount(value)) {
-          hasInvalidMetric = true;
-          continue;
-        }
-        const next = total + value;
-        if (!Number.isSafeInteger(next)) {
-          hasInvalidMetric = true;
-          continue;
-        }
-        total = next;
-        rowCount += 1;
-      }
-    }
-    if (hasChunkFailure || hasInvalidMetric || rowCount === 0) {
+    const evaluation = evaluateNewsletterEngagementInterval({
+      startDate: range.startDate,
+      endDate: range.endDate,
+      rowsByDate,
+      providerMetric,
+      failedChunks
+    });
+    if (evaluation.failureCode) {
       failedPeriods.push(range.period);
-      failureCode ??= hasChunkFailure ? "BEEHIIV_ENGAGEMENT_REPORT_FAILED"
-        : hasInvalidMetric ? "BEEHIIV_ENGAGEMENT_METRIC_INVALID" : "BEEHIIV_ENGAGEMENT_REPORT_EMPTY";
+      failureCode ??= evaluation.failureCode;
       continue;
     }
     records[range.period] = {
@@ -1177,7 +1182,7 @@ function makeNewsletterEngagementMetricResult({ selection, family, valueKey, pro
       timeZone: "UTC",
       startDate: range.startDate,
       endDate: range.endDate,
-      [valueKey]: total
+      [valueKey]: evaluation.total
     };
   }
   return {
@@ -1218,52 +1223,32 @@ function makeNewsletterEngagementHistoryRecord({ selection, family, valueKey, pr
 }
 
 function historyMetricResult({ selection, family, valueKey, providerMetric, recordedSince, historyEnd,
-  rowsByDate, invalidMetricDates, failedChunks, collectedAt, historyComplete }) {
+  rowsByDate, collectedAt, historyComplete }) {
   if (recordedSince > historyEnd) return { record: null };
-  const hasChunkFailure = !historyComplete || failedChunks.some(({ startDate, endDate }) =>
-    startDate <= historyEnd && recordedSince <= endDate);
-  if (hasChunkFailure) return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_REPORT_FAILED" };
-
-  let total = 0;
-  let rowCount = 0;
-  for (let date = recordedSince; date <= historyEnd; date = addCalendarDays(date, 1)) {
-    if (invalidMetricDates.has(date)) {
-      return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
-    }
-    const row = rowsByDate.get(date);
-    if (!row) continue;
-    const value = row[providerMetric];
-    if (!isValidBeehiivEventCount(value)) {
-      return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
-    }
-    const next = total + value;
-    if (!Number.isSafeInteger(next)) {
-      return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
-    }
-    total = next;
-    rowCount += 1;
-  }
-  if (rowCount === 0) return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_REPORT_EMPTY" };
+  const evaluation = evaluateNewsletterEngagementInterval({
+    startDate: recordedSince,
+    endDate: historyEnd,
+    rowsByDate,
+    providerMetric,
+    complete: historyComplete
+  });
+  if (evaluation.failureCode) return { record: null, failureCode: evaluation.failureCode };
   return {
     record: makeNewsletterEngagementHistoryRecord({
-      selection, family, valueKey, providerMetric, recordedSince, endDate: historyEnd, total, collectedAt
+      selection, family, valueKey, providerMetric, recordedSince, endDate: historyEnd,
+      total: evaluation.total, collectedAt
     })
   };
 }
 
 async function completeNewsletterEngagementHistory(state, context) {
-  const { selection, recordedSince, historyEnd, finiteStart, apiKey, failedChunks, rowsByDate,
-    invalidOpenDates, invalidClickDates, collectedAt } = state;
+  const { selection, recordedSince, historyEnd, finiteStart, apiKey, failedChunks, rowsByDate, collectedAt } = state;
   const historyChunks = recordedSince < finiteStart
     ? newsletterEngagementChunksForRange(recordedSince, addCalendarDays(finiteStart, -1))
     : [];
-  let historyComplete = true;
-  if (failedChunks.some(({ startDate, endDate }) =>
-      startDate <= historyEnd && recordedSince <= endDate)) {
-    historyComplete = false;
-  }
-  for (let index = 0; index < historyChunks.length; index += 4) {
-    if (!historyComplete) break;
+  let historyComplete = !failedChunks.some(({ startDate, endDate }) =>
+    startDate <= historyEnd && recordedSince <= endDate);
+  for (let index = 0; historyComplete && index < historyChunks.length; index += 4) {
     if (typeof context?.getRemainingTimeInMillis === "function" &&
         context.getRemainingTimeInMillis() < 40_000) {
       historyComplete = false;
@@ -1272,21 +1257,18 @@ async function completeNewsletterEngagementHistory(state, context) {
     const batch = historyChunks.slice(index, index + 4);
     const outcomes = await Promise.all(batch.map(async (chunk) => {
       try {
-        return { chunk, rows: await requestNewsletterEngagementChunk(selection, apiKey, chunk) };
+        return await requestNewsletterEngagementChunk(selection, apiKey, chunk);
       } catch (error) {
         if (!(error instanceof CollectorError)) throw error;
-        return { chunk, error };
+        return null;
       }
     }));
-    for (const outcome of outcomes) {
-      if (outcome.error) {
-        failedChunks.push(outcome.chunk);
-        historyComplete = false;
-        continue;
-      }
-      for (const row of outcome.rows) {
-        if (!isValidBeehiivEventCount(row.total_opens)) invalidOpenDates.add(row.date);
-        if (!isValidBeehiivEventCount(row.total_verified_clicks)) invalidClickDates.add(row.date);
+    if (outcomes.includes(null)) {
+      historyComplete = false;
+      break;
+    }
+    for (const rows of outcomes) {
+      for (const row of rows) {
         rowsByDate.set(row.date, retainedNewsletterEngagementRow(row));
       }
     }
@@ -1294,13 +1276,12 @@ async function completeNewsletterEngagementHistory(state, context) {
 
   const opens = historyMetricResult({
     selection, family: "newsletterEmailOpens", valueKey: "opens", providerMetric: "total_opens",
-    recordedSince, historyEnd, rowsByDate, invalidMetricDates: invalidOpenDates, failedChunks,
-    collectedAt, historyComplete
+    recordedSince, historyEnd, rowsByDate, collectedAt, historyComplete
   });
   const verifiedClicks = historyMetricResult({
     selection, family: "newsletterEmailVerifiedClicks", valueKey: "clicks",
-    providerMetric: "total_verified_clicks", recordedSince, historyEnd, rowsByDate,
-    invalidMetricDates: invalidClickDates, failedChunks, collectedAt, historyComplete
+    providerMetric: "total_verified_clicks", recordedSince, historyEnd, rowsByDate, collectedAt,
+    historyComplete
   });
   return { opens, verifiedClicks };
 }
@@ -1330,18 +1311,12 @@ async function collectNewsletterEngagements(value, env, collectedAt, now, record
 
   const chunks = newsletterEngagementChunks(ranges);
   const rowsByDate = new Map();
-  const invalidOpenDates = new Set();
-  const invalidClickDates = new Set();
   const failedChunks = [];
   let failureCode;
   for (const chunk of chunks) {
     try {
       const rows = await requestNewsletterEngagementChunk(selection, apiKey, chunk);
       for (const row of rows) {
-        const openValid = isValidBeehiivEventCount(row.total_opens);
-        const clickValid = isValidBeehiivEventCount(row.total_verified_clicks);
-        if (!openValid) invalidOpenDates.add(row.date);
-        if (!clickValid) invalidClickDates.add(row.date);
         rowsByDate.set(row.date, retainedNewsletterEngagementRow(row));
       }
     } catch (error) {
@@ -1353,11 +1328,11 @@ async function collectNewsletterEngagements(value, env, collectedAt, now, record
 
   const opens = makeNewsletterEngagementMetricResult({
     selection, family: "newsletterEmailOpens", valueKey: "opens", providerMetric: "total_opens",
-    ranges, rowsByDate, invalidMetricDates: invalidOpenDates, failedChunks, collectedAt, definitionVersion
+    ranges, rowsByDate, failedChunks, collectedAt, definitionVersion
   });
   const verifiedClicks = makeNewsletterEngagementMetricResult({
     selection, family: "newsletterEmailVerifiedClicks", valueKey: "clicks", providerMetric: "total_verified_clicks",
-    ranges, rowsByDate, invalidMetricDates: invalidClickDates, failedChunks, collectedAt, definitionVersion
+    ranges, rowsByDate, failedChunks, collectedAt, definitionVersion
   });
   if (failureCode) {
     opens.failureCode ??= failureCode;
@@ -1372,8 +1347,6 @@ async function collectNewsletterEngagements(value, env, collectedAt, now, record
     apiKey,
     failedChunks,
     rowsByDate,
-    invalidOpenDates,
-    invalidClickDates,
     collectedAt
   } : undefined;
   return { opens, verifiedClicks, historyState };
@@ -4138,7 +4111,6 @@ async function collectIndependentGroups(configuration, env, collectedAt, now, co
         result.group.records.total = historyResult.record;
       } else if (historyResult.failureCode) {
         result.historyFailed = true;
-        result.historyFailureCode = historyResult.failureCode;
         result.failureCode ??= historyResult.failureCode;
         failures[family] = historyResult.failureCode;
       }

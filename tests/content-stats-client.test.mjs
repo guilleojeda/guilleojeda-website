@@ -705,6 +705,7 @@ const directoryOutboundClicksCopy = {
 
 const newsletterEmailCopy = {
   en: {
+    historyLabel: 'History reported by Beehiiv',
     opens: {
       label: 'Email opens',
       loading: 'Loading email opens…',
@@ -719,6 +720,7 @@ const newsletterEmailCopy = {
     }
   },
   es: {
+    historyLabel: 'Historial reportado por Beehiiv',
     opens: {
       label: 'Aperturas de emails',
       loading: 'Cargando aperturas de emails…',
@@ -909,6 +911,7 @@ function makeNewsletterEmailMetric(kind, locale, card) {
   }));
   const historyLabel = results.appendChild(new SemanticElement({
     dataset: { [spec.region + 'HistoryLabel']: '' },
+    textContent: newsletterEmailCopy[locale].historyLabel,
     hidden: true
   }));
   const coverage = results.appendChild(new SemanticElement({ dataset: { [spec.region + 'Coverage']: '' } }));
@@ -1705,12 +1708,13 @@ function assertActivityUnavailableMessage(text, locale) {
 
 function assertNewsletterEmailUnavailable(page, locale, spec, { hidden = false, message } = {}) {
   const metric = page.cards.newsletter[spec.region];
+  const expectedHistoryLabel = newsletterEmailCopy[locale].historyLabel;
   assert.equal(metric.results.hidden, true, `${spec.group}: unavailable result stays hidden`);
   assert.equal(metric.value.textContent, '', `${spec.group}: unavailable result clears the old count`);
   assert.equal(metric.coverage.textContent, '', `${spec.group}: unavailable result clears old publication provenance`);
   assert.equal(metric.interval.textContent, '', `${spec.group}: unavailable result clears the old period`);
   assert.equal(metric.collectedDate.textContent, '', `${spec.group}: unavailable result clears the old collection date`);
-  assert.equal(metric.historyLabel.textContent, '', `${spec.group}: unavailable result clears the history basis label`);
+  assert.equal(metric.historyLabel.textContent, expectedHistoryLabel, `${spec.group}: unavailable result preserves the localized history basis label`);
   assert.equal(metric.historyLabel.hidden, true, `${spec.group}: unavailable result hides the history basis label`);
   assert.equal(metric.status.hidden, hidden, `${spec.group}: unavailable status follows content-language visibility`);
   if (hidden) return;
@@ -1721,13 +1725,14 @@ function assertNewsletterEmailUnavailable(page, locale, spec, { hidden = false, 
 function assertNewsletterEmailVisible(page, locale, spec, period) {
   const record = page.data.groups[spec.group].records[period];
   const metric = page.cards.newsletter[spec.region];
+  const expectedHistoryLabel = newsletterEmailCopy[locale].historyLabel;
   assert.equal(metric.region.hidden, false, `${spec.group}: supported English email data is visible for All/English`);
   assert.equal(metric.results.hidden, false, `${period} ${spec.group} renders its own result`);
   assert.equal(metric.status.hidden, true, `${spec.group}: successful data clears the loading or unavailable status`);
   assert.equal(metric.value.textContent, new Intl.NumberFormat(locale).format(record[spec.metric]), `${spec.group}: value comes from the selected period`);
   assert.match(metric.label.textContent, spec.label[locale], `${spec.group}: heading names the metric in the interface language`);
   assert.match(metric.unit.textContent, spec.unit[locale], `${spec.group}: unit stays concise`);
-  assert.equal(metric.historyLabel.textContent, '', `${spec.group}: ordinary period results have no history basis label`);
+  assert.equal(metric.historyLabel.textContent, expectedHistoryLabel, `${spec.group}: ordinary period results preserve the localized history basis label`);
   assert.equal(metric.historyLabel.hidden, true, `${spec.group}: ordinary period results hide the history basis label`);
   assert.equal(metric.coverage.textContent, 'Simple AWS', `${spec.group}: publication identity is visible`);
   assert.ok(metric.interval.textContent.includes('UTC'), `${spec.group}: reported period names UTC`);
@@ -1740,7 +1745,7 @@ function assertNewsletterEmailVisible(page, locale, spec, period) {
 function assertNewsletterEmailHistoryVisible(page, locale, spec) {
   const record = page.data.groups[spec.group].records.total;
   const metric = page.cards.newsletter[spec.region];
-  const expectedHistoryLabel = locale === 'es' ? 'Historial reportado por Beehiiv' : 'History reported by Beehiiv';
+  const expectedHistoryLabel = newsletterEmailCopy[locale].historyLabel;
   assert.equal(metric.region.hidden, false, `${spec.group}: reported history is visible for All/English`);
   assert.equal(metric.results.hidden, false, `${spec.group}: reported history renders its result`);
   assert.equal(metric.status.hidden, true, `${spec.group}: reported history clears the loading or unavailable status`);
@@ -7456,6 +7461,16 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.overviewValues.books.textContent, '3', `${locale} overview retains the book total`);
     assert.equal(page.overviewValues.newsletter.textContent, '27', `${locale} overview retains the subscriber total`);
     assert.equal(page.periodOptions.total.disabled, false, `${locale} reported history makes Recorded total selectable`);
+    const historyLabelWrites = newsletterEmailMetricSpecs.map((spec) => observeTextContentWrites(
+      page.cards.newsletter[spec.region].historyLabel,
+      `${locale} ${spec.metric} history label`
+    ));
+    for (const spec of newsletterEmailMetricSpecs) {
+      const expectedHistoryLabel = newsletterEmailCopy[locale].historyLabel;
+      const historyLabel = page.cards.newsletter[spec.region].historyLabel;
+      assert.equal(historyLabel.textContent, expectedHistoryLabel, `${locale} ${spec.metric} uses the localized Astro history label`);
+      assert.equal(historyLabel.hidden, true, `${locale} ${spec.metric} keeps the history label hidden for the initial period`);
+    }
     const subscriberValue = page.cards.newsletter.count.textContent;
     const subscriberDate = page.cards.newsletter.collectedDate.textContent;
 
@@ -7516,6 +7531,7 @@ for (const locale of ['en', 'es']) {
     page.selector.dispatch('change');
     assert.equal(page.periodSelector.value, 'ytd', `${locale} English content preserves the selected year-to-date period`);
     for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, locale, spec, 'ytd');
+    for (const observer of historyLabelWrites) observer.assertNoWrites(`${locale} period and language transitions`);
     assert.equal(page.fetchCount, 1, `${locale} all history and period transitions reuse one snapshot request`);
   });
 
@@ -7542,6 +7558,15 @@ for (const locale of ['en', 'es']) {
       }
       const page = createPage({ locale, data });
       await page.settle();
+      for (const period of newsletterEmailPeriods) {
+        page.periodSelector.focus();
+        page.periodSelector.value = period;
+        page.periodSelector.dispatch('change');
+        assert.equal(page.document.activeElement, page.periodSelector, `${locale} ${description} ${period} keeps focus before Recorded total`);
+        for (const spec of newsletterEmailMetricSpecs) {
+          assertNewsletterEmailVisible(page, locale, spec, period);
+        }
+      }
       page.periodSelector.focus();
       page.periodSelector.value = 'total';
       page.periodSelector.dispatch('change');
@@ -7557,6 +7582,15 @@ for (const locale of ['en', 'es']) {
         history: missingSpec === newsletterEmailMetricSpecs[0] ? ['clicks'] : ['opens'],
         statuses: { [missingSpec.metric]: message }
       });
+      for (const period of newsletterEmailPeriods) {
+        page.periodSelector.focus();
+        page.periodSelector.value = period;
+        page.periodSelector.dispatch('change');
+        assert.equal(page.document.activeElement, page.periodSelector, `${locale} ${description} ${period} keeps focus after Recorded total`);
+        for (const spec of newsletterEmailMetricSpecs) {
+          assertNewsletterEmailVisible(page, locale, spec, period);
+        }
+      }
       assert.equal(page.periodOptions.total.disabled, false, `${locale} a healthy sibling keeps Recorded total enabled`);
       assert.equal(page.fetchCount, 1, `${locale} ${description} uses one snapshot request`);
     }
