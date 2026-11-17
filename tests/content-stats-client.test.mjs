@@ -1201,6 +1201,25 @@ function expectedDateOnly(locale, date) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
+function observeTextContentWrites(element, label) {
+  let value = element.textContent;
+  let writes = 0;
+  Object.defineProperty(element, 'textContent', {
+    configurable: true,
+    enumerable: true,
+    get() { return value; },
+    set(next) {
+      writes += 1;
+      value = next;
+    }
+  });
+  return {
+    assertNoWrites(context) {
+      assert.equal(writes, 0, `${context}: ${label} must not be written after initial settle`);
+    }
+  };
+}
+
 const articleDestination = {
   caylent: (slug) => `https://caylent.com/blog/${slug}`,
   'builder-center': (slug) => `https://builder.aws.com/content/guille/${slug}`,
@@ -3941,11 +3960,18 @@ for (const locale of ['en', 'es']) {
     assertNewsletterSentPeriodUnavailable(page, locale);
     assert.ok(page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
       'the persistent report status announces the unavailable period');
+    const subscriberCountWrites = observeTextContentWrites(page.cards.newsletter.count, `${locale} subscriber count`);
+    const subscriberDateWrites = observeTextContentWrites(page.cards.newsletter.collectedDate, `${locale} subscriber date`);
+    const assertSubscriberFieldsUntouched = (transition) => {
+      subscriberCountWrites.assertNoWrites(transition);
+      subscriberDateWrites.assertNoWrites(transition);
+    };
 
     for (const period of newsletterEmailPeriods) {
       page.periodSelector.focus();
       page.periodSelector.value = period;
       page.periodSelector.dispatch('change');
+      assertSubscriberFieldsUntouched(`${period}: changing period`);
       assert.equal(page.periodSelector.value, period, `${period}: the selected finite window remains active`);
       assert.equal(page.document.activeElement, page.periodSelector, `${period}: changing period keeps focus on the control`);
       assertNewsletterSentPeriodUnavailable(page, locale);
@@ -3963,6 +3989,7 @@ for (const locale of ['en', 'es']) {
     page.periodSelector.focus();
     page.periodSelector.value = 'total';
     page.periodSelector.dispatch('change');
+    assertSubscriberFieldsUntouched('Recorded total: changing period');
     assert.equal(page.periodSelector.value, 'total', 'switching to Recorded total keeps the valid selection');
     assert.equal(page.document.activeElement, page.periodSelector, 'switching to Recorded total keeps focus on the control');
     assertNewsletterSentVisible(page, locale, 4321, collectedAt);
@@ -3983,6 +4010,7 @@ for (const locale of ['en', 'es']) {
     page.periodSelector.focus();
     page.periodSelector.value = '12m';
     page.periodSelector.dispatch('change');
+    assertSubscriberFieldsUntouched('12m after Recorded total: changing period');
     assert.equal(page.document.activeElement, page.periodSelector, 'returning to a finite window keeps focus on the control');
     assertNewsletterSentPeriodUnavailable(page, locale);
     assert.ok(page.reportStatus.textContent.includes(newsletterSentCopy[locale].periodUnavailable),
