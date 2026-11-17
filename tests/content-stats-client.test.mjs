@@ -4806,6 +4806,14 @@ for (const locale of ['en', 'es']) {
       assert.equal(absentPage.cards.articles.search.status.textContent, expected[period],
         'a current snapshot with no Search group still distinguishes the selected period');
     }
+    absentPage.selector.value = 'es';
+    absentPage.selector.dispatch('change');
+    for (const period of ['ytd', 'total']) {
+      absentPage.periodSelector.value = period;
+      absentPage.periodSelector.dispatch('change');
+      assert.match(absentPage.cards.articles.search.status.textContent, coverage,
+        'the current English Search scope still applies when its group is absent');
+    }
 
     const legacyPage = createPage({ locale, data: snapshotWithArticleSearchClicks({ definitionVersion: 1 }) });
     await legacyPage.settle();
@@ -6984,14 +6992,14 @@ for (const locale of ['en', 'es']) {
           page.selector.dispatch('change');
         }
         if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
-        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'window' : 'generic');
+        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'language' : 'generic');
         assert.equal(page.periodSelector.disabled, false, `${spec.label}/${scenario}: a healthy sibling keeps the shared period selector available`);
         assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: a healthy sibling still supports Recorded total`);
         page.periodSelector.value = 'total';
         page.periodSelector.dispatch('change');
 
         if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
-        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'missing-total' : 'generic');
+        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'language' : 'generic');
         assert.equal(page.fetchCount, 1, `${spec.label}/${scenario}: reason selection is local to the fetched snapshot`);
       }
     }

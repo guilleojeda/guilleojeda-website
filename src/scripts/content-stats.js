@@ -1640,10 +1640,12 @@ function renderSearch(snapshot, locale, language, elements) {
   const period = periodSelector.value === 'total'
     ? 'total'
     : knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const availability = classifySearchAvailability(records, language, period);
+  const currentSearchOmitted = records === undefined && snapshot?.hasDatedTalks;
+  const availability = currentSearchOmitted && language === 'es'
+    ? { reason: 'language', publication: { ...supportedNewsletter, language: 'en' } }
+    : classifySearchAvailability(records, language, period);
   if (availability) {
-    const supportsHistory = records ? Object.hasOwn(records, 'total')
-      : records === undefined && snapshot?.hasDatedTalks;
+    const supportsHistory = currentSearchOmitted || Boolean(records && Object.hasOwn(records, 'total'));
     renderSearchUnavailable(elements, locale, availability, period, supportsHistory);
     return;
   }
