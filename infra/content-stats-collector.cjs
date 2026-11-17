@@ -993,7 +993,7 @@ async function readBeehiivApiKey(env) {
   return secret.apiKey;
 }
 
-async function collectNewsletter(selection, env, collectedAt) {
+async function collectNewsletter(selection, env) {
   const apiKey = await readBeehiivApiKey(env);
   const url = `${BEEHIIV_API_ENDPOINT}${encodeURIComponent(selection.publicationId)}?expand=stats`;
   const envelope = await fetchJson(url, selection.id, 1, {
@@ -1004,11 +1004,12 @@ async function collectNewsletter(selection, env, collectedAt) {
       !isObject(envelope.data.stats)) {
     throw fail("NEWSLETTER_RESPONSE_INVALID");
   }
+  const observedAt = new Date().toISOString();
   const subscribers = envelope.data.stats.active_subscriptions;
   const validSubscribers = Number.isSafeInteger(subscribers) && subscribers >= 0;
   const result = {
     newsletter: validSubscribers
-      ? makeNewsletterGroup(selection, subscribers, collectedAt)
+      ? makeNewsletterGroup(selection, subscribers, observedAt)
       : null,
     newsletterFailure: validSubscribers ? null : "NEWSLETTER_RESPONSE_INVALID"
   };
@@ -1017,7 +1018,7 @@ async function collectNewsletter(selection, env, collectedAt) {
     const sent = envelope.data.stats.total_sent;
     const validSent = Number.isSafeInteger(sent) && sent >= 0;
     result.newsletterEmailsSent = validSent
-      ? makeNewsletterEmailsSentGroup(selection, sent, collectedAt)
+      ? makeNewsletterEmailsSentGroup(selection, sent, observedAt)
       : null;
     result.newsletterEmailsSentFailure = validSent ? null : "NEWSLETTER_RESPONSE_INVALID";
   }
@@ -1286,26 +1287,41 @@ async function completeNewsletterEngagementHistory(state, context) {
   return { opens, verifiedClicks };
 }
 
-async function collectNewsletterEngagements(value, env, collectedAt, now, recordedSince) {
-  const selection = validateNewsletterSelection(value);
-  const ranges = newsletterEngagementRanges(now);
-  const historyEnabled = recordedSince !== undefined;
-  const definitionVersion = historyEnabled ? 2 : 1;
-  const failedResult = (code) => ({
+function newsletterEngagementFailureResult(code, ranges, historyEnabled) {
+  const eligiblePeriods = ranges.map(({ period }) => period);
+  return {
     group: null,
-    failedPeriods: ranges.map(({ period }) => period),
-    eligiblePeriods: ranges.map(({ period }) => period),
+    failedPeriods: eligiblePeriods,
+    eligiblePeriods,
     failureCode: code,
     ...(historyEnabled ? { historyFailed: true } : {})
-  });
+  };
+}
+
+async function collectNewsletterEngagements(value, env, recordedSince) {
+  const historyEnabled = recordedSince !== undefined;
+  const definitionVersion = historyEnabled ? 2 : 1;
+  let selection;
   let apiKey;
+  let setupError;
   try {
+    selection = validateNewsletterSelection(value);
     apiKey = await readBeehiivApiKey(env);
   } catch (error) {
     if (!(error instanceof CollectorError)) throw error;
+    setupError = error;
+  }
+
+  // Keep one UTC anchor for all finite and historical activity ranges. The
+  // credential read is deliberately complete before this instant is sampled.
+  const activityCollectedAt = new Date().toISOString();
+  const activityNow = Date.parse(activityCollectedAt);
+  const ranges = newsletterEngagementRanges(activityNow);
+  if (setupError) {
     return {
-      opens: failedResult(error.code),
-      verifiedClicks: failedResult(error.code)
+      opens: newsletterEngagementFailureResult(setupError.code, ranges, historyEnabled),
+      verifiedClicks: newsletterEngagementFailureResult(setupError.code, ranges, historyEnabled),
+      activityNow
     };
   }
 
@@ -1328,11 +1344,11 @@ async function collectNewsletterEngagements(value, env, collectedAt, now, record
 
   const opens = makeNewsletterEngagementMetricResult({
     selection, family: "newsletterEmailOpens", valueKey: "opens", providerMetric: "total_opens",
-    ranges, rowsByDate, failedChunks, collectedAt, definitionVersion
+    ranges, rowsByDate, failedChunks, collectedAt: activityCollectedAt, definitionVersion
   });
   const verifiedClicks = makeNewsletterEngagementMetricResult({
     selection, family: "newsletterEmailVerifiedClicks", valueKey: "clicks", providerMetric: "total_verified_clicks",
-    ranges, rowsByDate, failedChunks, collectedAt, definitionVersion
+    ranges, rowsByDate, failedChunks, collectedAt: activityCollectedAt, definitionVersion
   });
   if (failureCode) {
     opens.failureCode ??= failureCode;
@@ -1341,15 +1357,15 @@ async function collectNewsletterEngagements(value, env, collectedAt, now, record
   const historyState = historyEnabled ? {
     selection,
     recordedSince,
-    historyEnd: historyEndDate(now),
+    historyEnd: historyEndDate(activityNow),
     finiteStart: ranges.reduce((earliest, range) => range.startDate < earliest ? range.startDate : earliest,
       ranges[0].startDate),
     apiKey,
     failedChunks,
     rowsByDate,
-    collectedAt
+    collectedAt: activityCollectedAt
   } : undefined;
-  return { opens, verifiedClicks, historyState };
+  return { opens, verifiedClicks, historyState, activityNow };
 }
 
 function scopeFingerprint(sources) {
@@ -3934,6 +3950,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now, co
   let newsletterEmailOpensResult;
   let newsletterEmailVerifiedClicksResult;
   let newsletterEngagementHistoryState;
+  let newsletterEngagementNow = now;
   try {
     if (configuration.schemaVersion === 12 || configuration.schemaVersion === 13) {
       articleInventory = validateArticleInventory(configuration.articleInventory, now);
@@ -3988,7 +4005,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now, co
     let newsletterSelection;
     try {
       newsletterSelection = validateNewsletterSelection(configuration.newsletter);
-      const newsletter = await collectNewsletter(newsletterSelection, env, collectedAt);
+      const newsletter = await collectNewsletter(newsletterSelection, env);
       if (newsletter.newsletter) groups.newsletter = newsletter.newsletter;
       else failures.newsletter = newsletter.newsletterFailure;
       if (newsletterSelection.language === "en") {
@@ -4003,26 +4020,13 @@ async function collectIndependentGroups(configuration, env, collectedAt, now, co
   }
 
   if (configuration.newsletterEngagements === true) {
-    const eligiblePeriods = newsletterEngagementRanges(now).map(({ period }) => period);
     const historyEnabled = configuration.newsletterEngagementRecordedSince !== undefined;
-    const failedResult = (code) => ({
-      group: null,
-      failedPeriods: eligiblePeriods,
-      eligiblePeriods,
-      failureCode: code,
-      ...(historyEnabled ? { historyFailed: true } : {})
-    });
-    try {
-      const result = await collectNewsletterEngagements(
-        configuration.newsletter, env, collectedAt, now, configuration.newsletterEngagementRecordedSince);
-      newsletterEmailOpensResult = result.opens;
-      newsletterEmailVerifiedClicksResult = result.verifiedClicks;
-      newsletterEngagementHistoryState = result.historyState;
-    } catch (error) {
-      if (!(error instanceof CollectorError)) throw error;
-      newsletterEmailOpensResult = failedResult(error.code);
-      newsletterEmailVerifiedClicksResult = failedResult(error.code);
-    }
+    const result = await collectNewsletterEngagements(
+      configuration.newsletter, env, configuration.newsletterEngagementRecordedSince);
+    newsletterEmailOpensResult = result.opens;
+    newsletterEmailVerifiedClicksResult = result.verifiedClicks;
+    newsletterEngagementHistoryState = result.historyState;
+    newsletterEngagementNow = result.activityNow;
     if (newsletterEmailOpensResult.group) groups.newsletterEmailOpens = newsletterEmailOpensResult.group;
     if (newsletterEmailOpensResult.failedPeriods.length > 0) {
       failures.newsletterEmailOpens = newsletterEmailOpensResult.failureCode ?? "BEEHIIV_ENGAGEMENT_REPORT_FAILED";
@@ -4154,8 +4158,10 @@ async function collectIndependentGroups(configuration, env, collectedAt, now, co
             : family === "directoryViews" || family === "directoryOutboundClicks"
               ? configuration.directoryAnalytics.timeZone
               : family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks" ? "UTC" : GOOGLE_SEARCH_TIME_ZONE;
-          const currentYtdStart = `${(timeZone === "UTC" ? new Date(now).toISOString().slice(0, 10)
-            : localDateAt(timeZone, now)).slice(0, 4)}-01-01`;
+          const familyNow = family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks"
+            ? newsletterEngagementNow : now;
+          const currentYtdStart = `${(timeZone === "UTC" ? new Date(familyNow).toISOString().slice(0, 10)
+            : localDateAt(timeZone, familyNow)).slice(0, 4)}-01-01`;
           const records = { ...(groups[family]?.records ?? {}) };
           const search = family === "articleSearchClicks" ? configuration.searchConsole : undefined;
           const searchHistoryEnabled = search?.historyMonths !== undefined;
@@ -4188,7 +4194,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now, co
                 family,
                 newsletterProviderMetric,
                 configuration.newsletterEngagementRecordedSince,
-                now
+                familyNow
               )) {
             records.total = prior.records.total;
           }
