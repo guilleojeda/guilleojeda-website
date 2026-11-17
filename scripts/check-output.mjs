@@ -192,11 +192,13 @@ function checkHomeIntroduction(page, html) {
   const expectedByLocale = {
     en: {
       headline: 'AWS architecture and AI agents in production.',
-      intro: 'I’m Guille Ojeda, Principal Innovation Architect at Caylent. I design systems on AWS and work with AI agents. I focus on evaluating their quality, understanding their costs, and bringing them into production. I share those decisions through articles, talks, and projects.'
+      intro: 'I’m Guille Ojeda, Principal Innovation Architect at Caylent. I design systems on AWS and work with AI agents. I focus on evaluating their quality, understanding their costs, and bringing them into production. I share those decisions through articles, talks, and projects.',
+      recognition: 'AWS Ambassador · Golden Jacket holder · AWS Builder of the Year · LATAM-ES 2025'
     },
     es: {
       headline: 'Arquitectura AWS y agentes de IA en producción.',
-      intro: 'Soy Guille Ojeda, Principal Innovation Architect en Caylent. Diseño sistemas sobre AWS y trabajo con agentes de IA. Me enfoco en cómo evaluar su calidad, entender sus costos y llevarlos a producción. Comparto esas decisiones en artículos, charlas y proyectos.'
+      intro: 'Soy Guille Ojeda, Principal Innovation Architect en Caylent. Diseño sistemas sobre AWS y trabajo con agentes de IA. Me enfoco en cómo evaluar su calidad, entender sus costos y llevarlos a producción. Comparto esas decisiones en artículos, charlas y proyectos.',
+      recognition: 'AWS Ambassador · Golden Jacket holder · AWS Builder of the Year · LATAM-ES 2025'
     }
   };
   const heroSections = [...html.matchAll(/<section\b(?=[^>]*\baria-labelledby=["']hero-title["'])[^>]*>/gi)];
@@ -218,8 +220,8 @@ function checkHomeIntroduction(page, html) {
   assert.ok(title.end <= intro.start, `${lang} hero headline precedes the introduction`);
 
   const introToActions = hero.html.slice(intro.end, actions.start).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-  assert.match(introToActions, /AWS Builder of the Year\s*·\s*LATAM-ES 2025/,
-    `${lang} hero surfaces the award between the introduction and actions`);
+  assert.equal(normalizedText(introToActions), normalizedText(expectedByLocale[lang].recognition),
+    `${lang} hero surfaces all approved recognitions between the introduction and actions`);
 
   const actionLinks = [...actions.html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/gi)];
   assert.equal(actionLinks.length, 2, `${lang} hero has two ordinary action links`);
@@ -484,7 +486,7 @@ function checkSpeakerResources(page, html) {
     invite: 'Invite me to speak at your event',
     summary: 'Speaker resources',
     labels: ['Bio', 'Topics', 'Presentation languages', 'Photo', 'Recording'],
-    bio: "Guille Ojeda is a Principal Innovation Architect in Caylent's Office of the CTO. He writes a newsletter called Simple AWS with 42,000 subscribers, has published more than 250 articles and 2 books, and speaks about AWS architecture and applied AI at events such as AWS Summits and re:Invent. He is an AWS Community Builder, leads AWS AI User Group Argentina, and was named AWS Builder of the Year for LATAM-ES 2025.",
+    bio: "Guille Ojeda is a Principal Innovation Architect in Caylent's Office of the CTO. He writes a newsletter called Simple AWS with 42,000 subscribers, has published more than 250 articles and 2 books, and speaks about AWS architecture and applied AI at events such as AWS Summits and re:Invent. He is an AWS Ambassador, Golden Jacket holder, and AWS Community Builder. He leads AWS AI User Group Argentina and was named AWS Builder of the Year for LATAM-ES 2025.",
     topics: ['Agent evaluation', 'Agent economics', 'AWS architecture'],
     languages: 'English and Spanish',
     download: 'Download Guille’s photo',
@@ -495,7 +497,7 @@ function checkSpeakerResources(page, html) {
     invite: 'Invitame a dar una charla en tu evento',
     summary: 'Recursos para organizadores',
     labels: ['Biografía', 'Temas', 'Idiomas de las charlas', 'Foto', 'Grabación'],
-    bio: 'Guille Ojeda es Principal Innovation Architect en la oficina del CTO de Caylent. Escribe una newsletter llamada Simple AWS con 42,000 suscriptores, ha publicado más de 250 artículos y 2 libros, y da charlas sobre arquitectura AWS e IA aplicada en eventos como AWS Summits y re:Invents. Es AWS Community Builder, lidera AWS AI User Group Argentina y fue reconocido como AWS Builder del Año para LATAM-ES 2025.',
+    bio: 'Guille Ojeda es Principal Innovation Architect en la oficina del CTO de Caylent. Escribe una newsletter llamada Simple AWS con 42,000 suscriptores, ha publicado más de 250 artículos y 2 libros, y da charlas sobre arquitectura AWS e IA aplicada en eventos como AWS Summits y re:Invents. Es AWS Ambassador, Golden Jacket holder y AWS Community Builder. Lidera AWS AI User Group Argentina y fue reconocido como AWS Builder del Año para LATAM-ES 2025.',
     topics: ['Evaluación de agentes', 'Economía de agentes', 'Arquitectura AWS'],
     languages: 'Inglés y español',
     download: 'Descargar foto de Guille',
