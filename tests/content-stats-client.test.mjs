@@ -265,9 +265,60 @@ function newsletterEmailRecords(metric) {
   return Object.fromEntries(newsletterEmailPeriods.map((period) => [period, newsletterEmailRecord(metric, period)]));
 }
 
+function newsletterEmailHistoryRecord(metric, overrides = {}) {
+  const observedAt = metric === 'opens' ? '2026-11-16T20:30:00.000Z' : '2026-11-17T21:45:00.000Z';
+  return newsletterEmailRecord(metric, '12m', {
+    basis: 'reported-history',
+    collectedAt: observedAt,
+    scopeId: (metric === 'opens' ? 'f' : 'e').repeat(64),
+    startDate: '2022-11-13',
+    endDate: metric === 'opens' ? '2026-11-13' : '2026-11-14',
+    [metric]: metric === 'opens' ? 762757 : 30261,
+    ...overrides
+  });
+}
+
+function newsletterEmailHistoryRecords(metric, { total = true } = {}) {
+  const records = newsletterEmailRecords(metric);
+  if (total) records.total = newsletterEmailHistoryRecord(metric);
+  return records;
+}
+
 function snapshotWithNewsletterEngagements({ data = snapshotWithNewsletter(), opens = newsletterEmailRecords('opens'), clicks = newsletterEmailRecords('clicks') } = {}) {
   data.groups.newsletterEmailOpens = { definitionVersion: 1, records: opens };
   data.groups.newsletterEmailVerifiedClicks = { definitionVersion: 1, records: clicks };
+  return data;
+}
+
+function snapshotWithNewsletterReportedHistory({
+  data = snapshotWithNewsletter(),
+  opens = newsletterEmailHistoryRecords('opens'),
+  clicks = newsletterEmailHistoryRecords('clicks')
+} = {}) {
+  data.groups.newsletterEmailOpens = { definitionVersion: 2, records: opens };
+  data.groups.newsletterEmailVerifiedClicks = { definitionVersion: 2, records: clicks };
+  return data;
+}
+
+function newsletterHistoryOnlySnapshot({ opens, clicks, definitionVersion = 2 } = {}) {
+  const data = {
+    schemaVersion: 1,
+    groups: {
+      newsletter: newsletterGroup()
+    }
+  };
+  if (opens !== null) {
+    data.groups.newsletterEmailOpens = {
+      definitionVersion,
+      records: opens ?? { total: newsletterEmailHistoryRecord('opens') }
+    };
+  }
+  if (clicks !== null) {
+    data.groups.newsletterEmailVerifiedClicks = {
+      definitionVersion,
+      records: clicks ?? { total: newsletterEmailHistoryRecord('clicks') }
+    };
+  }
   return data;
 }
 
@@ -856,10 +907,14 @@ function makeNewsletterEmailMetric(kind, locale, card) {
     dataset: { [spec.region + 'Unit']: '' },
     textContent: copy.unit
   }));
+  const historyLabel = results.appendChild(new SemanticElement({
+    dataset: { [spec.region + 'HistoryLabel']: '' },
+    hidden: true
+  }));
   const coverage = results.appendChild(new SemanticElement({ dataset: { [spec.region + 'Coverage']: '' } }));
   const interval = results.appendChild(new SemanticElement({ dataset: { [spec.region + 'Interval']: '' } }));
   const collectedDate = results.appendChild(new SemanticElement({ dataset: { [spec.region + 'CollectedDate']: '' } }));
-  return { region, label, status, results, value, unit, coverage, interval, collectedDate };
+  return { region, label, status, results, value, unit, historyLabel, coverage, interval, collectedDate };
 }
 
 function makeNewsletterSentMetric(locale, card) {
@@ -1648,16 +1703,19 @@ function assertActivityUnavailableMessage(text, locale) {
   'unavailable data has a localized data, language or recorded-total explanation');
 }
 
-function assertNewsletterEmailUnavailable(page, locale, spec, { hidden = false } = {}) {
+function assertNewsletterEmailUnavailable(page, locale, spec, { hidden = false, message } = {}) {
   const metric = page.cards.newsletter[spec.region];
   assert.equal(metric.results.hidden, true, `${spec.group}: unavailable result stays hidden`);
   assert.equal(metric.value.textContent, '', `${spec.group}: unavailable result clears the old count`);
   assert.equal(metric.coverage.textContent, '', `${spec.group}: unavailable result clears old publication provenance`);
   assert.equal(metric.interval.textContent, '', `${spec.group}: unavailable result clears the old period`);
   assert.equal(metric.collectedDate.textContent, '', `${spec.group}: unavailable result clears the old collection date`);
+  assert.equal(metric.historyLabel.textContent, '', `${spec.group}: unavailable result clears the history basis label`);
+  assert.equal(metric.historyLabel.hidden, true, `${spec.group}: unavailable result hides the history basis label`);
   assert.equal(metric.status.hidden, hidden, `${spec.group}: unavailable status follows content-language visibility`);
   if (hidden) return;
-  assertActivityUnavailableMessage(metric.status.textContent, locale);
+  if (message === undefined) assertActivityUnavailableMessage(metric.status.textContent, locale);
+  else assert.equal(metric.status.textContent, message, `${spec.group}: status explains the selected state`);
 }
 
 function assertNewsletterEmailVisible(page, locale, spec, period) {
@@ -1669,12 +1727,34 @@ function assertNewsletterEmailVisible(page, locale, spec, period) {
   assert.equal(metric.value.textContent, new Intl.NumberFormat(locale).format(record[spec.metric]), `${spec.group}: value comes from the selected period`);
   assert.match(metric.label.textContent, spec.label[locale], `${spec.group}: heading names the metric in the interface language`);
   assert.match(metric.unit.textContent, spec.unit[locale], `${spec.group}: unit stays concise`);
+  assert.equal(metric.historyLabel.textContent, '', `${spec.group}: ordinary period results have no history basis label`);
+  assert.equal(metric.historyLabel.hidden, true, `${spec.group}: ordinary period results hide the history basis label`);
   assert.equal(metric.coverage.textContent, 'Simple AWS', `${spec.group}: publication identity is visible`);
   assert.ok(metric.interval.textContent.includes('UTC'), `${spec.group}: reported period names UTC`);
   const formatDateOnly = (date) => new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00.000Z`));
   assert.ok(metric.interval.textContent.includes(formatDateOnly(record.startDate)), `${spec.group}: start date comes from the selected record`);
   assert.ok(metric.interval.textContent.includes(formatDateOnly(record.endDate)), `${spec.group}: end date comes from the selected record`);
   assert.equal(metric.collectedDate.textContent, expectedDate(locale, record.collectedAt), `${spec.group}: collection date is independent for this period`);
+}
+
+function assertNewsletterEmailHistoryVisible(page, locale, spec) {
+  const record = page.data.groups[spec.group].records.total;
+  const metric = page.cards.newsletter[spec.region];
+  const expectedHistoryLabel = locale === 'es' ? 'Historial reportado por Beehiiv' : 'History reported by Beehiiv';
+  assert.equal(metric.region.hidden, false, `${spec.group}: reported history is visible for All/English`);
+  assert.equal(metric.results.hidden, false, `${spec.group}: reported history renders its result`);
+  assert.equal(metric.status.hidden, true, `${spec.group}: reported history clears the loading or unavailable status`);
+  assert.equal(metric.value.textContent, new Intl.NumberFormat(locale).format(record[spec.metric]), `${spec.group}: reported history uses its own total`);
+  assert.equal(metric.historyLabel.textContent, expectedHistoryLabel, `${spec.group}: total-only basis label is localized`);
+  assert.equal(metric.historyLabel.hidden, false, `${spec.group}: total-only basis label is visible`);
+  assert.equal(metric.historyLabel.parentNode, metric.results, `${spec.group}: total-only basis label is inside the result region`);
+  assert.match(metric.label.textContent, spec.label[locale], `${spec.group}: history keeps the metric heading`);
+  assert.match(metric.unit.textContent, spec.unit[locale], `${spec.group}: history keeps the ordinary unit`);
+  assert.equal(metric.coverage.textContent, 'Simple AWS', `${spec.group}: history keeps its own publication identity`);
+  assert.ok(metric.interval.textContent.includes(record.timeZone), `${spec.group}: history metadata names UTC`);
+  assert.ok(metric.interval.textContent.includes(expectedDateOnly(locale, record.startDate)), `${spec.group}: history metadata shows its own start date`);
+  assert.ok(metric.interval.textContent.includes(expectedDateOnly(locale, record.endDate)), `${spec.group}: history metadata shows its own end date`);
+  assert.equal(metric.collectedDate.textContent, expectedDate(locale, record.collectedAt), `${spec.group}: history metadata shows its own last successful fetch`);
 }
 
 function assertViewsUnavailable(page, locale) {
@@ -3848,7 +3928,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.newsletter.card.hidden, false, `${selectedSpec.group} alone keeps the card visible`);
       assertNewsletterUnavailable(page, locale);
       assertNewsletterEmailVisible(page, locale, selectedSpec, '12m');
-      assertNewsletterEmailUnavailable(page, locale, siblingSpec);
+      assertNewsletterEmailUnavailable(page, locale, siblingSpec, { message: newsletterHistoryMissingCopy(locale) });
       assert.equal(page.fetchCount, 1);
     }
   });
@@ -3915,7 +3995,7 @@ for (const locale of ['en', 'es']) {
     for (const [description, mutate] of [
       ['unknown period key', (group) => { group.records.total = newsletterEmailRecord(spec.metric, '12m'); }],
       ['unknown group key', (group) => { group.future = true; }],
-      ['future definition version', (group) => { group.definitionVersion = 2; }]
+      ['unsupported definition version', (group) => { group.definitionVersion = 3; }]
     ]) {
       test(`${locale} ${spec.group} isolates ${description} from the other email metric`, async () => {
         const data = snapshotWithNewsletterEngagements();
@@ -6718,10 +6798,12 @@ function invalidatePhase7Records(records, field) {
 }
 
 for (const locale of ['en', 'es']) {
-  test(`${locale} activity metrics with absent, invalid, empty, or all-invalid families use generic missing-data copy`, async () => {
+  test(`${locale} activity metrics explain absent, invalid, empty, or all-invalid families`, async () => {
     for (const spec of phase7MetricSpecs) {
       for (const scenario of ['absent', 'invalid group', 'empty records', 'no valid records']) {
         const data = phase7Snapshot();
+        const absentEmail = scenario === 'absent'
+          && newsletterEmailMetricSpecs.find(({ group }) => group === spec.group);
         if (scenario === 'absent') {
           delete data.groups[spec.group];
         } else if (scenario === 'invalid group') {
@@ -6738,13 +6820,15 @@ for (const locale of ['en', 'es']) {
           page.selector.value = 'es';
           page.selector.dispatch('change');
         }
-        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
+        else assertPhase7MetricUnavailable(page, locale, spec, 'generic');
         assert.equal(page.periodSelector.disabled, false, `${spec.label}/${scenario}: a healthy sibling keeps the shared period selector available`);
         assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: a healthy sibling still supports Recorded total`);
         page.periodSelector.value = 'total';
         page.periodSelector.dispatch('change');
 
-        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
+        else assertPhase7MetricUnavailable(page, locale, spec, 'generic');
         assert.equal(page.fetchCount, 1, `${spec.label}/${scenario}: reason selection is local to the fetched snapshot`);
       }
     }
@@ -7321,5 +7405,348 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.talks.count.textContent, '1');
     assert.equal(page.cards.talks.results.hidden, false);
     assert.equal(page.fetchCount, 1);
+  });
+}
+
+function newsletterHistoryMissingCopy(locale) {
+  return locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.';
+}
+
+function assertNewsletterHistoryReportStatus(page, locale, { opensValue, clicksValue, history = false, statuses = {} } = {}) {
+  const text = page.reportStatus.textContent;
+  const labels = locale === 'es'
+    ? { opens: /aperturas? de emails?/i, clicks: /clics? verificados? en emails?/i }
+    : { opens: /email opens?/i, clicks: /verified email clicks?/i };
+  const segments = text.split(/\s*·\s*/).filter(Boolean);
+  const segmentFor = (metric) => {
+    const matches = segments.filter((candidate) => labels[metric].test(candidate));
+    assert.equal(matches.length, 1, `${locale} shared report status announces ${metric} exactly once`);
+    const [segment] = matches;
+    return segment;
+  };
+  const metricSegments = { opens: segmentFor('opens'), clicks: segmentFor('clicks') };
+  for (const [metric, value] of Object.entries({ opens: opensValue, clicks: clicksValue })) {
+    if (value === undefined) continue;
+    const displayed = new Intl.NumberFormat(locale).format(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(metricSegments[metric], new RegExp(`(?:^|[^\\d.,])${displayed}(?![\\d]|[.,]\\d)`),
+      `${locale} report status associates the ${metric} value with its metric`);
+  }
+  const historyMetrics = Array.isArray(history) ? history : history ? ['opens', 'clicks'] : [];
+  const basis = locale === 'es' ? /historial reportado por beehiiv/i : /history reported by beehiiv/i;
+  for (const metric of historyMetrics) {
+    assert.match(metricSegments[metric], basis, `${locale} ${metric} announcement identifies the reported-history basis`);
+  }
+  for (const [metric, message] of Object.entries(statuses)) {
+    assert.ok(metricSegments[metric].includes(message),
+      `${locale} ${metric} announcement explains its specific unavailable state`);
+  }
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} v2 Beehiiv history renders both metrics with independent UTC metadata and transitions`, async () => {
+    const data = snapshotWithNewsletterSent({
+      data: snapshotWithNewsletterReportedHistory(),
+      group: newsletterSentGroup({ sent: 4321, collectedAt: '2026-11-16T21:00:00.000Z' })
+    });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    assert.equal(page.overviewValues.articles.textContent, '11', `${locale} overview retains the article total`);
+    assert.equal(page.overviewValues.talks.textContent, '6', `${locale} overview retains the talks total`);
+    assert.equal(page.overviewValues.books.textContent, '3', `${locale} overview retains the book total`);
+    assert.equal(page.overviewValues.newsletter.textContent, '27', `${locale} overview retains the subscriber total`);
+    assert.equal(page.periodOptions.total.disabled, false, `${locale} reported history makes Recorded total selectable`);
+    const subscriberValue = page.cards.newsletter.count.textContent;
+    const subscriberDate = page.cards.newsletter.collectedDate.textContent;
+
+    page.periodSelector.focus();
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.document.activeElement, page.periodSelector, `${locale} total selection preserves focus`);
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailHistoryVisible(page, locale, spec);
+    assertNewsletterSentVisible(page, locale, 4321, '2026-11-16T21:00:00.000Z');
+    assertNewsletterHistoryReportStatus(page, locale, { opensValue: 762757, clicksValue: 30261, history: true });
+    assert.equal(page.cards.newsletter.count.textContent, subscriberValue, `${locale} total selection preserves subscribers`);
+    assert.equal(page.cards.newsletter.collectedDate.textContent, subscriberDate, `${locale} total selection preserves subscriber date`);
+
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', `${locale} a Spanish total keeps the shared Recorded total selected`);
+    assert.equal(page.cards.articles.count.textContent, '4', `${locale} Spanish Articles total keeps the shared total applicable`);
+    assert.equal(page.cards.talks.count.textContent, '4', `${locale} Spanish Talks total keeps the shared total applicable`);
+    for (const spec of newsletterEmailMetricSpecs) {
+      const metric = page.cards.newsletter[spec.region];
+      assert.equal(metric.region.hidden, true, `${locale} Spanish content hides ${spec.group} at total`);
+      assertNewsletterEmailUnavailable(page, locale, spec, { hidden: true });
+    }
+    assertNewsletterSentUnavailable(page, locale, { hidden: true });
+    assert.doesNotMatch(page.reportStatus.textContent, /history reported by beehiiv|historial reportado por beehiiv/i,
+      `${locale} Spanish content clears the English history announcements`);
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailHistoryVisible(page, locale, spec);
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'total', `${locale} English content keeps the shared Recorded total selected`);
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailHistoryVisible(page, locale, spec);
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailHistoryVisible(page, locale, spec);
+    const subscriberCountWrites = observeTextContentWrites(page.cards.newsletter.count, `${locale} subscriber count`);
+    const subscriberDateWrites = observeTextContentWrites(page.cards.newsletter.collectedDate, `${locale} subscriber date`);
+
+    for (const period of ['7d', '30d', '90d', '12m', 'ytd']) {
+      page.periodSelector.focus();
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assert.equal(page.document.activeElement, page.periodSelector, `${locale} ${period} selection preserves focus`);
+      for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, locale, spec, period);
+      assertNewsletterSentPeriodUnavailable(page, locale);
+      assertNewsletterHistoryReportStatus(page, locale, {
+        opensValue: newsletterEmailFacts[period].value,
+        clicksValue: newsletterEmailFacts[period].value
+      });
+      assert.doesNotMatch(page.reportStatus.textContent, /history reported by beehiiv|historial reportado por beehiiv/i,
+        `${locale} ordinary selection clears the history announcements`);
+    }
+
+    subscriberCountWrites.assertNoWrites(`${locale} period transitions`);
+    subscriberDateWrites.assertNoWrites(`${locale} period transitions`);
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.periodSelector.value, 'ytd', `${locale} English content preserves the selected year-to-date period`);
+    for (const spec of newsletterEmailMetricSpecs) assertNewsletterEmailVisible(page, locale, spec, 'ytd');
+    assert.equal(page.fetchCount, 1, `${locale} all history and period transitions reuse one snapshot request`);
+  });
+
+  test(`${locale} v2 with missing or invalid history total reports missing data while a sibling total remains usable`, async () => {
+    for (const [description, makeData, missingSpec] of [
+      [
+        'missing opens total',
+        () => snapshotWithNewsletterReportedHistory({
+          opens: newsletterEmailHistoryRecords('opens', { total: false })
+        }),
+        newsletterEmailMetricSpecs[0]
+      ],
+      [
+        'invalid verified-click total',
+        () => snapshotWithNewsletterReportedHistory({
+          clicks: newsletterEmailHistoryRecords('clicks')
+        }),
+        newsletterEmailMetricSpecs[1]
+      ]
+    ]) {
+      const data = makeData();
+      if (description === 'invalid verified-click total') {
+        data.groups.newsletterEmailVerifiedClicks.records.total.basis = 'period';
+      }
+      const page = createPage({ locale, data });
+      await page.settle();
+      page.periodSelector.focus();
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+
+      const healthySpec = newsletterEmailMetricSpecs.find((spec) => spec !== missingSpec);
+      const message = newsletterHistoryMissingCopy(locale);
+      assertNewsletterEmailHistoryVisible(page, locale, healthySpec);
+      assertNewsletterEmailUnavailable(page, locale, missingSpec, { message });
+      assert.equal(page.document.activeElement, page.periodSelector, `${locale} ${description} keeps focus on Recorded total`);
+      assertNewsletterHistoryReportStatus(page, locale, {
+        opensValue: missingSpec === newsletterEmailMetricSpecs[0] ? undefined : 762757,
+        clicksValue: missingSpec === newsletterEmailMetricSpecs[1] ? undefined : 30261,
+        history: missingSpec === newsletterEmailMetricSpecs[0] ? ['clicks'] : ['opens'],
+        statuses: { [missingSpec.metric]: message }
+      });
+      assert.equal(page.periodOptions.total.disabled, false, `${locale} a healthy sibling keeps Recorded total enabled`);
+      assert.equal(page.fetchCount, 1, `${locale} ${description} uses one snapshot request`);
+    }
+  });
+
+  test(`${locale} an omitted engagement family reports no data while its sibling shows valid history`, async () => {
+    const data = snapshotWithNewsletterReportedHistory();
+    delete data.groups.newsletterEmailVerifiedClicks;
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    const message = newsletterHistoryMissingCopy(locale);
+    assertNewsletterEmailHistoryVisible(page, locale, newsletterEmailMetricSpecs[0]);
+    assertNewsletterEmailUnavailable(page, locale, newsletterEmailMetricSpecs[1], { message });
+    assertNewsletterHistoryReportStatus(page, locale, {
+      opensValue: 762757,
+      statuses: { clicks: message }
+    });
+    assert.equal(page.periodOptions.total.disabled, false, `${locale} the validated sibling keeps Recorded total enabled`);
+    page.periodSelector.value = '';
+    page.periodSelector.dispatch('change');
+    assertNewsletterEmailVisible(page, locale, newsletterEmailMetricSpecs[0], '12m');
+    assertNewsletterEmailUnavailable(page, locale, newsletterEmailMetricSpecs[1], { message });
+    assertNewsletterHistoryReportStatus(page, locale, { opensValue: 1200, statuses: { clicks: message } });
+    assert.equal(page.fetchCount, 1, `${locale} an omitted v2 family still uses one snapshot request`);
+  });
+
+  test(`${locale} an aggregate with neither email activity family distinguishes unavailable periods from a failed download`, async () => {
+    const data = snapshotWithNewsletterReportedHistory();
+    for (const { group } of newsletterEmailMetricSpecs) delete data.groups[group];
+    const page = createPage({ locale, data });
+    const failed = createPage({ locale, fetchError: new Error('synthetic fetch failure') });
+    await Promise.all([page.settle(), failed.settle()]);
+
+    const missing = newsletterHistoryMissingCopy(locale);
+    for (const period of ['12m', 'total']) {
+      assert.equal(page.periodOptions.total.disabled, false, 'other metrics still support recorded totals');
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      for (const spec of newsletterEmailMetricSpecs) {
+        assertNewsletterEmailUnavailable(page, locale, spec, { message: missing });
+        assertNewsletterEmailUnavailable(failed, locale, spec, { message: newsletterEmailCopy[locale][spec.metric].unavailable });
+      }
+      assertNewsletterHistoryReportStatus(page, locale, { statuses: { opens: missing, clicks: missing } });
+    }
+    assert.equal(page.fetchCount, 1);
+    assert.equal(failed.periodSelector.disabled, true);
+  });
+
+  test(`${locale} mixed history and legacy records distinguish unsupported total, missing period, and transport failure`, async () => {
+    const [opensSpec, clicksSpec] = newsletterEmailMetricSpecs;
+    const opens = newsletterEmailHistoryRecords('opens');
+    opens['30d'].basis = 'reported-history';
+    opens['30d'].endDate = '2026-08-06';
+    const data = snapshotWithNewsletterReportedHistory({ opens });
+    data.groups.newsletterEmailVerifiedClicks = { definitionVersion: 1, records: newsletterEmailRecords('clicks') };
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertNewsletterEmailHistoryVisible(page, locale, opensSpec);
+    const unsupported = locale === 'es' ? 'Esta métrica no ofrece un total registrado.' : 'This metric does not offer a recorded total.';
+    assertNewsletterEmailUnavailable(page, locale, clicksSpec, { message: unsupported });
+    assertNewsletterHistoryReportStatus(page, locale, { opensValue: 762757, history: ['opens'], statuses: { clicks: unsupported } });
+
+    page.periodSelector.value = '30d';
+    page.periodSelector.dispatch('change');
+    const missingPeriod = newsletterHistoryMissingCopy(locale);
+    assertNewsletterEmailUnavailable(page, locale, opensSpec, { message: missingPeriod });
+    assertNewsletterEmailVisible(page, locale, clicksSpec, '30d');
+    assertNewsletterHistoryReportStatus(page, locale, { clicksValue: 30, statuses: { opens: missingPeriod } });
+
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assertNewsletterEmailVisible(page, locale, opensSpec, '7d');
+    assertNewsletterEmailVisible(page, locale, clicksSpec, '7d');
+    assert.equal(page.fetchCount, 1, `${locale} period isolation reuses one snapshot request`);
+
+    const failed = createPage({ locale, fetchError: new Error('synthetic fetch failure') });
+    await failed.settle();
+    const statuses = {};
+    for (const spec of newsletterEmailMetricSpecs) {
+      const message = newsletterEmailCopy[locale][spec.metric].unavailable;
+      assertNewsletterEmailUnavailable(failed, locale, spec, { message });
+      statuses[spec.metric] = message;
+    }
+    assertNewsletterHistoryReportStatus(failed, locale, { statuses });
+    assert.equal(failed.periodSelector.disabled, true, `${locale} a failed download does not offer any periods`);
+  });
+}
+
+for (const locale of ['en', 'es']) {
+  test(`${locale} newsletter email v1 remains five period-only records and rejects extra totals or unknown versions`, async () => {
+    const validV1 = newsletterHistoryOnlySnapshot({ opens: newsletterEmailRecords('opens'), clicks: null, definitionVersion: 1 });
+    const page = createPage({ locale, data: validV1 });
+    await page.settle();
+    assertNewsletterEmailVisible(page, locale, newsletterEmailMetricSpecs[0], '12m');
+    assert.equal(page.periodOptions.total.disabled, true, `${locale} v1 does not offer a Recorded total`);
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assert.equal(page.periodSelector.value, '12m', `${locale} v1 falls back from an unsupported total`);
+    assertNewsletterEmailVisible(page, locale, newsletterEmailMetricSpecs[0], '12m');
+
+    const extraTotal = newsletterEmailRecords('opens');
+    extraTotal.total = newsletterEmailHistoryRecord('opens');
+    const extraPage = createPage({ locale, data: newsletterHistoryOnlySnapshot({ opens: extraTotal, clicks: null, definitionVersion: 1 }) });
+    await extraPage.settle();
+    assertNewsletterEmailUnavailable(extraPage, locale, newsletterEmailMetricSpecs[0]);
+    assert.equal(extraPage.periodOptions.total.disabled, true, `${locale} v1 with an extra total is rejected as a family`);
+
+    const unknownVersion = newsletterHistoryOnlySnapshot({ opens: newsletterEmailRecords('opens'), clicks: null, definitionVersion: 3 });
+    unknownVersion.groups.newsletterEmailOpens.definitionVersion = 3;
+    const unknownPage = createPage({ locale, data: unknownVersion });
+    await unknownPage.settle();
+    assertNewsletterEmailUnavailable(unknownPage, locale, newsletterEmailMetricSpecs[0]);
+    assert.equal(unknownPage.fetchCount, 1, `${locale} unknown-version rejection stays local to the family`);
+  });
+
+  test(`${locale} history alone, including a measured zero, enables Recorded total and preserves the exact result label`, async () => {
+    for (const [spec, record] of [
+      [newsletterEmailMetricSpecs[0], newsletterEmailHistoryRecord('opens', { opens: 0 })],
+      [newsletterEmailMetricSpecs[1], newsletterEmailHistoryRecord('clicks', { clicks: 30261 })]
+    ]) {
+      const groupKey = spec.group === 'newsletterEmailOpens' ? 'opens' : 'clicks';
+      const page = createPage({
+        locale,
+        data: newsletterHistoryOnlySnapshot({ [groupKey]: { total: record }, [groupKey === 'opens' ? 'clicks' : 'opens']: null })
+      });
+      await page.settle();
+      assert.equal(page.periodOptions.total.disabled, false, `${locale} a history-only ${spec.metric} result enables Recorded total`);
+      page.periodSelector.focus();
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      assert.equal(page.document.activeElement, page.periodSelector, `${locale} history-only ${spec.metric} total preserves focus`);
+      assertNewsletterEmailHistoryVisible(page, locale, spec);
+      assert.equal(page.cards.newsletter[spec.region].value.textContent, new Intl.NumberFormat(locale).format(record[spec.metric]),
+        `${locale} history-only ${spec.metric} preserves its value, including zero`);
+
+      page.selector.value = 'es';
+      page.selector.dispatch('change');
+      assert.equal(page.periodSelector.value, '12m', `${locale} Spanish content falls back from an English-only history total`);
+      assert.equal(page.periodOptions.total.disabled, true, `${locale} Spanish content disables the history-only total`);
+      assert.equal(page.cards.newsletter[spec.region].region.hidden, true, `${locale} Spanish content hides the history-only ${spec.metric} row`);
+      assertNewsletterEmailUnavailable(page, locale, spec, { hidden: true });
+
+      page.selector.value = 'all';
+      page.selector.dispatch('change');
+      assert.equal(page.periodSelector.value, '12m', `${locale} returning to All does not auto-select the re-enabled total`);
+      assert.equal(page.periodOptions.total.disabled, false, `${locale} returning to All re-enables the history-only total`);
+      assertNewsletterEmailUnavailable(page, locale, spec, { message: newsletterHistoryMissingCopy(locale) });
+      page.periodSelector.value = 'total';
+      page.periodSelector.dispatch('change');
+      assertNewsletterEmailHistoryVisible(page, locale, spec);
+      assert.equal(page.fetchCount, 1, `${locale} history-only ${spec.metric} transitions reuse one snapshot request`);
+    }
+  });
+}
+
+for (const [locale, observedAt, endDate] of [
+  ['en', '2026-11-16T20:30:00.000Z', '2026-11-13'],
+  ['es', '2026-11-17T21:45:00.000Z', '2026-11-14']
+]) {
+  test(`${locale} reported-history totals require real ordered UTC bounds ending three days before their own observation`, async () => {
+    const valid = newsletterEmailHistoryRecords('opens');
+    valid.total = newsletterEmailHistoryRecord('opens', { collectedAt: observedAt, endDate });
+    const page = createPage({ locale, data: snapshotWithNewsletterReportedHistory({ opens: valid }) });
+    await page.settle();
+    page.periodSelector.value = 'total';
+    page.periodSelector.dispatch('change');
+    assertNewsletterEmailHistoryVisible(page, locale, newsletterEmailMetricSpecs[0]);
+
+    for (const [description, mutate] of [
+      ['non-real start date', (record) => { record.startDate = '2022-02-30'; }],
+      ['reversed bounds', (record) => { record.startDate = '2026-11-14'; record.endDate = '2026-11-13'; }],
+      ['end not three days before UTC observation', (record) => { record.endDate = '2026-11-12'; }],
+      ['non-UTC timezone', (record) => { record.timeZone = 'America/Los_Angeles'; }]
+    ]) {
+      const records = newsletterEmailHistoryRecords('opens');
+      mutate(records.total);
+      const malformed = createPage({ locale, data: snapshotWithNewsletterReportedHistory({ opens: records }) });
+      await malformed.settle();
+      malformed.periodSelector.value = 'total';
+      malformed.periodSelector.dispatch('change');
+      const message = newsletterHistoryMissingCopy(locale);
+      assertNewsletterEmailUnavailable(malformed, locale, newsletterEmailMetricSpecs[0], { message });
+      assertNewsletterHistoryReportStatus(malformed, locale, { statuses: { opens: message } });
+      assert.equal(malformed.fetchCount, 1, `${locale} ${description} uses one snapshot request`);
+    }
   });
 }

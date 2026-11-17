@@ -82,6 +82,10 @@ const supportedCuratedSource = { id: 'website-inventory', label: 'Website invent
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
 const supportedDirectoryPublication = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' };
+const newsletterEmailMetricLabels = {
+  en: { opens: 'Email opens', clicks: 'Verified email clicks' },
+  es: { opens: 'Aperturas de emails', clicks: 'Clics verificados en emails' }
+};
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -602,12 +606,12 @@ function validateDirectoryOutboundClicks(value) {
   ]));
 }
 
-function validateNewsletterEmailRecord(value, metric) {
+function validateNewsletterEmailRecord(value, metric, expectedBasis = 'period') {
   const keys = metric === 'opens'
     ? allowedKeys.newsletterEmailOpensRecord
     : allowedKeys.newsletterEmailVerifiedClicksRecord;
   if (!hasOnlyKeys(value, keys)
-    || value.basis !== 'period'
+    || value.basis !== expectedBasis
     || !isSupportedTimestamp(value.collectedAt)
     || !isSha256(value.scopeId)
     || !hasOnlyKeys(value.publication, allowedKeys.publication)
@@ -620,20 +624,35 @@ function validateNewsletterEmailRecord(value, metric) {
     || value.startDate > value.endDate
     || !isNonnegativeCount(value[metric])) return null;
 
+  if (expectedBasis === 'reported-history') {
+    const queryDay = dateInTimeZone(value.collectedAt, 'UTC');
+    const queryDate = dateOnlyToUtc(queryDay);
+    if (!queryDate || value.endDate !== utcDateOnly(addUtcDays(queryDate, -3))) return null;
+  }
+
   return value;
 }
 
 function validateNewsletterEmailFamily(value, metric) {
   if (!hasOnlyKeys(value, allowedKeys.newsletterEmailGroup)
-    || value.definitionVersion !== 1
+    || ![1, 2].includes(value.definitionVersion)
     || !isRecord(value.records)
-    || !hasAllowedKeys(value.records, knownNewsletterEmailPeriods)) return null;
+    || !hasAllowedKeys(value.records, value.definitionVersion === 2
+      ? [...knownNewsletterEmailPeriods, 'total']
+      : knownNewsletterEmailPeriods)) return null;
 
-  const records = Object.fromEntries(knownNewsletterEmailPeriods.map((period) => [
+  const periods = value.definitionVersion === 2
+    ? [...knownNewsletterEmailPeriods, 'total']
+    : knownNewsletterEmailPeriods;
+
+  const records = Object.fromEntries(periods.map((period) => [
     period,
-    Object.hasOwn(value.records, period) ? validateNewsletterEmailRecord(value.records[period], metric) : null
+    Object.hasOwn(value.records, period)
+      ? validateNewsletterEmailRecord(value.records[period], metric, period === 'total' ? 'reported-history' : 'period')
+      : null
   ]));
-  return Object.values(records).some(Boolean) ? records : null;
+  Object.defineProperty(records, 'definitionVersion', { value: value.definitionVersion, enumerable: false });
+  return Object.values(records).some(Boolean) || value.definitionVersion === 2 ? records : null;
 }
 
 function validateSnapshot(value) {
@@ -653,7 +672,7 @@ function validateSnapshot(value) {
       'newsletterEmailVerifiedClicks'
     ])) return null;
 
-  return {
+  const snapshot = {
     groups: Object.fromEntries(knownKinds.map((kind) => [
       kind,
       Object.hasOwn(value.groups, kind) ? validateGroup(value.groups[kind], kind) : null
@@ -681,6 +700,11 @@ function validateSnapshot(value) {
       ? validateNewsletterEmailFamily(value.groups.newsletterEmailVerifiedClicks, 'clicks')
       : null
   };
+  snapshot.newsletterEmailFamiliesPresent = {
+    newsletterEmailOpens: Object.hasOwn(value.groups, 'newsletterEmailOpens'),
+    newsletterEmailVerifiedClicks: Object.hasOwn(value.groups, 'newsletterEmailVerifiedClicks')
+  };
+  return snapshot;
 }
 
 function getNewsletterEmailElements(section, attribute, family, valueField) {
@@ -693,9 +717,11 @@ function getNewsletterEmailElements(section, attribute, family, valueField) {
     family,
     valueField,
     attributePrefix: `data-stats-newsletter-email-${attribute}`,
+    label: region.querySelector('h4'),
     status: region.querySelector(`[data-stats-newsletter-email-${attribute}-status]`),
     results: region.querySelector(`[data-stats-newsletter-email-${attribute}-results]`),
     value: region.querySelector(`[data-stats-newsletter-email-${attribute}-value]`),
+    historyLabel: region.querySelector(`[data-stats-newsletter-email-${attribute}-history-label]`),
     coverage: region.querySelector(`[data-stats-newsletter-email-${attribute}-coverage]`),
     interval: region.querySelector(`[data-stats-newsletter-email-${attribute}-interval]`),
     collectedDate: region.querySelector(`[data-stats-newsletter-email-${attribute}-collected-date]`)
@@ -1169,6 +1195,10 @@ function newsletterEmailElementsReady(elements) {
 
 function clearNewsletterEmailResult(elements) {
   elements.value.textContent = '';
+  if (elements.historyLabel) {
+    elements.historyLabel.textContent = '';
+    elements.historyLabel.hidden = true;
+  }
   elements.coverage.textContent = '';
   elements.interval.textContent = '';
   elements.collectedDate.textContent = '';
@@ -1181,6 +1211,11 @@ function newsletterEmailUnavailableFallback(locale, valueField) {
   return locale === 'es'
     ? 'Datos de clics verificados en emails: no disponibles.'
     : 'Verified email click data are unavailable.';
+}
+
+function newsletterEmailHistoryLabel(locale, elements) {
+  return elements.historyLabel?.textContent?.trim()
+    || (locale === 'es' ? 'Historial reportado por Beehiiv' : 'History reported by Beehiiv');
 }
 
 function renderNewsletterEmailLoading(elements) {
@@ -1196,48 +1231,77 @@ function renderNewsletterEmailUnavailable(elements, locale, hidden = false, avai
   elements.region.hidden = hidden;
   elements.results.hidden = true;
   clearNewsletterEmailResult(elements);
-  elements.status.textContent = hidden
-    ? ''
-    : activityUnavailableCopy(
-      locale,
-      availability,
-      elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
-        || newsletterEmailUnavailableFallback(locale, elements.valueField)
-    );
+  const genericCopy = elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
+    || newsletterEmailUnavailableFallback(locale, elements.valueField);
+  const statusText = availability?.reason === 'missing' && availability.periodUnavailable
+    ? locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.'
+    : activityUnavailableCopy(locale, availability, genericCopy);
+  elements.status.textContent = hidden ? '' : statusText;
   elements.status.hidden = hidden;
+  return hidden ? null : statusText;
 }
 
 function renderNewsletterEmailMetric(snapshot, locale, language, period, elements) {
-  if (!newsletterEmailElementsReady(elements)) return;
+  if (!newsletterEmailElementsReady(elements)) return null;
   if (language === 'es') {
     renderNewsletterEmailUnavailable(elements, locale, true);
-    return;
+    return null;
   }
 
   const records = snapshot?.[elements.family];
-  const availability = classifyActivityAvailability(records, language, period, knownNewsletterEmailPeriods);
+  const hasHistoryRecord = records && Object.hasOwn(records, 'total');
+  const periodUnavailable = records?.definitionVersion === 2
+    || snapshot?.newsletterEmailFamiliesPresent?.[elements.family] === false;
+  const availability = period === 'total'
+    ? (hasHistoryRecord && records.total
+      ? classifyActivityAvailability(records, language, period, ['total'])
+      : {
+          reason: periodUnavailable || !records ? 'missing' : 'unsupported-total',
+          periodUnavailable
+        })
+    : (() => {
+        const result = classifyActivityAvailability(records, language, period, knownNewsletterEmailPeriods);
+        return result && periodUnavailable ? { ...result, periodUnavailable } : result;
+      })();
   if (availability) {
-    renderNewsletterEmailUnavailable(elements, locale, false, availability);
-    return;
+    const statusText = renderNewsletterEmailUnavailable(elements, locale, false, availability);
+    const label = elements.label?.textContent?.trim()
+      || newsletterEmailMetricLabels[locale][elements.valueField];
+    return `${label}: ${statusText}`;
   }
   const record = records?.[period];
 
   const startDate = formatDateOnly(record.startDate, locale);
   const endDate = formatDateOnly(record.endDate, locale);
+  const isHistory = period === 'total' && record.basis === 'reported-history';
+  if (elements.historyLabel) {
+    elements.historyLabel.textContent = isHistory
+      ? newsletterEmailHistoryLabel(locale, elements)
+      : '';
+    elements.historyLabel.hidden = !isHistory;
+  }
   elements.region.hidden = false;
-  elements.value.textContent = new Intl.NumberFormat(locale).format(record[elements.valueField]);
+  const formattedValue = new Intl.NumberFormat(locale).format(record[elements.valueField]);
+  elements.value.textContent = formattedValue;
   elements.coverage.textContent = record.publication.label;
   elements.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
   elements.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale);
   elements.results.hidden = false;
   elements.status.hidden = true;
   elements.status.textContent = '';
+  const label = elements.label?.textContent?.trim()
+    || newsletterEmailMetricLabels[locale][elements.valueField];
+  const basis = isHistory
+    ? newsletterEmailHistoryLabel(locale, elements)
+    : record.publication.label;
+  return `${label}, ${formattedValue} (${basis})`;
 }
 
-function renderNewsletterEmail(snapshot, locale, language, elements) {
-  const period = elements.periodSelector?.value ?? '12m';
-  renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailOpens);
-  renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailVerifiedClicks);
+function renderNewsletterEmail(snapshot, locale, language, elements, period) {
+  return [
+    renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailOpens),
+    renderNewsletterEmailMetric(snapshot, locale, language, period, elements.newsletterEmailVerifiedClicks)
+  ].filter(Boolean);
 }
 
 function newsletterSentElementsReady(elements) {
@@ -1464,8 +1528,11 @@ function updateRecordedTotalAvailability(snapshot, language, elements) {
   const directoryTotalSupported = language !== 'en'
     && Boolean(snapshot?.directoryViews?.total || snapshot?.directoryOutboundClicks?.total);
   const newsletterSentTotalSupported = language !== 'es' && Boolean(snapshot?.newsletterEmailsSent);
+  const newsletterEmailHistoryTotalSupported = language !== 'es'
+    && Boolean(snapshot?.newsletterEmailOpens?.total || snapshot?.newsletterEmailVerifiedClicks?.total);
   const totalSupported = articlesTotalSupported || talksTotalSupported || articleTotalSupported
-    || searchTotalSupported || directoryTotalSupported || newsletterSentTotalSupported;
+    || searchTotalSupported || directoryTotalSupported || newsletterSentTotalSupported
+    || newsletterEmailHistoryTotalSupported;
   totalOption.disabled = !totalSupported;
   if (!totalSupported && periodSelector.value === 'total') periodSelector.value = '12m';
 }
@@ -1766,12 +1833,14 @@ function renderReport(snapshot, locale, language, elements, { refreshFixed = tru
   if (refreshFixed) {
     renderBuilderViews(snapshot, locale, language, elements);
   }
-  renderNewsletterEmail(snapshot, locale, language, elements);
+  const newsletterEmailStatuses = renderNewsletterEmail(snapshot, locale, language, elements, period);
   renderViews(snapshot, locale, language, elements);
   renderSearch(snapshot, locale, language, elements);
   renderDirectoryViews(snapshot, locale, language, elements);
   renderDirectoryOutboundClicks(snapshot, locale, language, elements);
-  updateReportLiveStatus(elements, [...editorialStatuses, newsletterSentStatus].filter(Boolean).join(' · '));
+  updateReportLiveStatus(elements, [...editorialStatuses, newsletterSentStatus, ...newsletterEmailStatuses]
+    .filter(Boolean)
+    .join(' · '));
 }
 
 async function loadContentStats(section) {

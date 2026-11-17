@@ -805,6 +805,20 @@ function createClock(initialTime = "2026-10-16T12:00:00.000Z") {
   };
 }
 
+function createLambdaContext(remainingTime = 300_000) {
+  const readings = [];
+  return {
+    readings,
+    getRemainingTimeInMillis() {
+      readings.push(remainingTime);
+      return remainingTime;
+    },
+    setRemainingTimeInMillis(value) {
+      remainingTime = value;
+    }
+  };
+}
+
 function bodyText(body) {
   if (typeof body === "string") return body;
   if (Buffer.isBuffer(body) || body instanceof Uint8Array) return Buffer.from(body).toString("utf8");
@@ -12614,6 +12628,71 @@ function phaseThirteenPeriodInput({
   return input;
 }
 
+function phaseFourHistoryInput({ baseInput, recordedSince = "2022-11-13", includeHistory = true } = {}) {
+  const input = phaseThirteenPeriodInput({
+    baseInput: baseInput ?? phaseFourInput()
+  });
+  input.newsletterEngagements = true;
+  if (includeHistory) input.newsletterEngagementRecordedSince = recordedSince;
+  return input;
+}
+
+const phaseFourHistoryStart = "2022-11-13";
+
+function utcDayDistance(startDate, endDate) {
+  return Math.floor((Date.parse(`${endDate}T00:00:00.000Z`) - Date.parse(`${startDate}T00:00:00.000Z`)) / 86_400_000);
+}
+
+function phaseFourHistoryMetricValue(date, metric) {
+  const index = utcDayDistance(phaseFourHistoryStart, date);
+  return metric === "opens" ? index + 1 : index % 3;
+}
+
+function sumPhaseFourHistoryDates(startDate, endDate, metric, { zero = false } = {}) {
+  if (zero) return 0;
+  let total = 0;
+  for (let date = startDate; date <= endDate; date = addUtcDays(date, 1)) {
+    total += phaseFourHistoryMetricValue(date, metric);
+  }
+  return total;
+}
+
+function phaseFourHistoryEnvelopeForRequest(request, {
+  extraBoundaryRow = true,
+  zero = false,
+  mutateRows = () => {}
+} = {}) {
+  const url = new URL(request.url);
+  const startDate = url.searchParams.get("start_date");
+  const numberOfDays = Number(url.searchParams.get("number_of_days"));
+  const rows = Array.from({ length: numberOfDays + (extraBoundaryRow ? 1 : 0) }, (_, offset) => {
+    const date = addUtcDays(startDate, offset);
+    return {
+      date,
+      total_opens: zero ? 0 : phaseFourHistoryMetricValue(date, "opens"),
+      total_verified_clicks: zero ? 0 : phaseFourHistoryMetricValue(date, "clicks"),
+      privateResponseCanary: "synthetic-history-private-daily-canary"
+    };
+  });
+  if (extraBoundaryRow) {
+    rows.at(-1).total_opens = 900_000_000;
+    rows.at(-1).total_verified_clicks = 800_000_000;
+    rows.at(-1).boundaryCanary = "synthetic-history-boundary-canary";
+  }
+  mutateRows(rows, { startDate, numberOfDays });
+  return beehiivEngagementsEnvelope(rows, {
+    publicationId: decodeURIComponent(url.pathname.split("/").at(-2)),
+    granularity: url.searchParams.get("granularity"),
+    emailType: url.searchParams.get("email_type"),
+    startDate,
+    numberOfDays
+  });
+}
+
+function historyEngagementRequests(requestLog) {
+  return beehiivEngagementRequests(requestLog);
+}
+
 function periodArticleFetch({ requestLog = [], caylentPages, builderPages } = {}) {
   return builderApiFetch({
     requestLog,
@@ -13099,4 +13178,714 @@ test("fully selected input13 keeps optional provider and manual Builder families
   assert.notEqual(retained.groups.articles.collectedAt, input13Output.groups.articles.collectedAt);
   assert.deepEqual(retained.groups.builderArticleViews, input13Output.groups.builderArticleViews,
     "input13 without the optional observation retains the prior Builder views and its provenance exactly");
+});
+
+test("input13 Beehiiv history validates before provider work and leaves legacy inputs unchanged", async () => {
+  const valid = phaseFourHistoryInput();
+  const invalidInputs = [
+    ["missing engagement opt-in", (() => {
+      const input = structuredClone(valid);
+      delete input.newsletterEngagements;
+      return input;
+    })()],
+    ["false engagement opt-in", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagements = false;
+      return input;
+    })()],
+    ["missing newsletter", (() => {
+      const input = structuredClone(valid);
+      delete input.newsletter;
+      return input;
+    })()],
+    ["non-English newsletter", (() => {
+      const input = structuredClone(valid);
+      input.newsletter.language = "es";
+      return input;
+    })()],
+    ["invalid history day", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = "2022-02-30";
+      return input;
+    })()],
+    ["null history start", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = null;
+      return input;
+    })()],
+    ["boolean history start", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = true;
+      return input;
+    })()],
+    ["non-ISO history day", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = "2022-2-03";
+      return input;
+    })()],
+    ["non-leap history day", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = "2023-02-29";
+      return input;
+    })()],
+    ["history timestamp instead of UTC day", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = "2022-11-13T00:00:00.000Z";
+      return input;
+    })()],
+    ["history with timezone offset", (() => {
+      const input = structuredClone(valid);
+      input.newsletterEngagementRecordedSince = "2022-11-13+00:00";
+      return input;
+    })()],
+    ["unknown root property", (() => {
+      const input = structuredClone(valid);
+      input.unexpectedHistoryField = "synthetic private selector";
+      return input;
+    })()],
+    ["history field on input12", (() => {
+      const input = structuredClone(valid);
+      input.schemaVersion = 12;
+      delete input.builderArticleDates;
+      return input;
+    })()],
+    ["history field on input10", (() => {
+      const input = phaseThirteenInput({ baseInput: phaseFourInput() });
+      input.newsletterEngagementRecordedSince = "2022-11-13";
+      return input;
+    })()]
+  ];
+
+  for (const [description, input] of invalidInputs) {
+    const requestLog = [];
+    const harness = createHarness({
+      input,
+      fetchFn: phaseThirteenFetch({ requestLog })
+    });
+    const previous = '{"schemaVersion":1,"groups":{"articles":{"collectedAt":"2026-10-15T12:00:00.000Z"}}}';
+    harness.objects.set(outputKey, previous);
+    await assert.rejects(() => harness.handler({}, createLambdaContext()), (error) => {
+      assert.notEqual(error.code, "INPUT_VERSION_UNSUPPORTED", `${description} reaches strict input validation`);
+      return true;
+    });
+    assert.equal(harness.putCalls.length, 0, `${description} cannot publish a partial aggregate`);
+    assert.equal(harness.objects.get(outputKey), previous, `${description} preserves existing bytes`);
+    assert.deepEqual(requestLog, [], `${description} is rejected before provider requests`);
+    assert.deepEqual(harness.secretCalls, [], `${description} is rejected before Beehiiv credentials`);
+    assert.deepEqual(harness.parameterCalls, [], `${description} is rejected before Google credentials`);
+  }
+
+  const legacy = phaseFourHistoryInput({ includeHistory: false });
+  const requestLog = [];
+  const legacyHarness = createHarness({
+    input: legacy,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      engagementResponder: ({ request }) => jsonResponse(phaseFourHistoryEnvelopeForRequest(request))
+    })
+  });
+  await legacyHarness.handler({}, createLambdaContext());
+  const output = await readPut(legacyHarness.putCalls[0]);
+  assert.equal(output.schemaVersion, 1, "the public root remains schema v1");
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(output.groups[family].definitionVersion, 1,
+      `${family} without the optional history start retains its finite v1 contract`);
+    assert.equal(Object.hasOwn(output.groups[family].records, "total"), false,
+      `${family} without the optional history start has no reported-history total`);
+  }
+  assert.equal(legacy.newsletterEngagements, true);
+  assert.equal(Object.hasOwn(legacy, "newsletterEngagementRecordedSince"), false);
+});
+
+test("input13 reports exact Beehiiv history totals with shared older chunks and unchanged finite periods", async () => {
+  const collectionTime = "2024-02-20T12:00:00.000Z";
+  const recentStart = "2023-02-18";
+  const historyEnd = "2024-02-17";
+  const responder = ({ request }) => jsonResponse(phaseFourHistoryEnvelopeForRequest(request));
+
+  const finiteLog = [];
+  const finiteHarness = createHarness({
+    input: phaseFourHistoryInput({ includeHistory: false }),
+    clock: createClock(collectionTime),
+    fetchFn: phaseThirteenFetch({ requestLog: finiteLog, engagementResponder: responder })
+  });
+  await finiteHarness.handler({}, createLambdaContext());
+  const finite = await readPut(finiteHarness.putCalls[0]);
+  const finiteRequests = historyEngagementRequests(finiteLog);
+  assert.equal(finiteRequests.length, 12, "the finite 12-month union uses twelve at-most-31-day requests");
+
+  let activeOlder = 0;
+  let maxActiveOlder = 0;
+  const historyLog = [];
+  const historyHarness = createHarness({
+    input: phaseFourHistoryInput(),
+    clock: createClock(collectionTime),
+    fetchFn: phaseThirteenFetch({
+      requestLog: historyLog,
+      engagementResponder: async ({ request }) => {
+        const startDate = new URL(request.url).searchParams.get("start_date");
+        if (startDate < recentStart) {
+          activeOlder += 1;
+          maxActiveOlder = Math.max(maxActiveOlder, activeOlder);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          activeOlder -= 1;
+        }
+        return responder({ request });
+      }
+    })
+  });
+  await historyHarness.handler({}, createLambdaContext());
+  const output = await readPut(historyHarness.putCalls[0]);
+  const historyRequests = historyEngagementRequests(historyLog);
+  const recentRequests = historyRequests.filter((request) =>
+    new URL(request.url).searchParams.get("start_date") >= recentStart);
+  const olderRequests = historyRequests.filter((request) =>
+    new URL(request.url).searchParams.get("start_date") < recentStart);
+
+  assertBeehiivEngagementRequests(historyHarness, historyRequests);
+  assert.equal(output.schemaVersion, 1, "history keeps the public root at schema v1");
+  assert.equal(historyRequests.length, finiteRequests.length + 4,
+    "history adds only the four older chunks before the finite recent union");
+  assert.equal(olderRequests.length, 4);
+  const olderRanges = olderRequests
+    .map((request) => {
+      const params = new URL(request.url).searchParams;
+      const start = params.get("start_date");
+      const days = Number(params.get("number_of_days"));
+      return [start, addUtcDays(start, days - 1), days];
+    })
+    .sort(([left], [right]) => left.localeCompare(right));
+  assert.deepEqual(olderRanges, [
+    ["2022-11-13", "2022-12-13", 31],
+    ["2022-12-14", "2023-01-13", 31],
+    ["2023-01-14", "2023-02-13", 31],
+    ["2023-02-14", "2023-02-17", 4]
+  ], "older-only chunks cover the exact contiguous history prefix");
+  assert.deepEqual(
+    recentRequests.map((request) => new URL(request.url).search).sort(),
+    finiteRequests.map((request) => new URL(request.url).search).sort(),
+    "the finite recent union is reused exactly rather than refetched per metric or total"
+  );
+  assert.equal(maxActiveOlder <= 4, true, "older requests never exceed four concurrent requests");
+  assert.equal(historyLog.filter(({ kind }) => kind !== "beehiiv-engagements").length > 0, true);
+  const firstOlderIndex = historyLog.findIndex((request) => {
+    if (request.kind !== "beehiiv-engagements") return false;
+    return new URL(request.url).searchParams.get("start_date") < recentStart;
+  });
+  assert.ok(firstOlderIndex > -1);
+  const recentRequestIndices = historyLog
+    .map((request, index) => request.kind === "beehiiv-engagements" &&
+      new URL(request.url).searchParams.get("start_date") >= recentStart ? index : -1)
+    .filter((index) => index >= 0);
+  assert.equal(Math.max(...recentRequestIndices) < firstOlderIndex, true,
+    "the historical prefix starts after all normal recent engagement chunks");
+  assert.equal(historyLog.slice(firstOlderIndex).some((request) =>
+    request.kind !== "beehiiv-engagements"), false,
+  "older history starts only after normal source and publication collection has settled");
+
+  for (const request of historyRequests) {
+    assert.equal(historyHarness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 5_000,
+      "every engagement fetch attempt keeps the five-second deadline");
+  }
+
+  for (const [family, valueKey] of [
+    ["newsletterEmailOpens", "opens"],
+    ["newsletterEmailVerifiedClicks", "clicks"]
+  ]) {
+    const current = output.groups[family];
+    const priorFinite = finite.groups[family];
+    assert.equal(current.definitionVersion, 2, `${family} history activates definition v2`);
+    assert.deepEqual(current.records["7d"], priorFinite.records["7d"],
+      `${family} finite records retain their existing period shape and value`);
+    assert.deepEqual(current.records["30d"], priorFinite.records["30d"]);
+    assert.deepEqual(current.records["90d"], priorFinite.records["90d"]);
+    assert.deepEqual(current.records["12m"], priorFinite.records["12m"]);
+    assert.deepEqual(current.records.ytd, priorFinite.records.ytd);
+    const total = current.records.total;
+    assert.deepEqual(Object.keys(total).sort(), Object.keys(current.records["12m"]).sort(),
+      `${family} total uses the same record keys as finite periods`);
+    assert.equal(total.basis, "reported-history");
+    assert.equal(total.startDate, phaseFourHistoryStart);
+    assert.equal(total.endDate, historyEnd);
+    assert.equal(total.collectedAt, collectionTime, "history total carries its own collection timestamp");
+    assert.equal(total[valueKey], family === "newsletterEmailOpens" ? 106_953 : 462,
+      `${family} sums the exact inclusive UTC history range, excluding each provider boundary day`);
+  }
+  assert.notEqual(
+    output.groups.newsletterEmailOpens.records.total.opens,
+    sumPhaseFourHistoryDates(phaseFourHistoryStart, addUtcDays(historyEnd, 1), "opens"),
+    "the provider's extra day is clipped from the reported-history total"
+  );
+  assertNoNewsletterCanaries(historyHarness,
+    beehiivApiKey,
+    "synthetic-history-private-daily-canary",
+    "synthetic-history-boundary-canary");
+});
+
+test("Beehiiv history distinguishes zero rows, sparse data, metric invalidity, malformed chunks, and common failures", async () => {
+  const collectionTime = "2024-02-20T12:00:00.000Z";
+  const firstOlderChunk = phaseFourHistoryStart;
+  const runScenario = async (description, engagementResponder) => {
+    const requestLog = [];
+    const harness = createHarness({
+      input: phaseFourHistoryInput(),
+      clock: createClock(collectionTime),
+      fetchFn: phaseThirteenFetch({ requestLog, engagementResponder })
+    });
+    await harness.handler({}, createLambdaContext());
+    const output = await readPut(harness.putCalls[0]);
+    assert.equal(harness.putCalls.length, 1, `${description} publishes one complete public object`);
+    assertNoNewsletterCanaries(harness, beehiivApiKey, "synthetic-history-private-daily-canary");
+    return { harness, output, requestLog };
+  };
+
+  const zero = await runScenario("explicit zero rows", ({ request }) => jsonResponse(
+    phaseFourHistoryEnvelopeForRequest(request, { zero: true })
+  ));
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(zero.output.groups[family].definitionVersion, 2);
+    assert.equal(zero.output.groups[family].records["7d"].opens ?? zero.output.groups[family].records["7d"].clicks, 0,
+      `${family} keeps a measured zero period`);
+    assert.equal(zero.output.groups[family].records.total.opens ?? zero.output.groups[family].records.total.clicks, 0,
+      `${family} keeps a measured zero history total`);
+  }
+
+  const emptyHistory = await runScenario("wholly empty requested history", ({ request }) => {
+    const url = new URL(request.url);
+    return jsonResponse(beehiivEngagementsEnvelope([], {
+      publicationId: decodeURIComponent(url.pathname.split("/").at(-2)),
+      granularity: url.searchParams.get("granularity"),
+      emailType: url.searchParams.get("email_type"),
+      startDate: url.searchParams.get("start_date"),
+      numberOfDays: Number(url.searchParams.get("number_of_days"))
+    }));
+  });
+  assert.equal(Object.hasOwn(emptyHistory.output.groups, "newsletterEmailOpens"), false,
+    "an entirely empty requested history is unavailable rather than scalar zero");
+  assert.equal(Object.hasOwn(emptyHistory.output.groups, "newsletterEmailVerifiedClicks"), false,
+    "an entirely empty requested history is unavailable for both metrics");
+
+  const emptyOlderBlock = await runScenario("one wholly empty older block", ({ request }) => {
+    const url = new URL(request.url);
+    if (url.searchParams.get("start_date") === firstOlderChunk) {
+      return jsonResponse(beehiivEngagementsEnvelope([], {
+        publicationId: decodeURIComponent(url.pathname.split("/").at(-2)),
+        granularity: url.searchParams.get("granularity"),
+        emailType: url.searchParams.get("email_type"),
+        startDate: url.searchParams.get("start_date"),
+        numberOfDays: Number(url.searchParams.get("number_of_days"))
+      }));
+    }
+    return jsonResponse(phaseFourHistoryEnvelopeForRequest(request));
+  });
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(emptyOlderBlock.output.groups[family].records.total[family === "newsletterEmailOpens" ? "opens" : "clicks"],
+      family === "newsletterEmailOpens" ? 106_457 : 432,
+      `${family} sums the valid history while treating one empty older block as sparse`);
+    assert.ok(emptyOlderBlock.output.groups[family].records["12m"],
+      `${family} keeps valid finite periods from the remaining blocks`);
+  }
+
+  const sparse = await runScenario("sparse rows", ({ request }) => jsonResponse(
+    phaseFourHistoryEnvelopeForRequest(request, {
+      mutateRows(rows, { startDate }) {
+        if (startDate === firstOlderChunk) rows.shift();
+      }
+    })
+  ));
+  assert.equal(sparse.output.groups.newsletterEmailOpens.records.total.opens, 106_952,
+    "sparse nonempty history sums returned dates without inventing missing rows");
+  assert.equal(sparse.output.groups.newsletterEmailVerifiedClicks.records.total.clicks, 462,
+    "sparse rows keep the other metric's exact total");
+
+  const invalidMetric = await runScenario("invalid selected metric", ({ request }) => jsonResponse(
+    phaseFourHistoryEnvelopeForRequest(request, {
+      mutateRows(rows, { startDate }) {
+        if (startDate === firstOlderChunk) rows[0].total_opens = null;
+      }
+    })
+  ));
+  assert.equal(Object.hasOwn(invalidMetric.output.groups.newsletterEmailOpens.records, "total"), false,
+    "an invalid opens value isolates the opens history total");
+  assert.equal(invalidMetric.output.groups.newsletterEmailVerifiedClicks.records.total.clicks, 462,
+    "an invalid opens value leaves the verified-click history total healthy");
+  assert.ok(invalidMetric.output.groups.newsletterEmailOpens.records["12m"],
+    "an invalid older value does not invalidate a disjoint recent period");
+
+  const overflowingMetric = await runScenario("safe blocks whose combined metric sum overflows", ({ request }) => jsonResponse(
+    phaseFourHistoryEnvelopeForRequest(request, {
+      mutateRows(rows, { startDate }) {
+        if (startDate === firstOlderChunk) {
+          for (const row of rows) row.total_opens = 0;
+          rows[0].total_opens = Number.MAX_SAFE_INTEGER;
+        }
+      }
+    })
+  ));
+  assert.equal(Object.hasOwn(overflowingMetric.output.groups.newsletterEmailOpens.records, "total"), false,
+    "an unsafe combined opens sum is isolated even when each block sum is safe");
+  assert.equal(overflowingMetric.output.groups.newsletterEmailVerifiedClicks.records.total.clicks, 462,
+    "the other history metric and finite periods still publish after a combined-sum overflow");
+  assert.ok(overflowingMetric.output.groups.newsletterEmailOpens.records["12m"]);
+
+  const malformed = await runScenario("malformed provider chunk", ({ request }) => jsonResponse(
+    phaseFourHistoryEnvelopeForRequest(request, {
+      mutateRows(rows, { startDate }) {
+        if (startDate === firstOlderChunk) rows[1].date = rows[0].date;
+      }
+    })
+  ));
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(Object.hasOwn(malformed.output.groups[family].records, "total"), false,
+      `${family} has no partial total after malformed shared history`);
+    assert.ok(malformed.output.groups[family].records["12m"],
+      `${family} keeps its healthy recent period after malformed older history`);
+  }
+
+  const failedChunk = await runScenario("failed common chunk", ({ request }) => {
+    const url = new URL(request.url);
+    if (url.searchParams.get("start_date") === firstOlderChunk) {
+      return jsonResponse({ error: "synthetic common history outage" }, 503);
+    }
+    return jsonResponse(phaseFourHistoryEnvelopeForRequest(request));
+  });
+  const failedChunkRequests = historyEngagementRequests(failedChunk.requestLog).filter((request) =>
+    new URL(request.url).searchParams.get("start_date") === firstOlderChunk);
+  assert.equal(failedChunkRequests.length, 2, "one transient older failure receives exactly one retry");
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(Object.hasOwn(failedChunk.output.groups[family].records, "total"), false,
+      `${family} never publishes a partial history total after a common chunk failure`);
+    assert.ok(failedChunk.output.groups[family].records["12m"],
+      `${family} still publishes its complete recent period`);
+  }
+  for (const request of failedChunkRequests) {
+    assert.equal(failedChunk.harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 5_000);
+  }
+});
+
+test("Beehiiv history retains compatible totals independently, recovers without accumulation, and drops them on scope changes", async () => {
+  const collectionTime = "2024-02-20T12:00:00.000Z";
+  const recentStart = "2023-02-18";
+  let mode = "success";
+  const requestLog = [];
+  const engagementResponder = ({ request }) => {
+    const url = new URL(request.url);
+    const startDate = url.searchParams.get("start_date");
+    if (mode === "fail-older" && startDate < recentStart ||
+        mode === "fail-recent" && startDate === recentStart) {
+      return jsonResponse({ error: "synthetic historical outage" }, 503);
+    }
+    return jsonResponse(phaseFourHistoryEnvelopeForRequest(request, {
+      mutateRows(rows) {
+        if (mode === "invalid-opens-fresh-recent" && startDate === phaseFourHistoryStart) {
+          rows[0].total_opens = null;
+        }
+        if (mode === "fresh-recent" && startDate >= recentStart) {
+          for (const row of rows) {
+            row.total_opens += 100;
+            row.total_verified_clicks += 10;
+          }
+        }
+      }
+    }));
+  };
+  const newsletterResponder = ({ request }) => {
+    const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+    return jsonResponse(newsletterEnvelope(publicationId, 20, 88));
+  };
+  const harness = createHarness({
+    input: phaseFourHistoryInput(),
+    clock: createClock(collectionTime),
+    fetchFn: phaseThirteenFetch({ requestLog, engagementResponder, newsletterResponder })
+  });
+
+  await harness.handler({}, createLambdaContext());
+  const first = await readPut(harness.putCalls[0]);
+  const firstOpensTotal = first.groups.newsletterEmailOpens.records.total;
+  const firstClicksTotal = first.groups.newsletterEmailVerifiedClicks.records.total;
+  assert.equal(firstOpensTotal.opens, 106_953);
+  assert.equal(firstClicksTotal.clicks, 462);
+
+  const priorV1Harness = createHarness({
+    input: phaseFourHistoryInput({ includeHistory: false }),
+    clock: createClock("2024-02-19T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      requestLog: [],
+      engagementResponder: ({ request }) => jsonResponse(phaseFourHistoryEnvelopeForRequest(request))
+    })
+  });
+  await priorV1Harness.handler({}, createLambdaContext());
+  const priorV1 = await readPut(priorV1Harness.putCalls[0]);
+  const v1TransitionRequests = [];
+  const v1TransitionHarness = createHarness({
+    input: phaseFourHistoryInput(),
+    clock: createClock(collectionTime),
+    fetchFn: phaseThirteenFetch({
+      requestLog: v1TransitionRequests,
+      engagementResponder: ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("start_date") === recentStart) {
+          return jsonResponse({ error: "synthetic reused-recent outage" }, 503);
+        }
+        return jsonResponse(phaseFourHistoryEnvelopeForRequest(request));
+      }
+    })
+  });
+  v1TransitionHarness.objects.set(outputKey, JSON.stringify(priorV1));
+  await v1TransitionHarness.handler({}, createLambdaContext());
+  const v1Transition = await readPut(v1TransitionHarness.putCalls[0]);
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(v1Transition.groups[family].definitionVersion, 2,
+      `${family} upgrades a real prior v1 group while collecting history`);
+    assert.deepEqual(v1Transition.groups[family].records["12m"], priorV1.groups[family].records["12m"],
+      `${family} retains the intersecting rolling period from the prior v1 record exactly`);
+    assert.equal(v1Transition.groups[family].records["7d"].collectedAt,
+      collectionTime, `${family} refreshes the disjoint rolling period`);
+    assert.equal(Object.hasOwn(v1Transition.groups[family].records, "total"), false,
+      `${family} does not emit a history total from retained finite data`);
+  }
+  assert.equal(v1TransitionRequests.filter((request) => request.kind === "beehiiv-engagements").filter((request) =>
+    new URL(request.url).searchParams.get("start_date") === recentStart).length, 2,
+  "the reused recent chunk receives one transient retry during v1-to-v2 transition");
+
+  mode = "invalid-opens-fresh-recent";
+  harness.clock.set("2024-02-20T13:00:00.000Z");
+  await harness.handler({}, createLambdaContext());
+  const retained = await readPut(harness.putCalls[1]);
+  assert.deepEqual(retained.groups.newsletterEmailOpens.records.total, firstOpensTotal,
+    "an invalid historical opens metric retains only the compatible prior opens total byte-for-byte");
+  assert.equal(retained.groups.newsletterEmailVerifiedClicks.records.total.clicks, 462,
+    "a healthy click total remains independently publishable");
+  assert.equal(retained.groups.newsletterEmailVerifiedClicks.records.total.collectedAt,
+    "2024-02-20T13:00:00.000Z", "the healthy metric receives its own new collection time");
+  assert.equal(retained.groups.newsletterEmailOpens.records["12m"].collectedAt,
+    "2024-02-20T13:00:00.000Z", "finite periods refresh while the historical total is retained");
+
+  mode = "fresh-recent";
+  harness.clock.set("2024-02-20T14:00:00.000Z");
+  await harness.handler({}, createLambdaContext());
+  const recovered = await readPut(harness.putCalls[2]);
+  assert.equal(recovered.groups.newsletterEmailOpens.records.total.opens, 143_453,
+    "a recovered history total recomputes from provider rows instead of adding to its retained value");
+  assert.equal(recovered.groups.newsletterEmailVerifiedClicks.records.total.clicks, 4_112,
+    "a recovered click history total also avoids rolling accumulation");
+  assert.equal(recovered.groups.newsletterEmailOpens.records.total.collectedAt,
+    "2024-02-20T14:00:00.000Z");
+
+  const malformedPrior = structuredClone(recovered);
+  malformedPrior.groups.newsletterEmailOpens.records.total.privateField = "synthetic-malformed-history-prior";
+  harness.objects.set(outputKey, JSON.stringify(malformedPrior));
+  mode = "fail-older";
+  harness.clock.set("2024-02-20T15:00:00.000Z");
+  await harness.handler({}, createLambdaContext());
+  const malformedRetention = await readPut(harness.putCalls[3]);
+  assert.equal(Object.hasOwn(malformedRetention.groups.newsletterEmailOpens.records, "total"), false,
+    "a malformed prior history total is omitted instead of being relabeled or partially retained");
+  assert.deepEqual(malformedRetention.groups.newsletterEmailVerifiedClicks.records.total,
+    recovered.groups.newsletterEmailVerifiedClicks.records.total,
+    "a common failed history chunk retains a compatible independent click total exactly");
+
+  const changedStart = phaseFourHistoryInput({ recordedSince: "2022-11-14" });
+  harness.setInput(changedStart);
+  harness.objects.set(outputKey, JSON.stringify(first));
+  mode = "fail-older";
+  harness.clock.set("2024-02-20T16:00:00.000Z");
+  await harness.handler({}, createLambdaContext());
+  const changedStartOutput = await readPut(harness.putCalls[4]);
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(Object.hasOwn(changedStartOutput.groups[family].records, "total"), false,
+      `${family} does not retain a prior total when the selected history start changes`);
+  }
+
+  const changedScope = phaseFourHistoryInput();
+  changedScope.newsletter.publicationId = "synthetic-next-publication-id";
+  harness.setInput(changedScope);
+  harness.objects.set(outputKey, JSON.stringify(first));
+  mode = "fail-older";
+  harness.clock.set("2024-02-20T17:00:00.000Z");
+  await harness.handler({}, createLambdaContext());
+  const changedScopeOutput = await readPut(harness.putCalls[5]);
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(Object.hasOwn(changedScopeOutput.groups[family].records, "total"), false,
+      `${family} does not relabel a prior total under a changed publication scope`);
+  }
+
+  const optOut = phaseFourHistoryInput({ includeHistory: false });
+  const requestsBeforeOptOut = historyEngagementRequests(requestLog).length;
+  harness.setInput(optOut);
+  harness.objects.set(outputKey, JSON.stringify(recovered));
+  mode = "fail-recent";
+  harness.clock.set("2024-02-20T18:00:00.000Z");
+  await harness.handler({}, createLambdaContext());
+  const rolledBack = await readPut(harness.putCalls[6]);
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    assert.equal(rolledBack.groups[family].definitionVersion, 1,
+      `${family} returns to definition v1 when history is opted out`);
+    assert.deepEqual(rolledBack.groups[family].records["12m"], recovered.groups[family].records["12m"],
+      `${family} retains the compatible failed recent period exactly across the v2-to-v1 rollback`);
+    assert.equal(rolledBack.groups[family].records["7d"].collectedAt,
+      "2024-02-20T18:00:00.000Z", `${family} refreshes a healthy recent period after rollback`);
+    assert.equal(Object.hasOwn(rolledBack.groups[family].records, "total"), false,
+      `${family} drops the prior history total on v1 rollback`);
+  }
+  assert.equal(harness.putCalls.length, 7);
+  const rollbackRequests = historyEngagementRequests(requestLog).slice(requestsBeforeOptOut);
+  assert.equal(rollbackRequests.length, 13,
+    "the rollback runs twelve ordinary finite chunks plus one retry");
+  assert.equal(new Set(rollbackRequests.map((request) => request.url)).size, 12,
+    "the rollback still covers exactly the twelve ordinary finite intervals");
+  assert.equal(rollbackRequests.some((request) =>
+    new URL(request.url).searchParams.get("start_date") < "2023-02-18"), false,
+  "the rollback does not issue older-history requests");
+  assert.equal(rollbackRequests.filter((request) =>
+    new URL(request.url).searchParams.get("start_date") === "2023-02-18").length, 2,
+  "one failed recent chunk receives the normal single retry");
+  assertNoNewsletterCanaries(harness, "synthetic-malformed-history-prior", "synthetic historical outage");
+});
+
+test("history stops before a later older batch when Lambda time is below the publication reserve", async () => {
+  const collectionTime = "2026-10-20T12:00:00.000Z";
+  const recentStart = "2025-10-18";
+  const context = createLambdaContext(60_000);
+  const requestLog = [];
+  const deadlineInput = phaseFourHistoryInput({ baseInput: phaseSixInput() });
+  const seedHarness = createHarness({
+    input: deadlineInput,
+    clock: createClock("2026-10-19T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      requestLog: [],
+      engagementResponder: ({ request }) => jsonResponse(phaseFourHistoryEnvelopeForRequest(request)),
+      reportResponder: ({ request }) => jsonResponse(ga4Report({ views: 31, metricName: request.json.metrics[0]?.name })),
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 29 }))
+    })
+  });
+  await seedHarness.handler({}, createLambdaContext());
+  const seeded = await readPut(seedHarness.putCalls[0]);
+  const coreCompleted = { caylent: false, builder: false, newsletter: false, google: false };
+  const attempts = new Map();
+  let activeOlder = 0;
+  let maxActiveOlder = 0;
+  let olderCompleted = 0;
+  let olderStartedBeforeCoreCompleted = false;
+  let googleCompletedRequests = 0;
+  const builderPages = new Map([["", () => {
+    coreCompleted.builder = true;
+    return jsonResponse({ articles: [], resultsSize: 0 });
+  }]]);
+  const caylentPages = new Map([[0, () => {
+    coreCompleted.caylent = true;
+    return jsonResponse({ results: [] });
+  }]]);
+  const engagementResponder = async ({ request }) => {
+    const url = new URL(request.url);
+    const startDate = url.searchParams.get("start_date");
+    if (startDate < recentStart) {
+      if (!coreCompleted.caylent || !coreCompleted.builder || !coreCompleted.newsletter || !coreCompleted.google) {
+        olderStartedBeforeCoreCompleted = true;
+      }
+      activeOlder += 1;
+      maxActiveOlder = Math.max(maxActiveOlder, activeOlder);
+      const key = url.toString();
+      const attempt = (attempts.get(key) ?? 0) + 1;
+      attempts.set(key, attempt);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (attempt === 1 && startDate === phaseFourHistoryStart) {
+        activeOlder -= 1;
+        return jsonResponse({ error: "synthetic older transient failure" }, 503);
+      }
+      olderCompleted += 1;
+      activeOlder -= 1;
+      if (olderCompleted >= 4) context.setRemainingTimeInMillis(39_999);
+    }
+    return jsonResponse(phaseFourHistoryEnvelopeForRequest(request, {
+      mutateRows(rows) {
+        if (startDate >= recentStart) {
+          for (const row of rows) {
+            row.total_opens += 17;
+            row.total_verified_clicks += 3;
+          }
+        }
+      }
+    }));
+  };
+  const harness = createHarness({
+    input: deadlineInput,
+    clock: createClock(collectionTime),
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      builderPages,
+      caylentPages,
+      newsletterResponder: ({ request }) => {
+        coreCompleted.newsletter = true;
+        const publicationId = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(publicationId, 20, 88));
+      },
+      engagementResponder,
+      reportResponder: ({ request }) => {
+        googleCompletedRequests += 1;
+        coreCompleted.google = googleCompletedRequests >= 10;
+        return jsonResponse(ga4Report({ views: 41, metricName: request.json.metrics[0]?.name }));
+      },
+      searchResponder: () => {
+        googleCompletedRequests += 1;
+        coreCompleted.google = googleCompletedRequests >= 10;
+        return jsonResponse(searchConsoleResponse({ clicks: 43 }));
+      }
+    })
+  });
+  harness.objects.set(outputKey, JSON.stringify(seeded));
+
+  await harness.handler({}, context);
+  const output = await readPut(harness.putCalls[0]);
+  const engagementRequests = historyEngagementRequests(requestLog);
+  const olderRequests = engagementRequests.filter((request) =>
+    new URL(request.url).searchParams.get("start_date") < recentStart);
+  const firstOlderIndex = requestLog.findIndex((request) =>
+    request.kind === "beehiiv-engagements" && new URL(request.url).searchParams.get("start_date") < recentStart);
+  const firstOlderAttempt = olderRequests.find((request) =>
+    new URL(request.url).searchParams.get("start_date") === phaseFourHistoryStart);
+
+  assert.equal(harness.putCalls.length, 1, "low remaining time still publishes through the existing PutObject path");
+  assert.equal(context.readings.some((value) => value < 40_000), true,
+    "the Lambda context is queried after a batch reaches the low-margin gate");
+  assert.equal(olderRequests.length <= 5, true,
+    "the low-margin run starts at most one four-request older batch plus its one retry");
+  assert.equal(maxActiveOlder <= 4, true, "older requests remain capped at four concurrent requests");
+  assert.equal(olderCompleted <= 4, true);
+  assert.ok(firstOlderAttempt, "the first older chunk is attempted");
+  assert.equal(olderRequests.filter((request) =>
+    new URL(request.url).searchParams.get("start_date") === phaseFourHistoryStart).length, 2,
+  "a transient older request receives exactly one retry");
+  assert.equal(coreCompleted.caylent && coreCompleted.builder && coreCompleted.newsletter && coreCompleted.google, true,
+    "the deadline batch starts only after core provider requests complete");
+  assert.equal(olderStartedBeforeCoreCompleted, false,
+    "the historical batch is gated on completed core provider work, not only dispatched requests");
+  assert.ok(firstOlderIndex > -1);
+  assert.equal(requestLog.slice(firstOlderIndex).some((request) =>
+    request.kind !== "beehiiv-engagements"), false,
+  "no core provider request begins after older history work starts");
+  for (const request of olderRequests) {
+    assert.equal(harness.abortSignalRecords.find(({ signal }) => signal === request.signal)?.milliseconds, 5_000);
+  }
+  for (const [family, key, increase] of [
+    ["newsletterEmailOpens", "opens", 17],
+    ["newsletterEmailVerifiedClicks", "clicks", 3]
+  ]) {
+    const { total, "12m": recent } = output.groups[family].records;
+    assert.deepEqual(total, seeded.groups[family].records.total,
+      `${family} retains the compatible prior total exactly after the historical cutoff`);
+    assert.equal(total.endDate, "2026-10-16", `${family} preserves the retained history's original closing day`);
+    assert.equal(recent.collectedAt, collectionTime, `${family} refreshes its finite period before the historical cutoff`);
+    assert.equal(recent.startDate, recentStart);
+    assert.equal(recent.endDate, "2026-10-17", `${family} closes the fresh rolling period on the current cutoff`);
+    assert.equal(recent[key], sumPhaseFourHistoryDates(recentStart, "2026-10-17", key) + 365 * increase,
+      `${family} publishes the current run's finite data`);
+  }
+  assert.equal(output.groups.articleViews.records["7d"].views, 41,
+    "unrelated Analytics refreshes with the current run");
+  assert.equal(output.groups.articleViews.records["7d"].collectedAt, collectionTime);
+  assert.equal(output.groups.articleSearchClicks.records["7d"].clicks, 43,
+    "unrelated Search Console refreshes with the current run");
+  assert.equal(output.groups.articleSearchClicks.records["7d"].collectedAt, collectionTime);
+  assertNoNewsletterCanaries(harness, "synthetic older transient failure");
 });

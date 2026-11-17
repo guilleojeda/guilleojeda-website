@@ -497,6 +497,10 @@ function validateInput(input) {
       input.schemaVersion !== 13 && Object.hasOwn(input, "newsletterEngagements")) {
     throw fail("INPUT_SCHEMA_INVALID");
   }
+  if (Object.hasOwn(input, "newsletterEngagementRecordedSince") &&
+      (input.schemaVersion !== 13 || input.newsletterEngagements !== true)) {
+    throw fail("INPUT_SCHEMA_INVALID");
+  }
 
   if (input.schemaVersion === 1) {
     return { schemaVersion: 1, sources: [validateCaylentSource(input.source)] };
@@ -692,6 +696,8 @@ function validateInput(input) {
     if (hasSearchConsole) expectedKeys.push("searchConsole");
     if (hasDirectoryAnalytics) expectedKeys.push("directoryAnalytics");
     if (hasNewsletterEngagements) expectedKeys.push("newsletterEngagements");
+    const hasNewsletterEngagementRecordedSince = Object.hasOwn(input, "newsletterEngagementRecordedSince");
+    if (hasNewsletterEngagementRecordedSince) expectedKeys.push("newsletterEngagementRecordedSince");
     if (!exactKeys(input, expectedKeys) ||
         !isObject(input.curated) || !exactKeys(input.curated, ["talks", "books"]) ||
         hasAnalytics && !hasNewsletter ||
@@ -700,6 +706,10 @@ function validateInput(input) {
       throw fail("INPUT_SCHEMA_INVALID");
     }
     if (hasNewsletterEngagements && !hasNewsletter) throw fail("INPUT_SCHEMA_INVALID");
+    if (hasNewsletterEngagementRecordedSince &&
+        !isRealIsoDate(input.newsletterEngagementRecordedSince)) {
+      throw fail("INPUT_SCHEMA_INVALID");
+    }
 
     const newsletter = hasNewsletter ? validateNewsletterSelection(input.newsletter) : undefined;
     if (hasNewsletterEngagements && newsletter.language !== "en") {
@@ -715,6 +725,8 @@ function validateInput(input) {
       ...(input.schemaVersion === 13 ? { builderArticleDates: input.builderArticleDates } : {}),
       ...(hasNewsletter ? { newsletter } : {}),
       ...(hasNewsletterEngagements ? { newsletterEngagements: true } : {}),
+      ...(hasNewsletterEngagementRecordedSince
+        ? { newsletterEngagementRecordedSince: input.newsletterEngagementRecordedSince } : {}),
       ...(hasAnalytics ? { analytics: validateAnalyticsSelection(input.analytics) } : {}),
       ...(hasSearchConsole ? {
         searchConsole: validateSearchConsoleSelection(input.searchConsole, {
@@ -1024,6 +1036,19 @@ function newsletterEngagementScopeFingerprint(selection, family, providerMetric)
   return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
 }
 
+function newsletterEngagementHistoryScopeFingerprint(selection, family, providerMetric, recordedSince) {
+  const scope = {
+    definitionVersion: 2,
+    family,
+    policy: "beehiiv-post-email-reported-daily-events-history-v2",
+    recordedSince,
+    publication: { ...NEWSLETTER_PUBLICATION, language: "en" },
+    providerPublicationId: selection.publicationId,
+    source: { emailType: "post", granularity: "day", providerMetric, timeZone: "UTC" }
+  };
+  return createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+}
+
 function newsletterEngagementRanges(now) {
   const collectionDate = new Date(now).toISOString().slice(0, 10);
   const endDate = addCalendarDays(collectionDate, -3);
@@ -1041,11 +1066,7 @@ function newsletterEngagementRanges(now) {
     .map((period) => ({ period, ...byPeriod[period] }));
 }
 
-function newsletterEngagementChunks(ranges) {
-  const startDate = ranges.reduce((earliest, range) => range.startDate < earliest ? range.startDate : earliest,
-    ranges[0].startDate);
-  const endDate = ranges.reduce((latest, range) => range.endDate > latest ? range.endDate : latest,
-    ranges[0].endDate);
+function newsletterEngagementChunksForRange(startDate, endDate) {
   const chunks = [];
   for (let start = startDate; start <= endDate;) {
     const remaining = Math.floor((Date.parse(`${endDate}T00:00:00.000Z`) - Date.parse(`${start}T00:00:00.000Z`)) / 86_400_000) + 1;
@@ -1054,6 +1075,14 @@ function newsletterEngagementChunks(ranges) {
     start = addCalendarDays(start, numberOfDays);
   }
   return chunks;
+}
+
+function newsletterEngagementChunks(ranges) {
+  const startDate = ranges.reduce((earliest, range) => range.startDate < earliest ? range.startDate : earliest,
+    ranges[0].startDate);
+  const endDate = ranges.reduce((latest, range) => range.endDate > latest ? range.endDate : latest,
+    ranges[0].endDate);
+  return newsletterEngagementChunksForRange(startDate, endDate);
 }
 
 async function requestNewsletterEngagementChunk(selection, apiKey, chunk) {
@@ -1093,8 +1122,16 @@ function isValidBeehiivEventCount(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+function retainedNewsletterEngagementRow(row) {
+  return {
+    date: row.date,
+    total_opens: row.total_opens,
+    total_verified_clicks: row.total_verified_clicks
+  };
+}
+
 function makeNewsletterEngagementMetricResult({ selection, family, valueKey, providerMetric, ranges,
-  rowsByDate, invalidMetricDates, failedChunks, collectedAt }) {
+  rowsByDate, invalidMetricDates, failedChunks, collectedAt, definitionVersion = 1 }) {
   const records = {};
   const failedPeriods = [];
   let failureCode;
@@ -1144,21 +1181,141 @@ function makeNewsletterEngagementMetricResult({ selection, family, valueKey, pro
     };
   }
   return {
-    group: Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null,
+    group: Object.keys(records).length > 0 ? { definitionVersion, records } : null,
     failedPeriods,
     eligiblePeriods: ranges.map(({ period }) => period),
     ...(failureCode ? { failureCode } : {})
   };
 }
 
-async function collectNewsletterEngagements(value, env, collectedAt, now) {
+function historyEndDate(now) {
+  return addCalendarDays(new Date(now).toISOString().slice(0, 10), -3);
+}
+
+function isCompatibleNewsletterHistoryRecord(record, selection, family, providerMetric, recordedSince, now) {
+  const valueKey = family === "newsletterEmailOpens" ? "opens" : "clicks";
+  if (!isValidNewsletterEngagementRecord(record, valueKey, "reported-history") ||
+      record.startDate !== recordedSince ||
+      record.scopeId !== newsletterEngagementHistoryScopeFingerprint(selection, family, providerMetric, recordedSince)) {
+    return false;
+  }
+  const collected = Date.parse(record.collectedAt);
+  return collected <= now && record.endDate === historyEndDate(collected);
+}
+
+function makeNewsletterEngagementHistoryRecord({ selection, family, valueKey, providerMetric,
+  recordedSince, endDate, total, collectedAt }) {
+  return {
+    basis: "reported-history",
+    collectedAt,
+    scopeId: newsletterEngagementHistoryScopeFingerprint(selection, family, providerMetric, recordedSince),
+    publication: { ...NEWSLETTER_PUBLICATION, language: "en" },
+    timeZone: "UTC",
+    startDate: recordedSince,
+    endDate,
+    [valueKey]: total
+  };
+}
+
+function historyMetricResult({ selection, family, valueKey, providerMetric, recordedSince, historyEnd,
+  rowsByDate, invalidMetricDates, failedChunks, collectedAt, historyComplete }) {
+  if (recordedSince > historyEnd) return { record: null };
+  const hasChunkFailure = !historyComplete || failedChunks.some(({ startDate, endDate }) =>
+    startDate <= historyEnd && recordedSince <= endDate);
+  if (hasChunkFailure) return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_REPORT_FAILED" };
+
+  let total = 0;
+  let rowCount = 0;
+  for (let date = recordedSince; date <= historyEnd; date = addCalendarDays(date, 1)) {
+    if (invalidMetricDates.has(date)) {
+      return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
+    }
+    const row = rowsByDate.get(date);
+    if (!row) continue;
+    const value = row[providerMetric];
+    if (!isValidBeehiivEventCount(value)) {
+      return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
+    }
+    const next = total + value;
+    if (!Number.isSafeInteger(next)) {
+      return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_METRIC_INVALID" };
+    }
+    total = next;
+    rowCount += 1;
+  }
+  if (rowCount === 0) return { record: null, failureCode: "BEEHIIV_ENGAGEMENT_REPORT_EMPTY" };
+  return {
+    record: makeNewsletterEngagementHistoryRecord({
+      selection, family, valueKey, providerMetric, recordedSince, endDate: historyEnd, total, collectedAt
+    })
+  };
+}
+
+async function completeNewsletterEngagementHistory(state, context) {
+  const { selection, recordedSince, historyEnd, finiteStart, apiKey, failedChunks, rowsByDate,
+    invalidOpenDates, invalidClickDates, collectedAt } = state;
+  const historyChunks = recordedSince < finiteStart
+    ? newsletterEngagementChunksForRange(recordedSince, addCalendarDays(finiteStart, -1))
+    : [];
+  let historyComplete = true;
+  if (failedChunks.some(({ startDate, endDate }) =>
+      startDate <= historyEnd && recordedSince <= endDate)) {
+    historyComplete = false;
+  }
+  for (let index = 0; index < historyChunks.length; index += 4) {
+    if (!historyComplete) break;
+    if (typeof context?.getRemainingTimeInMillis === "function" &&
+        context.getRemainingTimeInMillis() < 40_000) {
+      historyComplete = false;
+      break;
+    }
+    const batch = historyChunks.slice(index, index + 4);
+    const outcomes = await Promise.all(batch.map(async (chunk) => {
+      try {
+        return { chunk, rows: await requestNewsletterEngagementChunk(selection, apiKey, chunk) };
+      } catch (error) {
+        if (!(error instanceof CollectorError)) throw error;
+        return { chunk, error };
+      }
+    }));
+    for (const outcome of outcomes) {
+      if (outcome.error) {
+        failedChunks.push(outcome.chunk);
+        historyComplete = false;
+        continue;
+      }
+      for (const row of outcome.rows) {
+        if (!isValidBeehiivEventCount(row.total_opens)) invalidOpenDates.add(row.date);
+        if (!isValidBeehiivEventCount(row.total_verified_clicks)) invalidClickDates.add(row.date);
+        rowsByDate.set(row.date, retainedNewsletterEngagementRow(row));
+      }
+    }
+  }
+
+  const opens = historyMetricResult({
+    selection, family: "newsletterEmailOpens", valueKey: "opens", providerMetric: "total_opens",
+    recordedSince, historyEnd, rowsByDate, invalidMetricDates: invalidOpenDates, failedChunks,
+    collectedAt, historyComplete
+  });
+  const verifiedClicks = historyMetricResult({
+    selection, family: "newsletterEmailVerifiedClicks", valueKey: "clicks",
+    providerMetric: "total_verified_clicks", recordedSince, historyEnd, rowsByDate,
+    invalidMetricDates: invalidClickDates, failedChunks, collectedAt, historyComplete
+  });
+  return { opens, verifiedClicks };
+}
+
+async function collectNewsletterEngagements(value, env, collectedAt, now, recordedSince) {
   const selection = validateNewsletterSelection(value);
   const ranges = newsletterEngagementRanges(now);
+  const historyEnabled = recordedSince !== undefined;
+  const definitionVersion = historyEnabled ? 2 : 1;
   const failedResult = (code) => ({
     group: null,
     failedPeriods: ranges.map(({ period }) => period),
     eligiblePeriods: ranges.map(({ period }) => period),
-    failureCode: code
+    failureCode: code,
+    ...(historyEnabled ? { historyFailed: true } : {})
   });
   let apiKey;
   try {
@@ -1185,7 +1342,7 @@ async function collectNewsletterEngagements(value, env, collectedAt, now) {
         const clickValid = isValidBeehiivEventCount(row.total_verified_clicks);
         if (!openValid) invalidOpenDates.add(row.date);
         if (!clickValid) invalidClickDates.add(row.date);
-        rowsByDate.set(row.date, row);
+        rowsByDate.set(row.date, retainedNewsletterEngagementRow(row));
       }
     } catch (error) {
       if (!(error instanceof CollectorError)) throw error;
@@ -1196,17 +1353,30 @@ async function collectNewsletterEngagements(value, env, collectedAt, now) {
 
   const opens = makeNewsletterEngagementMetricResult({
     selection, family: "newsletterEmailOpens", valueKey: "opens", providerMetric: "total_opens",
-    ranges, rowsByDate, invalidMetricDates: invalidOpenDates, failedChunks, collectedAt
+    ranges, rowsByDate, invalidMetricDates: invalidOpenDates, failedChunks, collectedAt, definitionVersion
   });
   const verifiedClicks = makeNewsletterEngagementMetricResult({
     selection, family: "newsletterEmailVerifiedClicks", valueKey: "clicks", providerMetric: "total_verified_clicks",
-    ranges, rowsByDate, invalidMetricDates: invalidClickDates, failedChunks, collectedAt
+    ranges, rowsByDate, invalidMetricDates: invalidClickDates, failedChunks, collectedAt, definitionVersion
   });
   if (failureCode) {
     opens.failureCode ??= failureCode;
     verifiedClicks.failureCode ??= failureCode;
   }
-  return { opens, verifiedClicks };
+  const historyState = historyEnabled ? {
+    selection,
+    recordedSince,
+    historyEnd: historyEndDate(now),
+    finiteStart: ranges.reduce((earliest, range) => range.startDate < earliest ? range.startDate : earliest,
+      ranges[0].startDate),
+    apiKey,
+    failedChunks,
+    rowsByDate,
+    invalidOpenDates,
+    invalidClickDates,
+    collectedAt
+  } : undefined;
+  return { opens, verifiedClicks, historyState };
 }
 
 function scopeFingerprint(sources) {
@@ -3367,9 +3537,9 @@ function sanitizeNewsletterEmailsSentGroup(group) {
   return isValidNewsletterEmailsSentGroup(group) ? group : null;
 }
 
-function isValidNewsletterEngagementRecord(record, valueKey) {
+function isValidNewsletterEngagementRecord(record, valueKey, basis = "period") {
   if (!exactKeys(record, ["basis", "collectedAt", "scopeId", "publication", "timeZone", "startDate", "endDate", valueKey]) ||
-      record.basis !== "period" || typeof record.collectedAt !== "string") {
+      record.basis !== basis || typeof record.collectedAt !== "string") {
     return false;
   }
   const collected = Date.parse(record.collectedAt);
@@ -3385,25 +3555,34 @@ function isValidNewsletterEngagementRecord(record, valueKey) {
 }
 
 function sanitizeNewsletterEngagementGroup(group, valueKey) {
-  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 || !isObject(group.records)) {
+  if (!exactKeys(group, ["definitionVersion", "records"]) || ![1, 2].includes(group.definitionVersion) ||
+      !isObject(group.records)) {
     return null;
   }
   const records = {};
   for (const period of NEWSLETTER_ENGAGEMENT_PERIODS) {
-    if (Object.hasOwn(group.records, period) && isValidNewsletterEngagementRecord(group.records[period], valueKey)) {
+    if (Object.hasOwn(group.records, period) &&
+        isValidNewsletterEngagementRecord(group.records[period], valueKey, "period")) {
       records[period] = group.records[period];
     }
   }
-  return Object.keys(records).length > 0 ? { definitionVersion: 1, records } : null;
+  if (group.definitionVersion === 2 && Object.hasOwn(group.records, "total") &&
+      isValidNewsletterEngagementRecord(group.records.total, valueKey, "reported-history")) {
+    records.total = group.records.total;
+  }
+  return Object.keys(records).length > 0 ? { definitionVersion: group.definitionVersion, records } : null;
 }
 
 function isValidNewsletterEngagementGroup(group, valueKey) {
-  if (!exactKeys(group, ["definitionVersion", "records"]) || group.definitionVersion !== 1 ||
+  if (!exactKeys(group, ["definitionVersion", "records"]) || ![1, 2].includes(group.definitionVersion) ||
       !isObject(group.records) || Object.keys(group.records).length === 0) {
     return false;
   }
   return Object.entries(group.records).every(([period, record]) =>
-    NEWSLETTER_ENGAGEMENT_PERIODS.includes(period) && isValidNewsletterEngagementRecord(record, valueKey));
+    (NEWSLETTER_ENGAGEMENT_PERIODS.includes(period)
+      ? isValidNewsletterEngagementRecord(record, valueKey, "period")
+      : group.definitionVersion === 2 && period === "total" &&
+        isValidNewsletterEngagementRecord(record, valueKey, "reported-history")));
 }
 
 function isValidArticleViewRecord(record, period) {
@@ -3766,7 +3945,7 @@ async function collectLegacy(configuration, env, collectedAt, now) {
   return { status: "published", collectedAt, count: collection.counts.all };
 }
 
-async function collectIndependentGroups(configuration, env, collectedAt, now) {
+async function collectIndependentGroups(configuration, env, collectedAt, now, context) {
   const groups = {};
   const failures = {};
   const retainedFamilies = new Set();
@@ -3781,6 +3960,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   let articleSearchClicksResult;
   let newsletterEmailOpensResult;
   let newsletterEmailVerifiedClicksResult;
+  let newsletterEngagementHistoryState;
   try {
     if (configuration.schemaVersion === 12 || configuration.schemaVersion === 13) {
       articleInventory = validateArticleInventory(configuration.articleInventory, now);
@@ -3851,11 +4031,20 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
 
   if (configuration.newsletterEngagements === true) {
     const eligiblePeriods = newsletterEngagementRanges(now).map(({ period }) => period);
-    const failedResult = (code) => ({ group: null, failedPeriods: eligiblePeriods, eligiblePeriods, failureCode: code });
+    const historyEnabled = configuration.newsletterEngagementRecordedSince !== undefined;
+    const failedResult = (code) => ({
+      group: null,
+      failedPeriods: eligiblePeriods,
+      eligiblePeriods,
+      failureCode: code,
+      ...(historyEnabled ? { historyFailed: true } : {})
+    });
     try {
-      const result = await collectNewsletterEngagements(configuration.newsletter, env, collectedAt, now);
+      const result = await collectNewsletterEngagements(
+        configuration.newsletter, env, collectedAt, now, configuration.newsletterEngagementRecordedSince);
       newsletterEmailOpensResult = result.opens;
       newsletterEmailVerifiedClicksResult = result.verifiedClicks;
+      newsletterEngagementHistoryState = result.historyState;
     } catch (error) {
       if (!(error instanceof CollectorError)) throw error;
       newsletterEmailOpensResult = failedResult(error.code);
@@ -3938,6 +4127,26 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
     }
   }
 
+  if (newsletterEngagementHistoryState) {
+    const history = await completeNewsletterEngagementHistory(newsletterEngagementHistoryState, context);
+    for (const [result, historyResult, family] of [
+      [newsletterEmailOpensResult, history.opens, "newsletterEmailOpens"],
+      [newsletterEmailVerifiedClicksResult, history.verifiedClicks, "newsletterEmailVerifiedClicks"]
+    ]) {
+      if (historyResult.record) {
+        result.group ??= { definitionVersion: 2, records: {} };
+        result.group.records.total = historyResult.record;
+      } else if (historyResult.failureCode) {
+        result.historyFailed = true;
+        result.historyFailureCode = historyResult.failureCode;
+        result.failureCode ??= historyResult.failureCode;
+        failures[family] = historyResult.failureCode;
+      }
+      if (result.group) groups[family] = result.group;
+      if (result.failedPeriods.length > 0) failures[family] = result.failureCode ?? "BEEHIIV_ENGAGEMENT_REPORT_FAILED";
+    }
+  }
+
   const freshFamilies = Object.keys(groups);
   if (freshFamilies.length === 0) throw fail("NO_SUCCESSFUL_GROUPS");
 
@@ -3979,6 +4188,13 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
           const search = family === "articleSearchClicks" ? configuration.searchConsole : undefined;
           const searchHistoryEnabled = search?.historyMonths !== undefined;
           const searchPeriodScope = search && articleSearchClicksScopeFingerprint(search);
+          const newsletterHistoryEnabled = family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks"
+            ? configuration.newsletterEngagementRecordedSince !== undefined : false;
+          const newsletterSelection = family === "newsletterEmailOpens" || family === "newsletterEmailVerifiedClicks"
+            ? configuration.newsletter : undefined;
+          const newsletterProviderMetric = family === "newsletterEmailOpens" ? "total_opens" : "total_verified_clicks";
+          const newsletterFiniteScope = newsletterSelection &&
+            newsletterEngagementScopeFingerprint(newsletterSelection, family, newsletterProviderMetric);
           for (const period of result?.failedPeriods ?? []) {
             if (!eligiblePeriods.has(period) || !prior || !Object.hasOwn(prior.records, period)) continue;
             const priorRecord = prior.records[period];
@@ -3989,12 +4205,24 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
             } else {
               if (period === "ytd" && priorRecord.startDate !== currentYtdStart) continue;
               if (search && (priorRecord.scopeId !== searchPeriodScope || priorRecord.startDate < search.availableSince)) continue;
+              if (newsletterFiniteScope && priorRecord.scopeId !== newsletterFiniteScope) continue;
             }
             records[period] = priorRecord;
           }
+          if (newsletterHistoryEnabled && result?.historyFailed && prior &&
+              isCompatibleNewsletterHistoryRecord(
+                prior.records.total,
+                newsletterSelection,
+                family,
+                newsletterProviderMetric,
+                configuration.newsletterEngagementRecordedSince,
+                now
+              )) {
+            records.total = prior.records.total;
+          }
           if (Object.keys(records).length > 0) {
             groups[family] = {
-              definitionVersion: searchHistoryEnabled ? 2 : 1,
+              definitionVersion: newsletterHistoryEnabled || searchHistoryEnabled ? 2 : 1,
               records
             };
           }
@@ -4047,7 +4275,7 @@ async function collectIndependentGroups(configuration, env, collectedAt, now) {
   return result;
 }
 
-async function handler() {
+async function handler(event, context) {
   let sourceIds = ["caylent"];
   try {
     const env = validateEnvironment(process.env || {});
@@ -4061,7 +4289,7 @@ async function handler() {
       configuration.schemaVersion === 6 || configuration.schemaVersion === 7 || configuration.schemaVersion === 8 ||
       configuration.schemaVersion === 9 || configuration.schemaVersion === 10 || configuration.schemaVersion === 11 ||
       configuration.schemaVersion === 12 || configuration.schemaVersion === 13
-      ? await collectIndependentGroups(configuration, env, collectedAt, now)
+      ? await collectIndependentGroups(configuration, env, collectedAt, now, context)
       : await collectLegacy(configuration, env, collectedAt, now);
   } catch (error) {
     const code = error instanceof CollectorError ? error.code : "COLLECTION_FAILED";
