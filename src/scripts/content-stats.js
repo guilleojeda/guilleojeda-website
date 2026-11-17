@@ -80,6 +80,7 @@ const devReservedRoutePairs = new Set([
 ]);
 const supportedCuratedSource = { id: 'website-inventory', label: 'Website inventory' };
 const supportedNewsletter = { id: 'simple-aws', label: 'Simple AWS' };
+const supportedEnglishNewsletter = { ...supportedNewsletter, language: 'en' };
 const supportedBuilderArticleViewsSource = { id: 'builder-center', label: 'AWS Builder Center' };
 const supportedDirectoryPublication = { id: 'donde-aprendo-aws', label: 'Dónde Aprendo AWS', language: 'es' };
 const newsletterEmailMetricLabels = {
@@ -683,16 +684,16 @@ function validateSnapshot(value) {
     newsletterEmailsSent: Object.hasOwn(value.groups, 'newsletterEmailsSent')
       ? validateNewsletterSentGroup(value.groups.newsletterEmailsSent)
       : null,
-    articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null,
+    articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : undefined,
     articleSearchClicks: Object.hasOwn(value.groups, 'articleSearchClicks')
       ? validateArticleSearchClicks(value.groups.articleSearchClicks)
       : undefined,
     directoryViews: Object.hasOwn(value.groups, 'directoryViews')
       ? validateDirectoryViews(value.groups.directoryViews)
-      : null,
+      : undefined,
     directoryOutboundClicks: Object.hasOwn(value.groups, 'directoryOutboundClicks')
       ? validateDirectoryOutboundClicks(value.groups.directoryOutboundClicks)
-      : null,
+      : undefined,
     newsletterEmailOpens: Object.hasOwn(value.groups, 'newsletterEmailOpens')
       ? validateNewsletterEmailFamily(value.groups.newsletterEmailOpens, 'opens')
       : null,
@@ -1442,17 +1443,23 @@ function viewsElementsReady(elements) {
     && views.value && views.coverage && views.interval && views.collectedDate && views.qualifications);
 }
 
-function classifyActivityAvailability(records, language, period, supportedPeriods) {
+function classifyActivityAvailability(records, language, period, supportedPeriods, fallbackPublication) {
   const selectedRecord = records?.[period] ?? null;
-  const coverageRecord = selectedRecord ?? Object.values(records ?? {}).find(Boolean) ?? null;
-  const familyHasValidRecord = Boolean(coverageRecord);
-  if (!coverageRecord) return { reason: 'missing', familyHasValidRecord, period };
-  if (language !== 'all' && coverageRecord.publication.language !== language) {
-    return { reason: 'language', publication: coverageRecord.publication };
+  const coverageRecord = selectedRecord ?? Object.values(records ?? {}).find(Boolean);
+  const publication = coverageRecord?.publication ?? fallbackPublication;
+  if (!publication) return { reason: 'missing' };
+  if (language !== 'all' && publication.language !== language) {
+    return { reason: 'language', publication };
   }
   if (!supportedPeriods.includes(period)) return { reason: 'unsupported-total' };
-  if (!selectedRecord) return { reason: 'missing', familyHasValidRecord, period };
+  if (!selectedRecord) return { reason: 'missing', period };
   return null;
+}
+
+function classifyGa4Availability(snapshot, records, language, period, supportedPeriods, publication) {
+  // An omitted family is undefined. An invalid family is null and keeps the generic state.
+  const fallbackPublication = snapshot?.hasDatedTalks && records !== null ? publication : undefined;
+  return classifyActivityAvailability(records, language, period, supportedPeriods, fallbackPublication);
 }
 
 function classifySearchAvailability(records, language, period) {
@@ -1489,7 +1496,7 @@ function missingActivityCopy(locale, period) {
 }
 
 function googleActivityUnavailableCopy(locale, availability, genericCopy) {
-  if (availability?.reason === 'missing' && availability.familyHasValidRecord) {
+  if (availability?.reason === 'missing' && availability.period) {
     return missingActivityCopy(locale, availability.period);
   }
   return activityUnavailableCopy(locale, availability, genericCopy);
@@ -1549,7 +1556,7 @@ function renderViews(snapshot, locale, language, elements) {
   const { periodSelector, views } = elements;
   const records = snapshot?.articleViews;
   const period = knownViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
-  const availability = classifyActivityAvailability(records, language, period, knownViewPeriods);
+  const availability = classifyGa4Availability(snapshot, records, language, period, knownViewPeriods, supportedEnglishNewsletter);
   if (availability) {
     renderViewsUnavailable(elements, locale, availability);
     return;
@@ -1642,7 +1649,7 @@ function renderSearch(snapshot, locale, language, elements) {
     : knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
   const currentSearchOmitted = records === undefined && snapshot?.hasDatedTalks;
   const availability = currentSearchOmitted && language === 'es'
-    ? { reason: 'language', publication: { ...supportedNewsletter, language: 'en' } }
+    ? { reason: 'language', publication: supportedEnglishNewsletter }
     : classifySearchAvailability(records, language, period);
   if (availability) {
     const supportsHistory = currentSearchOmitted || Boolean(records && Object.hasOwn(records, 'total'));
@@ -1716,7 +1723,7 @@ function renderDirectoryViews(snapshot, locale, language, elements) {
 
   const period = knownDirectoryViewPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
   const records = snapshot?.directoryViews;
-  const availability = classifyActivityAvailability(records, language, period, knownDirectoryViewPeriods);
+  const availability = classifyGa4Availability(snapshot, records, language, period, knownDirectoryViewPeriods, supportedDirectoryPublication);
   if (availability) {
     renderDirectoryViewsUnavailable(elements, locale, false, availability);
     return;
@@ -1788,7 +1795,7 @@ function renderDirectoryOutboundClicks(snapshot, locale, language, elements) {
 
   const period = knownDirectoryOutboundClickPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
   const records = snapshot?.directoryOutboundClicks;
-  const availability = classifyActivityAvailability(records, language, period, knownDirectoryOutboundClickPeriods);
+  const availability = classifyGa4Availability(snapshot, records, language, period, knownDirectoryOutboundClickPeriods, supportedDirectoryPublication);
   if (availability) {
     renderDirectoryOutboundClicksUnavailable(elements, locale, false, availability);
     return;
