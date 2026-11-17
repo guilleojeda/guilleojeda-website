@@ -13947,6 +13947,73 @@ test("Beehiiv uses successful publication and activity anchors across UTC midnig
   }
 });
 
+test("Beehiiv keeps finite windows and history on the first UTC activity anchor across midnight", async () => {
+  const activityQuery = "2026-11-17T23:59:58.000Z";
+  const later = "2026-11-18T00:00:04.000Z";
+  const finiteStart = "2025-11-15";
+  const clock = createClock(activityQuery);
+  const requestLog = [];
+  let firstQueryAt;
+  let firstQueryStartDate;
+  let firstHistoryQueryAt;
+  let advancedDuringFirstRequest = false;
+  const harness = createHarness({
+    input: phaseFourHistoryInput(),
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      engagementResponder: ({ request }) => {
+        const startDate = new URL(request.url).searchParams.get("start_date");
+        firstQueryAt ??= new clock.Date().toISOString();
+        firstQueryStartDate ??= startDate;
+        if (startDate < finiteStart) firstHistoryQueryAt ??= new clock.Date().toISOString();
+        if (!advancedDuringFirstRequest) {
+          advancedDuringFirstRequest = true;
+          clock.set(later);
+        }
+        return jsonResponse(phaseFourHistoryEnvelopeForRequest(request));
+      }
+    })
+  });
+
+  await harness.handler({}, createLambdaContext());
+  const { groups } = await readPut(harness.putCalls[0]);
+  assert.equal(firstQueryAt, activityQuery, "the first finite request uses the invocation's UTC instant");
+  assert.equal(firstQueryStartDate, finiteStart, "the first Beehiiv engagement request is the finite union");
+  assert.equal(firstHistoryQueryAt, later, "historical work starts after the finite request crosses UTC midnight");
+
+  const expectedRanges = {
+    "7d": ["2026-11-08", "2026-11-14"],
+    "30d": ["2026-10-16", "2026-11-14"],
+    "90d": ["2026-08-17", "2026-11-14"],
+    "12m": ["2025-11-15", "2026-11-14"],
+    ytd: ["2026-01-01", "2026-11-14"]
+  };
+  for (const [family, valueKey] of [
+    ["newsletterEmailOpens", "opens"],
+    ["newsletterEmailVerifiedClicks", "clicks"]
+  ]) {
+    const records = groups[family].records;
+    for (const [period, [startDate, endDate]] of Object.entries(expectedRanges)) {
+      const record = records[period];
+      assert.deepEqual(
+        [record.collectedAt, record.startDate, record.endDate],
+        [activityQuery, startDate, endDate],
+        `${family} ${period} keeps the original UTC query stamp and cutoff`
+      );
+      assert.equal(record[valueKey], sumPhaseFourHistoryDates(startDate, endDate, valueKey),
+        `${family} ${period} sums its independently expected inclusive UTC range`);
+    }
+    assert.deepEqual(
+      [records.total.collectedAt, records.total.startDate, records.total.endDate],
+      [activityQuery, phaseFourHistoryStart, "2026-11-14"],
+      `${family} history shares the original UTC query stamp and cutoff`
+    );
+    assert.equal(records.total[valueKey], sumPhaseFourHistoryDates(phaseFourHistoryStart, "2026-11-14", valueKey),
+      `${family} history sums its independently expected inclusive UTC range`);
+  }
+});
+
 test("Beehiiv retention uses the activity anchor for a UTC year-boundary failure", async () => {
   const input = phaseFourHistoryInput({
     baseInput: phaseSixInput(),

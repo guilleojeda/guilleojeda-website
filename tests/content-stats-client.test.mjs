@@ -6975,6 +6975,9 @@ for (const locale of ['en', 'es']) {
         const absentEmail = scenario === 'absent'
           && newsletterEmailMetricSpecs.find(({ group }) => group === spec.group);
         const absentSearch = scenario === 'absent' && spec.key === 'articleSearchClicks';
+        const missingGa4 = scenario !== 'invalid group'
+          && ['articleViews', 'directoryViews', 'directoryOutboundClicks'].includes(spec.key);
+        const unavailableReason = absentSearch ? 'language' : 'generic';
         if (scenario === 'absent') {
           delete data.groups[spec.group];
         } else if (scenario === 'invalid group') {
@@ -6987,20 +6990,41 @@ for (const locale of ['en', 'es']) {
 
         const page = phase7CreatePage(locale, data);
         await page.settle();
-        if (spec.key === 'articleViews' || spec.key === 'articleSearchClicks') {
+        if (spec.key === 'articleSearchClicks' || (spec.key === 'articleViews' && !missingGa4)) {
           page.selector.value = 'es';
           page.selector.dispatch('change');
         }
         if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
-        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'language' : 'generic');
+        else assertPhase7MetricUnavailable(page, locale, spec, missingGa4 ? 'window' : unavailableReason);
         assert.equal(page.periodSelector.disabled, false, `${spec.label}/${scenario}: a healthy sibling keeps the shared period selector available`);
         assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: a healthy sibling still supports Recorded total`);
         page.periodSelector.value = 'total';
         page.periodSelector.dispatch('change');
 
         if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
-        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'language' : 'generic');
+        else assertPhase7MetricUnavailable(page, locale, spec, missingGa4 ? 'missing-total' : unavailableReason);
+
+        if (missingGa4) {
+          const englishScope = spec.key === 'articleViews';
+          page.selector.value = englishScope ? 'es' : 'en';
+          page.selector.dispatch('change');
+          if (englishScope) assertPhase7MetricUnavailable(page, locale, spec, 'language');
+          else if (spec.key === 'directoryViews') assertDirectoryViewsUnavailable(page, locale, { hidden: true });
+          else assertDirectoryOutboundClicksUnavailable(page, locale, { hidden: true });
+        }
         assert.equal(page.fetchCount, 1, `${spec.label}/${scenario}: reason selection is local to the fetched snapshot`);
+      }
+    }
+  });
+
+  test(`${locale} legacy aggregates without GA4 families keep the generic unavailable messages`, async () => {
+    const page = phase7CreatePage(locale, legacyThreeGroupSnapshot());
+    await page.settle();
+    for (const period of ['12m', 'total']) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      for (const spec of [phase7MetricSpecs[0], phase7MetricSpecs[4], phase7MetricSpecs[5]]) {
+        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
       }
     }
   });
