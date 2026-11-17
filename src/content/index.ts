@@ -67,7 +67,7 @@ function requiredLanguage(value: unknown, kind: string): Locale {
   throw new Error(`Work highlight ${kind} has an unsupported or missing content language.`);
 }
 
-function resolveWorkHighlight(selection: HighlightSelection): WorkHighlight {
+function resolveWorkHighlight(selection: HighlightSelection, locale: Locale): WorkHighlight {
   let title: LocalizedText;
   let href: string;
   let language: Locale;
@@ -84,7 +84,8 @@ function resolveWorkHighlight(selection: HighlightSelection): WorkHighlight {
     actionLabel = actionLabels.article;
   } else if (selection.kind === 'talk') {
     if (!('id' in selection)) throw new Error('Talk work highlight is missing its talk ID.');
-    const id = requiredString(selection.id, 'talk ID');
+    const selectedId = typeof selection.id === 'string' ? selection.id : selection.id?.[locale];
+    const id = requiredString(selectedId, 'talk ID');
     const talk = talkRecords.find((record) => record.id === id);
     if (!talk) throw new Error(`Work highlight references missing talk "${id}".`);
     if (!talk.recording?.href) throw new Error(`Work highlight talk "${id}" is missing its direct recording URL.`);
@@ -118,7 +119,10 @@ function resolveWorkHighlight(selection: HighlightSelection): WorkHighlight {
   };
 }
 
-const workHighlights = highlights.map(resolveWorkHighlight);
+const workHighlights: Record<Locale, WorkHighlight[]> = {
+  en: highlights.map((selection) => resolveWorkHighlight(selection, 'en')),
+  es: highlights.map((selection) => resolveWorkHighlight(selection, 'es'))
+};
 
 function resolveSpeakerResources(selection: SpeakerResources): ResolvedSpeakerResources {
   const talk = talkRecords.find((record) => record.id === selection.recording.talkId);

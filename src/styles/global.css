@@ -242,7 +242,7 @@ a:hover {
   margin: 1.25rem 0 1.65rem;
   color: var(--forest-deep);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(3.55rem, 8.2vw, 7.4rem);
+  font-size: clamp(2.75rem, 5vw, 4.5rem);
   font-weight: 700;
   letter-spacing: -0.075em;
   line-height: 0.93;
@@ -2209,10 +2209,10 @@ a:hover {
   }
 
   .hero h1 {
-    max-width: 14ch;
+    max-width: 100%;
     margin-right: auto;
     margin-left: auto;
-    font-size: clamp(3.55rem, 16vw, 5rem);
+    font-size: clamp(2.5rem, 11.5vw, 3.5rem);
   }
 
   .hero-intro {
