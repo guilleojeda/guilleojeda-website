@@ -1233,7 +1233,7 @@ function renderNewsletterEmailUnavailable(elements, locale, hidden = false, avai
   clearNewsletterEmailResult(elements);
   const genericCopy = elements.region.getAttribute(`${elements.attributePrefix}-unavailable`)?.trim()
     || newsletterEmailUnavailableFallback(locale, elements.valueField);
-  const statusText = availability?.reason === 'missing' && availability.history
+  const statusText = availability?.reason === 'missing' && availability.periodUnavailable
     ? locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.'
     : activityUnavailableCopy(locale, availability, genericCopy);
   elements.status.textContent = hidden ? '' : statusText;
@@ -1250,22 +1250,18 @@ function renderNewsletterEmailMetric(snapshot, locale, language, period, element
 
   const records = snapshot?.[elements.family];
   const hasHistoryRecord = records && Object.hasOwn(records, 'total');
-  const siblingFamily = elements.family === 'newsletterEmailOpens'
-    ? 'newsletterEmailVerifiedClicks'
-    : 'newsletterEmailOpens';
-  const familyIsMissing = snapshot?.newsletterEmailFamiliesPresent?.[elements.family] === false;
-  const isHistoryFamily = records?.definitionVersion === 2
-    || (familyIsMissing && snapshot?.[siblingFamily]?.definitionVersion === 2);
+  const periodUnavailable = records?.definitionVersion === 2
+    || snapshot?.newsletterEmailFamiliesPresent?.[elements.family] === false;
   const availability = period === 'total'
     ? (hasHistoryRecord && records.total
       ? classifyActivityAvailability(records, language, period, ['total'])
       : {
-          reason: hasHistoryRecord || isHistoryFamily || !records ? 'missing' : 'unsupported-total',
-          ...((hasHistoryRecord || isHistoryFamily) ? { history: true } : {})
+          reason: periodUnavailable || !records ? 'missing' : 'unsupported-total',
+          periodUnavailable
         })
     : (() => {
         const result = classifyActivityAvailability(records, language, period, knownNewsletterEmailPeriods);
-        return result && isHistoryFamily && result.reason === 'missing' ? { ...result, history: true } : result;
+        return result && periodUnavailable ? { ...result, periodUnavailable } : result;
       })();
   if (availability) {
     const statusText = renderNewsletterEmailUnavailable(elements, locale, false, availability);

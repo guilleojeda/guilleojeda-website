@@ -3928,7 +3928,7 @@ for (const locale of ['en', 'es']) {
       assert.equal(page.cards.newsletter.card.hidden, false, `${selectedSpec.group} alone keeps the card visible`);
       assertNewsletterUnavailable(page, locale);
       assertNewsletterEmailVisible(page, locale, selectedSpec, '12m');
-      assertNewsletterEmailUnavailable(page, locale, siblingSpec);
+      assertNewsletterEmailUnavailable(page, locale, siblingSpec, { message: newsletterHistoryMissingCopy(locale) });
       assert.equal(page.fetchCount, 1);
     }
   });
@@ -6798,10 +6798,12 @@ function invalidatePhase7Records(records, field) {
 }
 
 for (const locale of ['en', 'es']) {
-  test(`${locale} activity metrics with absent, invalid, empty, or all-invalid families use generic missing-data copy`, async () => {
+  test(`${locale} activity metrics explain absent, invalid, empty, or all-invalid families`, async () => {
     for (const spec of phase7MetricSpecs) {
       for (const scenario of ['absent', 'invalid group', 'empty records', 'no valid records']) {
         const data = phase7Snapshot();
+        const absentEmail = scenario === 'absent'
+          && newsletterEmailMetricSpecs.find(({ group }) => group === spec.group);
         if (scenario === 'absent') {
           delete data.groups[spec.group];
         } else if (scenario === 'invalid group') {
@@ -6818,13 +6820,15 @@ for (const locale of ['en', 'es']) {
           page.selector.value = 'es';
           page.selector.dispatch('change');
         }
-        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
+        else assertPhase7MetricUnavailable(page, locale, spec, 'generic');
         assert.equal(page.periodSelector.disabled, false, `${spec.label}/${scenario}: a healthy sibling keeps the shared period selector available`);
         assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: a healthy sibling still supports Recorded total`);
         page.periodSelector.value = 'total';
         page.periodSelector.dispatch('change');
 
-        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
+        else assertPhase7MetricUnavailable(page, locale, spec, 'generic');
         assert.equal(page.fetchCount, 1, `${spec.label}/${scenario}: reason selection is local to the fetched snapshot`);
       }
     }
@@ -7558,7 +7562,7 @@ for (const locale of ['en', 'es']) {
     }
   });
 
-  test(`${locale} an omitted v2 engagement family inherits history activation from its validated sibling`, async () => {
+  test(`${locale} an omitted engagement family reports no data while its sibling shows valid history`, async () => {
     const data = snapshotWithNewsletterReportedHistory();
     delete data.groups.newsletterEmailVerifiedClicks;
     const page = createPage({ locale, data });
@@ -7580,6 +7584,28 @@ for (const locale of ['en', 'es']) {
     assertNewsletterEmailUnavailable(page, locale, newsletterEmailMetricSpecs[1], { message });
     assertNewsletterHistoryReportStatus(page, locale, { opensValue: 1200, statuses: { clicks: message } });
     assert.equal(page.fetchCount, 1, `${locale} an omitted v2 family still uses one snapshot request`);
+  });
+
+  test(`${locale} an aggregate with neither email activity family distinguishes unavailable periods from a failed download`, async () => {
+    const data = snapshotWithNewsletterReportedHistory();
+    for (const { group } of newsletterEmailMetricSpecs) delete data.groups[group];
+    const page = createPage({ locale, data });
+    const failed = createPage({ locale, fetchError: new Error('synthetic fetch failure') });
+    await Promise.all([page.settle(), failed.settle()]);
+
+    const missing = newsletterHistoryMissingCopy(locale);
+    for (const period of ['12m', 'total']) {
+      assert.equal(page.periodOptions.total.disabled, false, 'other metrics still support recorded totals');
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      for (const spec of newsletterEmailMetricSpecs) {
+        assertNewsletterEmailUnavailable(page, locale, spec, { message: missing });
+        assertNewsletterEmailUnavailable(failed, locale, spec, { message: newsletterEmailCopy[locale][spec.metric].unavailable });
+      }
+      assertNewsletterHistoryReportStatus(page, locale, { statuses: { opens: missing, clicks: missing } });
+    }
+    assert.equal(page.fetchCount, 1);
+    assert.equal(failed.periodSelector.disabled, true);
   });
 
   test(`${locale} mixed history and legacy records distinguish unsupported total, missing period, and transport failure`, async () => {
