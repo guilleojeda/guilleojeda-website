@@ -21,6 +21,7 @@ export type LocalizedText = Record<Locale, string>;
 export interface WorkHighlight {
   label: LocalizedText;
   title: LocalizedText;
+  detail?: LocalizedText;
   href: string;
   text: LocalizedText;
 }

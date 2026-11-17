@@ -286,6 +286,11 @@ function checkNewsletterActions(page, html) {
   const offer = normalizedText(feature.html.slice(0, actions.start));
   assert.match(offer, lang === 'en' ? /\bbiweekly\b|every (?:two|2) weeks/ : /quincenal|cada (?:dos|2) semanas/,
     `${lang} newsletter visibly states its biweekly cadence before the actions`);
+  const kicker = extractElement(feature.html, 'div', 'class', 'work-kicker');
+  assert.ok(kicker, `${lang} newsletter has a visible cadence and language label`);
+  assert.equal(normalizedText(kicker.html), normalizedText(lang === 'en'
+    ? 'Biweekly newsletter · In English' : 'Newsletter quincenal · En inglés'),
+    `${lang} newsletter states its English content language before navigation`);
   const description = normalizedText(feature.html.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? '');
   assert.match(description, /\baws\b/, `${lang} newsletter description names AWS`);
   assert.match(description, /arquitectur|architectur/, `${lang} newsletter description names architecture`);
@@ -387,9 +392,13 @@ function checkWorkHighlights(page, html) {
   assert.equal(selectedTalk.recording?.language, lang, `${lang} selected talk records its confirmed speech language`);
   const expected = [
     {
-      title: 'From Prompt Edits to Performance Loops: Hands-On with Amazon Bedrock AgentCore Optimization',
+      title: lang === 'en' ? 'How to improve an agent after the first prototype' : 'Cómo mejorar un agente después del primer prototipo',
+      detail: 'Amazon Bedrock AgentCore Optimization',
       href: 'https://caylent.com/blog/from-prompt-edits-to-performance-loops-hands-on-with-amazon-bedrock-agentcore-optimization',
       label: lang === 'en' ? 'Read · English' : 'Leer · Inglés',
+      description: lang === 'en'
+        ? 'For builders improving an agent after its first working version.'
+        : 'Para quienes quieren mejorar un agente después de su primera versión funcional.',
       purpose: lang === 'en' ? /improv[\s\S]*agent|agent[\s\S]*improv/ : /mejor[\s\S]*agente|agente[\s\S]*mejor/
     },
     {
@@ -420,6 +429,18 @@ function checkWorkHighlights(page, html) {
       `${lang} highlight ${index + 1} names the selected work`);
     assert.equal(normalizedText(body.slice(0, title.index)), normalizedText(item.label),
       `${lang} highlight ${index + 1} labels its action and actual content language`);
+    const detail = body.match(/<span\b[^>]*\bclass=["']work-highlight-detail["'][^>]*>([\s\S]*?)<\/span>/i);
+    if (index === 0) {
+      assert.ok(detail, `${lang} article highlight has its concise source detail`);
+      assert.equal(normalizedText(detail[1]), normalizedText(item.detail),
+        `${lang} article highlight names AgentCore in its detail`);
+      assert.doesNotMatch(normalizedText(detail[1]), /english|spanish|ingl[eé]s|espa[nñ]ol/,
+        `${lang} article detail does not repeat the content language`);
+      assert.equal(normalizedText(body.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? ''),
+        normalizedText(item.description), `${lang} article highlight preserves its description`);
+    } else {
+      assert.equal(detail, null, `${lang} non-article highlight has no article-only detail`);
+    }
     const description = body.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ?? '';
     assert.match(normalizedText(description), item.purpose,
       `${lang} highlight ${index + 1} explains its relevant purpose`);
@@ -434,16 +455,46 @@ function checkWorkHighlights(page, html) {
     `${lang} recommendations need no inline event handlers`);
 
   const broaderLinks = [...supporting.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
+  const featuredRecords = projects.filter((project) => project.featured);
+  assert.equal(featuredRecords.length, 2, `${lang} Work shows exactly two principal project cards`);
+  assert.equal(broaderLinks.length, featuredRecords.length, `${lang} supporting work has one card per featured project`);
+  for (const project of featuredRecords) {
+    const card = broaderLinks.find(([, attributes]) => attributes.match(/\shref=["']([^"']+)["']/i)?.[1] === project.href);
+    assert.ok(card, `${lang} supporting work retains the destination for ${project.id}`);
+    assert.match(normalizedText(card[1] + card[2]), new RegExp(normalizedText(project.title[lang]).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `${lang} supporting work names ${project.id}`);
+  }
   const archive = extractElement(work.html, 'details', 'class', 'talk-archive work-archive');
   assert.ok(archive, `${lang} Work keeps its native broader-resource archive`);
   assert.doesNotMatch(archive.html.match(/^<details\b[^>]*>/i)?.[0] ?? '', /\sopen(?:\s|=|>)/i,
     `${lang} broader-resource archive starts closed`);
   const archivedLinks = [...archive.html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)];
-  for (const project of projects) {
-    const candidates = project.featured ? broaderLinks : archivedLinks;
-    assert.ok(candidates.some(([, attributes]) => attributes.match(/\shref=["']([^"']+)["']/i)?.[1] === project.href),
-      `${lang} broader work retains the destination for ${project.id}`);
+  const highlightedProjectHrefs = new Set(expected
+    .map((item) => item.href)
+    .filter((href) => projects.some((project) => project.href === href)));
+  const expectedArchiveRecords = projects.filter((project) => !project.featured && !highlightedProjectHrefs.has(project.href));
+  assert.equal(archivedLinks.length, expectedArchiveRecords.length, `${lang} archive has one row per non-featured, non-highlighted project`);
+  assert.equal(archivedLinks.length, 21, `${lang} archive exposes all 21 remaining project records`);
+  for (const project of expectedArchiveRecords) {
+    assert.ok(archive.html.includes(project.title[lang]), `${lang} archive retains the title for ${project.id}`);
   }
+  const broaderDestinations = [...broaderLinks, ...archivedLinks]
+    .map(([, attributes]) => attributes.match(/\shref=["']([^"']+)["']/i)?.[1] ?? '')
+    .sort();
+  const expectedDestinations = projects
+    .filter((project) => !highlightedProjectHrefs.has(project.href))
+    .map((project) => project.href)
+    .sort();
+  assert.deepEqual(broaderDestinations, expectedDestinations,
+    `${lang} supporting cards and archive preserve every non-highlighted project destination exactly once per record`);
+  for (const href of highlightedProjectHrefs) {
+    assert.equal(broaderDestinations.includes(href), false,
+      `${lang} project represented by a highlight is absent from supporting cards and archive`);
+  }
+  assert.equal(work.html.split(selectedProject.href).length - 1, 1,
+    `${lang} Robot Runner appears only once as a Work destination`);
+  assert.equal((work.html.match(/Robot Runner/gi) ?? []).length, 1,
+    `${lang} Robot Runner appears only once in Work copy`);
 }
 
 function checkOctoberMeetup(page, html) {
@@ -1437,10 +1488,6 @@ for (const page of pages) {
   checkNewsletterActions(page, html);
   checkContentStatsShell(page, html);
 
-  const featuredProjectCards = html.match(/class="support-card"/g) ?? [];
-  const archivedProjectRows = html.match(/class="talk-archive-item work-archive-item"/g) ?? [];
-  assert.equal(featuredProjectCards.length, projects.filter((project) => project.featured).length, `${page.lang} featured project count`);
-  assert.equal(archivedProjectRows.length, projects.filter((project) => !project.featured).length, `${page.lang} archived project count`);
   for (const project of projects) mustContainText(html, project.title[page.lang], `${page.lang} project ${project.id}`);
   const archiveItems = html.match(/class="talk-archive-item"/g) ?? [];
   assert.equal(archiveItems.length, talks.length, `${page.lang} archive item count`);
