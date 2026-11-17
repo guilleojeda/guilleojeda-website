@@ -686,7 +686,7 @@ function validateSnapshot(value) {
     articleViews: Object.hasOwn(value.groups, 'articleViews') ? validateArticleViews(value.groups.articleViews) : null,
     articleSearchClicks: Object.hasOwn(value.groups, 'articleSearchClicks')
       ? validateArticleSearchClicks(value.groups.articleSearchClicks)
-      : null,
+      : undefined,
     directoryViews: Object.hasOwn(value.groups, 'directoryViews')
       ? validateDirectoryViews(value.groups.directoryViews)
       : null,
@@ -700,6 +700,8 @@ function validateSnapshot(value) {
       ? validateNewsletterEmailFamily(value.groups.newsletterEmailVerifiedClicks, 'clicks')
       : null
   };
+  // Dated Talks identify current aggregates with no data from a configured source.
+  snapshot.hasDatedTalks = snapshot.groups.talks?.definitionVersion === 2;
   snapshot.newsletterEmailFamiliesPresent = {
     newsletterEmailOpens: Object.hasOwn(value.groups, 'newsletterEmailOpens'),
     newsletterEmailVerifiedClicks: Object.hasOwn(value.groups, 'newsletterEmailVerifiedClicks')
@@ -1135,6 +1137,8 @@ function renderNewsletter(snapshot, locale, language, elements) {
   const sent = snapshot?.newsletterEmailsSent ?? null;
   const opens = snapshot?.newsletterEmailOpens ?? null;
   const verifiedClicks = snapshot?.newsletterEmailVerifiedClicks ?? null;
+  // Input13/current-format snapshots use Talks v2. Legacy snapshots retain
+  // their previous unavailable-card behavior when Beehiiv data is absent.
   const supportedLanguages = [
     ...(subscriber ? [subscriber.publication.language] : []),
     ...(sent ? ['en'] : []),
@@ -1143,7 +1147,9 @@ function renderNewsletter(snapshot, locale, language, elements) {
   const hasSupportedNewsletterData = supportedLanguages.length > 0;
   const hasApplicableNewsletterData = language === 'all' || supportedLanguages.includes(language);
 
-  if (language !== 'all' && hasSupportedNewsletterData && !hasApplicableNewsletterData) {
+  const hideNewsletter = (language === 'es' && snapshot?.hasDatedTalks && !hasSupportedNewsletterData)
+    || (language !== 'all' && hasSupportedNewsletterData && !hasApplicableNewsletterData);
+  if (hideNewsletter) {
     elements.card.hidden = true;
     clearNewsletterSubscriber(elements, true);
     elements.card.setAttribute('aria-busy', 'false');
@@ -1439,12 +1445,13 @@ function viewsElementsReady(elements) {
 function classifyActivityAvailability(records, language, period, supportedPeriods) {
   const selectedRecord = records?.[period] ?? null;
   const coverageRecord = selectedRecord ?? Object.values(records ?? {}).find(Boolean) ?? null;
-  if (!coverageRecord) return { reason: 'missing' };
+  const familyHasValidRecord = Boolean(coverageRecord);
+  if (!coverageRecord) return { reason: 'missing', familyHasValidRecord, period };
   if (language !== 'all' && coverageRecord.publication.language !== language) {
     return { reason: 'language', publication: coverageRecord.publication };
   }
   if (!supportedPeriods.includes(period)) return { reason: 'unsupported-total' };
-  if (!selectedRecord) return { reason: 'missing' };
+  if (!selectedRecord) return { reason: 'missing', familyHasValidRecord, period };
   return null;
 }
 
@@ -1475,6 +1482,19 @@ function activityUnavailableCopy(locale, availability, genericCopy) {
   return genericCopy;
 }
 
+function missingActivityCopy(locale, period) {
+  return period === 'total'
+    ? (locale === 'es' ? 'Total no disponible.' : 'Total unavailable.')
+    : (locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.');
+}
+
+function googleActivityUnavailableCopy(locale, availability, genericCopy) {
+  if (availability?.reason === 'missing' && availability.familyHasValidRecord) {
+    return missingActivityCopy(locale, availability.period);
+  }
+  return activityUnavailableCopy(locale, availability, genericCopy);
+}
+
 function clearViewsResult(views) {
   views.value.textContent = '';
   views.coverage.textContent = '';
@@ -1488,7 +1508,7 @@ function renderViewsUnavailable(elements, locale, availability) {
   const { views } = elements;
   views.results.hidden = true;
   clearViewsResult(views);
-  views.status.textContent = activityUnavailableCopy(
+  views.status.textContent = googleActivityUnavailableCopy(
     locale,
     availability,
     views.region.dataset.statsViewsUnavailable?.trim()
@@ -1592,30 +1612,17 @@ function renderSearchLabels(locale, search, history) {
   if (search.collectedLabel) search.collectedLabel.textContent = copy.collectedLabel;
 }
 
-function searchUnavailableCopy(locale, availability, genericCopy, versioned) {
-  if (availability?.reason === 'missing') {
-    if (!versioned) return genericCopy;
-    return locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.';
-  }
-  if (availability?.reason === 'unsupported-total') {
-    if (!versioned) return activityUnavailableCopy(locale, availability, genericCopy);
-    return locale === 'es' ? 'Total no disponible.' : 'Total unavailable.';
-  }
-  return activityUnavailableCopy(locale, availability, genericCopy);
-}
-
-function renderSearchUnavailable(elements, locale, availability, versioned) {
+function renderSearchUnavailable(elements, locale, availability, period, supportsHistory) {
   const { search } = elements;
   search.results.hidden = true;
   clearSearchResult(search);
   renderSearchLabels(locale, search, false);
-  search.status.textContent = searchUnavailableCopy(
-    locale,
-    availability,
-    search.region.dataset.statsSearchUnavailable?.trim()
-      || (locale === 'es' ? 'Datos de clics de búsqueda: no disponibles.' : 'Search click data are unavailable.'),
-    versioned
-  );
+  const genericCopy = search.region.dataset.statsSearchUnavailable?.trim()
+    || (locale === 'es' ? 'Datos de clics de búsqueda: no disponibles.' : 'Search click data are unavailable.');
+  const missing = availability.reason === 'missing' || availability.reason === 'unsupported-total';
+  search.status.textContent = supportsHistory && missing
+    ? missingActivityCopy(locale, period)
+    : activityUnavailableCopy(locale, availability, genericCopy);
   search.status.hidden = false;
 }
 
@@ -1635,7 +1642,9 @@ function renderSearch(snapshot, locale, language, elements) {
     : knownSearchPeriods.includes(periodSelector.value) ? periodSelector.value : '12m';
   const availability = classifySearchAvailability(records, language, period);
   if (availability) {
-    renderSearchUnavailable(elements, locale, availability, Boolean(records && Object.hasOwn(records, 'total')));
+    const supportsHistory = records ? Object.hasOwn(records, 'total')
+      : records === undefined && snapshot?.hasDatedTalks;
+    renderSearchUnavailable(elements, locale, availability, period, supportsHistory);
     return;
   }
   const record = records?.[period];
@@ -1647,7 +1656,7 @@ function renderSearch(snapshot, locale, language, elements) {
   search.value.textContent = new Intl.NumberFormat(locale).format(record.clicks);
   search.coverage.textContent = record.publication.label;
   search.interval.textContent = `${startDate} – ${endDate} · ${record.timeZone}`;
-  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale, isHistory ? record.timeZone : undefined);
+  search.collectedDate.textContent = formatCollectedDate(record.collectedAt, locale, record.timeZone);
   search.results.hidden = false;
   search.status.hidden = true;
   search.status.textContent = '';
@@ -1674,7 +1683,7 @@ function renderDirectoryViewsUnavailable(elements, locale, hidden = false, avail
   directoryViews.region.hidden = hidden;
   directoryViews.results.hidden = true;
   clearDirectoryViewsResult(directoryViews);
-  directoryViews.status.textContent = hidden ? '' : activityUnavailableCopy(
+  directoryViews.status.textContent = hidden ? '' : googleActivityUnavailableCopy(
     locale,
     availability,
     directoryViews.region.dataset.statsDirectoryViewsUnavailable?.trim()
@@ -1748,7 +1757,7 @@ function renderDirectoryOutboundClicksUnavailable(elements, locale, hidden = fal
   clicks.region.hidden = hidden;
   clicks.results.hidden = true;
   clearDirectoryOutboundClicksResult(clicks);
-  clicks.status.textContent = hidden ? '' : activityUnavailableCopy(
+  clicks.status.textContent = hidden ? '' : googleActivityUnavailableCopy(
     locale,
     availability,
     clicks.card.dataset.statsDirectoryOutboundClicksUnavailable?.trim()

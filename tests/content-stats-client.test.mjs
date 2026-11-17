@@ -1701,8 +1701,8 @@ function assertNewsletterUnavailable(page, locale) {
 
 function assertActivityUnavailableMessage(text, locale) {
   assert.match(text, locale === 'es'
-    ? /no.*disponible|no\s+se\s+pueden|(?:s[oó]lo|[uú]nicamente).{0,90}ingl[eé]s|no\s+(?:ofrece|admite|soporta|permite).{0,60}total\s+registrado/i
-    : /unavailable|not available|(?:only|exclusively).{0,90}English|(?:does\s+not|doesn't)\s+(?:offer|support|provide|admit).{0,60}recorded\s+total/i,
+    ? /no.*disponible|no\s+se\s+pueden|sin\s+datos|total\s+no\s+disponible|(?:s[oó]lo|[uú]nicamente).{0,90}ingl[eé]s|no\s+(?:ofrece|admite|soporta|permite).{0,60}total\s+registrado/i
+    : /unavailable|not available|no data|total unavailable|(?:only|exclusively).{0,90}English|(?:does\s+not|doesn't)\s+(?:offer|support|provide|admit).{0,60}recorded\s+total/i,
   'unavailable data has a localized data, language or recorded-total explanation');
 }
 
@@ -1915,7 +1915,7 @@ function assertSearchVisible(page, locale, period) {
   assert.ok(search.interval.textContent.includes(formatDateOnly(record.startDate)), 'Search interval uses its retained localized start date');
   assert.ok(search.interval.textContent.includes(formatDateOnly(record.endDate)), 'Search interval uses its retained localized end date');
   assert.notEqual(search.interval.textContent.trim(), '', 'the Search interval should be visible');
-  assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt), 'Search retains its own collection date');
+  assert.equal(search.collectedDate.textContent, expectedDate(locale, record.collectedAt, record.timeZone), 'Search retains its own Pacific collection date');
 }
 
 function assertSearchHistoryVisible(page, locale) {
@@ -1952,8 +1952,8 @@ function assertDirectoryViewsUnavailable(page, locale, { hidden = false } = {}) 
     return;
   }
   assert.equal(views.status.hidden, false, 'applicable but unavailable directory views show a status');
-  if (locale === 'es') assert.match(views.status.textContent, /no.*disponible|no se pueden/i);
-  else assert.match(views.status.textContent, /unavailable|not available/i);
+  if (locale === 'es') assert.match(views.status.textContent, /no.*disponible|no se pueden|sin datos|total no disponible/i);
+  else assert.match(views.status.textContent, /unavailable|not available|no data|total unavailable/i);
 }
 
 function assertLocalizedDirectoryViewsUnit(page, locale) {
@@ -2001,9 +2001,8 @@ function assertDirectoryOutboundClicksUnavailable(page, locale, { hidden = false
   if (hidden) return;
 
   assert.equal(clicks.status.hidden, false, 'applicable but unavailable outbound clicks show a status');
-  assert.equal(clicks.status.textContent, directoryOutboundClicksCopy[locale].unavailable);
-  if (locale === 'es') assert.match(clicks.status.textContent, /no.*disponible|no se pueden/i);
-  else assert.match(clicks.status.textContent, /unavailable|not available/i);
+  if (locale === 'es') assert.match(clicks.status.textContent, /no.*disponible|no se pueden|sin datos|total no disponible/i);
+  else assert.match(clicks.status.textContent, /unavailable|not available|no data|total unavailable/i);
 }
 
 function assertLocalizedDirectoryOutboundClicksUnit(page, locale) {
@@ -2997,7 +2996,8 @@ for (const locale of ['en', 'es']) {
     assertSearchVisible(page, locale, '12m');
     assert.equal(page.cards.articles.search.value.textContent, new Intl.NumberFormat(locale).format(1200));
     assert.equal(page.cards.articles.search.coverage.textContent, simpleAws.label);
-    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDate(locale, articleSearchPeriodFacts['12m'].collectedAt));
+    assert.equal(page.cards.articles.search.collectedDate.textContent,
+      expectedDate(locale, articleSearchPeriodFacts['12m'].collectedAt, 'America/Los_Angeles'));
     assert.equal(page.cards.newsletter.count.textContent, '27');
     assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label);
     assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
@@ -3064,7 +3064,8 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.views.collectedDate.textContent, expectedDate(locale, articleViewPeriodFacts['12m'].collectedAt));
     assertSearchVisible(page, locale, '12m');
     assert.equal(page.cards.articles.search.coverage.textContent, simpleAws.label, 'Search retains its own publication coverage');
-    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDate(locale, articleSearchPeriodFacts['12m'].collectedAt));
+    assert.equal(page.cards.articles.search.collectedDate.textContent,
+      expectedDate(locale, articleSearchPeriodFacts['12m'].collectedAt, 'America/Los_Angeles'));
     assert.equal(page.cards.newsletter.count.textContent, '27');
     assert.equal(page.cards.newsletter.coverage.textContent, simpleAws.label, 'subscribers retain their own publication coverage');
     assert.equal(page.cards.newsletter.collectedDate.textContent, expectedDate(locale, newsletterCollectedAt));
@@ -3469,7 +3470,7 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} legacy three-group snapshots preserve the original cards and leave Newsletter unavailable`, async () => {
-    const page = createPage({ locale, data: threeGroupSnapshot() });
+    const page = createPage({ locale, data: legacyThreeGroupSnapshot() });
     await page.settle();
 
     assert.equal(page.cards.articles.count.textContent, '11');
@@ -3482,6 +3483,47 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.talks.count.textContent, '4');
     assert.equal(page.cards.books.count.textContent, '1');
     assertNewsletterUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} current-format absence of all Beehiiv families hides the English card only for Spanish content`, async () => {
+    const page = createPage({ locale, data: threeGroupSnapshot() });
+    await page.settle();
+
+    assertNewsletterUnavailable(page, locale);
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'the current-format English newsletter is hidden for Spanish content when all Beehiiv families are absent');
+    assert.equal(page.cards.newsletter.results.hidden, true);
+    assert.equal(page.cards.newsletter.count.textContent, '');
+    assert.equal(page.cards.newsletter.coverage.textContent, '');
+    assert.equal(page.cards.newsletter.collectedDate.textContent, '');
+    assert.equal(page.cards.newsletter.status.hidden, true);
+
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assertNewsletterUnavailable(page, locale);
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} legacy Spanish subscriber records retain their content-language behavior`, async () => {
+    const page = createPage({
+      locale,
+      data: snapshotWithNewsletter({ legacy: true, publication: { ...simpleAws, language: 'es' } })
+    });
+    await page.settle();
+
+    assert.equal(page.cards.newsletter.card.hidden, false);
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, false, 'a valid Spanish legacy subscriber record remains visible for Spanish content');
+    assert.equal(page.cards.newsletter.count.textContent, '27');
+    page.selector.value = 'en';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, true, 'the Spanish legacy subscriber record stays hidden for English content');
+    page.selector.value = 'all';
+    page.selector.dispatch('change');
+    assert.equal(page.cards.newsletter.card.hidden, false);
     assert.equal(page.fetchCount, 1);
   });
 
@@ -3688,7 +3730,7 @@ for (const locale of ['en', 'es']) {
   });
 
   test(`${locale} invalid Newsletter group leaves the original three cards available`, async () => {
-    const data = snapshotWithNewsletter();
+    const data = snapshotWithNewsletter({ legacy: true });
     data.groups.newsletter.subscribers = -1;
     const page = createPage({ locale, data });
     await page.settle();
@@ -4568,7 +4610,8 @@ for (const locale of ['en', 'es']) {
     assert.equal(page.cards.articles.search.coverage.textContent, 'Simple AWS');
     assert.ok(page.cards.articles.search.interval.textContent.includes('America/Los_Angeles'));
     assert.ok(page.cards.articles.search.interval.textContent.includes(new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date('2024-11-01T00:00:00.000Z'))));
-    assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDate(locale, '2025-11-03T00:00:00.000Z'));
+    assert.equal(page.cards.articles.search.collectedDate.textContent,
+      expectedDate(locale, '2025-11-03T00:00:00.000Z', 'America/Los_Angeles'));
     assert.equal(page.fetchCount, 1);
   });
 
@@ -4677,6 +4720,108 @@ for (const locale of ['en', 'es']) {
     page.periodSelector.dispatch('change');
     assertSearchHistoryVisible(page, locale);
     assert.equal(page.cards.articles.search.collectedDate.textContent, expectedDateOnly(locale, '2026-03-31'));
+  });
+
+  test(`${locale} Search periods and available history use the Pacific date of one query`, async () => {
+    const data = snapshotWithArticleSearchHistory();
+    const collectedAt = '2026-04-01T06:30:00.000Z';
+    Object.assign(data.groups.articleSearchClicks.records['7d'], {
+      collectedAt, startDate: '2026-03-22', endDate: '2026-03-28'
+    });
+    Object.assign(data.groups.articleSearchClicks.records.total, {
+      collectedAt, startDate: '2024-11-30', endDate: '2026-03-28'
+    });
+    const page = createPage({ locale, data });
+    await page.settle();
+
+    for (const period of ['7d', 'total']) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      assert.equal(page.cards.articles.search.collectedDate.textContent,
+        expectedDate(locale, collectedAt, 'America/Los_Angeles'),
+        `${period}: the last-successful date uses the Search source timezone`);
+    }
+    assert.equal(page.fetchCount, 1);
+  });
+
+  test(`${locale} valid Google families distinguish missing windows and totals without masking healthy or legacy states`, async () => {
+    const data = snapshotWithDirectoryOutboundClicks({ data: snapshotWithDirectoryViews({
+      data: snapshotWithArticleSearchClicks({ definitionVersion: 2 })
+    }) });
+    data.groups.articleViews.records['7d'].views = 0;
+    data.groups.articleSearchClicks.records['7d'].clicks = 0;
+    for (const family of ['articleViews', 'articleSearchClicks', 'directoryViews', 'directoryOutboundClicks']) {
+      delete data.groups[family].records.ytd;
+      delete data.groups[family].records.total;
+    }
+
+    const page = createPage({ locale, data });
+    await page.settle();
+    const metrics = {
+      articleViews: page.cards.articles.views,
+      articleSearchClicks: page.cards.articles.search,
+      directoryViews: page.cards.directoryViews,
+      directoryOutboundClicks: page.cards.directoryOutboundClicks
+    };
+    const expected = {
+      ytd: locale === 'es' ? 'Sin datos para este período.' : 'No data for this period.',
+      total: locale === 'es' ? 'Total no disponible.' : 'Total unavailable.'
+    };
+
+    page.periodSelector.value = '7d';
+    page.periodSelector.dispatch('change');
+    assert.equal(metrics.articleViews.value.textContent, '0', 'a measured recent zero remains visible');
+    assert.equal(metrics.articleSearchClicks.value.textContent, '0', 'a measured Search zero remains visible');
+    assert.equal(metrics.directoryViews.results.hidden, false, 'a healthy directory window remains visible');
+    assert.equal(metrics.directoryOutboundClicks.results.hidden, false, 'a healthy directory click window remains visible');
+
+    for (const period of ['ytd', 'total']) {
+      page.periodSelector.value = period;
+      page.periodSelector.dispatch('change');
+      for (const metric of Object.values(metrics)) {
+        assert.equal(metric.results.hidden, true);
+        assert.equal(metric.value.textContent, '');
+        assert.equal(metric.status.hidden, false);
+        assert.equal(metric.status.textContent, expected[period]);
+      }
+    }
+
+    page.periodSelector.value = '12m';
+    page.periodSelector.dispatch('change');
+    page.selector.value = 'es';
+    page.selector.dispatch('change');
+    const coverage = locale === 'es' ? /solo cubre.*inglés/i : /only covers.*English/i;
+    assert.match(metrics.articleViews.status.textContent, coverage);
+    assert.match(metrics.articleSearchClicks.status.textContent, coverage);
+    assert.equal(metrics.directoryViews.results.hidden, false, 'Spanish directory coverage remains applicable');
+    assert.equal(metrics.directoryOutboundClicks.results.hidden, false, 'Spanish directory click coverage remains applicable');
+
+    const absentData = structuredClone(data);
+    delete absentData.groups.articleSearchClicks;
+    const absentPage = createPage({ locale, data: absentData });
+    await absentPage.settle();
+    for (const period of ['ytd', 'total']) {
+      absentPage.periodSelector.value = period;
+      absentPage.periodSelector.dispatch('change');
+      assert.equal(absentPage.cards.articles.search.status.textContent, expected[period],
+        'a current snapshot with no Search group still distinguishes the selected period');
+    }
+
+    const legacyPage = createPage({ locale, data: snapshotWithArticleSearchClicks({ definitionVersion: 1 }) });
+    await legacyPage.settle();
+    legacyPage.periodSelector.value = 'total';
+    legacyPage.periodSelector.dispatch('change');
+    assert.equal(legacyPage.cards.articles.search.status.textContent,
+      locale === 'es' ? 'Esta métrica no ofrece un total registrado.' : 'This metric does not offer a recorded total.',
+      'a valid Search v1 family keeps its no-total copy');
+
+    const failedPage = createPage({ locale, data, fetchError: new Error('synthetic download failure') });
+    await failedPage.settle();
+    assert.equal(failedPage.cards.articles.views.status.textContent, viewsCopy[locale].unavailable);
+    assert.equal(failedPage.cards.articles.search.status.textContent, searchCopy[locale].unavailable);
+    assert.equal(failedPage.cards.directoryViews.status.textContent, directoryViewsCopy[locale].unavailable);
+    assert.equal(failedPage.cards.directoryOutboundClicks.status.textContent, directoryOutboundClicksCopy[locale].unavailable);
+    assert.equal(failedPage.fetchCount, 1);
   });
 
   test(`${locale} malformed Search history stays unavailable while ordinary windows remain usable`, async () => {
@@ -6755,6 +6900,18 @@ function assertPhase7ReasonText(text, locale, reason, label) {
     return;
   }
 
+  if (reason === 'window') {
+    assert.equal(normalized, locale === 'en' ? 'no data for this period.' : 'sin datos para este periodo.',
+      `${label}: a valid family distinguishes a missing window`);
+    return;
+  }
+
+  if (reason === 'missing-total') {
+    assert.equal(normalized, locale === 'en' ? 'total unavailable.' : 'total no disponible.',
+      `${label}: a supported metric distinguishes an unavailable total`);
+    return;
+  }
+
   if (reason === 'language') {
     assert.match(normalized, locale === 'en' ? /\benglish\b/ : /\bingles\b/, `${label}: the covered language is named`);
     assert.match(normalized, /simple\s+aws/, `${label}: the metric's own source is named`);
@@ -6809,6 +6966,7 @@ for (const locale of ['en', 'es']) {
         const data = phase7Snapshot();
         const absentEmail = scenario === 'absent'
           && newsletterEmailMetricSpecs.find(({ group }) => group === spec.group);
+        const absentSearch = scenario === 'absent' && spec.key === 'articleSearchClicks';
         if (scenario === 'absent') {
           delete data.groups[spec.group];
         } else if (scenario === 'invalid group') {
@@ -6826,14 +6984,14 @@ for (const locale of ['en', 'es']) {
           page.selector.dispatch('change');
         }
         if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
-        else assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'window' : 'generic');
         assert.equal(page.periodSelector.disabled, false, `${spec.label}/${scenario}: a healthy sibling keeps the shared period selector available`);
         assert.equal(page.periodOptions.total.disabled, false, `${spec.label}/${scenario}: a healthy sibling still supports Recorded total`);
         page.periodSelector.value = 'total';
         page.periodSelector.dispatch('change');
 
         if (absentEmail) assertNewsletterEmailUnavailable(page, locale, absentEmail, { message: newsletterHistoryMissingCopy(locale) });
-        else assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        else assertPhase7MetricUnavailable(page, locale, spec, absentSearch ? 'missing-total' : 'generic');
         assert.equal(page.fetchCount, 1, `${spec.label}/${scenario}: reason selection is local to the fetched snapshot`);
       }
     }
@@ -6855,7 +7013,10 @@ for (const locale of ['en', 'es']) {
       const overview = phase7OverviewValues(page);
       page.periodSelector.value = '7d';
       page.periodSelector.dispatch('change');
-      assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+      const missingPeriodReason = ['articleViews', 'directoryViews', 'directoryOutboundClicks'].includes(spec.key)
+        ? 'window'
+        : 'generic';
+      assertPhase7MetricUnavailable(page, locale, spec, missingPeriodReason);
       for (const sibling of phase7MetricSpecs.filter(({ key }) => key !== spec.key)) {
         const siblingMetric = sibling.metric(page);
         assert.equal(siblingMetric.results.hidden, false, `${sibling.label} remains available when ${spec.label} has no selected record`);
@@ -6949,7 +7110,7 @@ for (const locale of ['en', 'es']) {
 }
 
 for (const locale of ['en', 'es']) {
-  test(`${locale} missing or invalid article/directory totals use generic data-unavailable copy`, async () => {
+  test(`${locale} missing or invalid article/directory totals use the total-unavailable copy`, async () => {
     for (const spec of [phase7MetricSpecs[0], phase7MetricSpecs[4], phase7MetricSpecs[5]]) {
       for (const scenario of ['missing total', 'invalid total']) {
         const data = phase7Snapshot();
@@ -6965,7 +7126,7 @@ for (const locale of ['en', 'es']) {
         page.periodSelector.dispatch('change');
 
         assert.equal(page.periodSelector.value, 'total', `${spec.label}/${scenario}: a healthy sibling keeps the selected total in place`);
-        assertPhase7MetricUnavailable(page, locale, spec, 'generic');
+        assertPhase7MetricUnavailable(page, locale, spec, 'missing-total');
         const siblingDirectorySpec = spec.key === 'directoryViews' ? phase7MetricSpecs[5] : phase7MetricSpecs[4];
         siblingDirectorySpec.assertVisible(page, locale, 'total');
         assert.equal(page.cards.articles.count.textContent, count);

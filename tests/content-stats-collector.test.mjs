@@ -13889,3 +13889,114 @@ test("history stops before a later older batch when Lambda time is below the pub
   assert.equal(output.groups.articleSearchClicks.records["7d"].collectedAt, collectionTime);
   assertNoNewsletterCanaries(harness, "synthetic older transient failure");
 });
+
+test("Beehiiv uses successful publication and activity anchors across UTC midnight", async () => {
+  const invocation = "2026-11-17T23:59:58.000Z";
+  const publicationQuery = "2026-11-18T00:00:04.000Z";
+  const activityQuery = "2026-11-18T00:00:09.000Z";
+  const clock = createClock(invocation);
+  const first = {};
+  const harness = createHarness({
+    input: phaseFourHistoryInput(),
+    clock,
+    secretResponse: {
+      get SecretString() {
+        if (clock.Date.now() === Date.parse(publicationQuery)) clock.set(activityQuery);
+        return JSON.stringify({ apiKey: beehiivApiKey, operatorNote: beehiivSecretExtraFieldCanary });
+      }
+    },
+    fetchFn: phaseThirteenFetch({
+      newsletterResponder: ({ request }) => {
+        clock.set(publicationQuery);
+        first.publicationQuery = new clock.Date().toISOString();
+        const id = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(id, 100, 200));
+      },
+      engagementResponder: ({ request }) => {
+        first.engagementQuery ??= new clock.Date().toISOString();
+        return jsonResponse(phaseFourHistoryEnvelopeForRequest(request));
+      }
+    })
+  });
+
+  await harness.handler({}, createLambdaContext());
+  const { groups } = await readPut(harness.putCalls[0]);
+  assert.deepEqual(
+    [groups.newsletter.collectedAt, groups.newsletterEmailsSent.collectedAt, first.publicationQuery],
+    [publicationQuery, publicationQuery, publicationQuery],
+    "subscriber and sent observations share the successful publication response instant"
+  );
+  assert.equal(first.engagementQuery, activityQuery, "activity requests start from the post-credential UTC anchor");
+
+  const expectedRanges = {
+    "7d": ["2026-11-09", "2026-11-15"],
+    "30d": ["2026-10-17", "2026-11-15"],
+    "90d": ["2026-08-18", "2026-11-15"],
+    "12m": ["2025-11-16", "2026-11-15"],
+    ytd: ["2026-01-01", "2026-11-15"]
+  };
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    for (const [period, [startDate, endDate]] of Object.entries(expectedRanges)) {
+      const record = groups[family].records[period];
+      assert.equal(record.collectedAt, activityQuery, `${family} ${period} shares the one activity anchor`);
+      assert.deepEqual([record.startDate, record.endDate], [startDate, endDate]);
+    }
+    assert.equal(groups[family].records.total.collectedAt, activityQuery,
+      `${family} history carries the same activity anchor`);
+    assert.equal(groups[family].records.total.endDate, "2026-11-15");
+  }
+});
+
+test("Beehiiv retention uses the activity anchor for a UTC year-boundary failure", async () => {
+  const input = phaseFourHistoryInput({
+    baseInput: phaseSixInput(),
+    recordedSince: "2025-12-01"
+  });
+  const seed = createHarness({
+    input,
+    clock: createClock("2025-12-30T12:00:00.000Z"),
+    fetchFn: phaseThirteenFetch({
+      engagementResponder: ({ request }) => jsonResponse(phaseFourHistoryEnvelopeForRequest(request))
+    })
+  });
+  await seed.handler({}, createLambdaContext());
+  const seeded = await readPut(seed.putCalls[0]);
+  assert.ok(seeded.groups.newsletterEmailOpens.records.ytd);
+  assert.ok(seeded.groups.newsletterEmailVerifiedClicks.records.ytd);
+
+  const invocation = "2025-12-31T23:59:58.000Z";
+  const publicationQuery = "2026-01-01T00:00:04.000Z";
+  const clock = createClock(invocation);
+  const requestLog = [];
+  const harness = createHarness({
+    input,
+    clock,
+    fetchFn: phaseThirteenFetch({
+      requestLog,
+      newsletterResponder: ({ request }) => {
+        clock.set(publicationQuery);
+        const id = decodeURIComponent(new URL(request.url).pathname.split("/").at(-1));
+        return jsonResponse(newsletterEnvelope(id, 100, 200));
+      },
+      engagementResponder: ({ request }) => jsonResponse({ error: "synthetic year-boundary outage" }, 503),
+      reportResponder: ({ request }) => jsonResponse(ga4Report({ views: 41, metricName: request.json.metrics[0]?.name })),
+      searchResponder: () => jsonResponse(searchConsoleResponse({ clicks: 43 }))
+    })
+  });
+  harness.objects.set(outputKey, JSON.stringify(seeded));
+
+  await harness.handler({}, createLambdaContext());
+  const output = await readPut(harness.putCalls[0]);
+  assert.equal(output.groups.newsletter.collectedAt, publicationQuery);
+  assert.equal(output.groups.newsletterEmailsSent.collectedAt, publicationQuery);
+  assert.equal(output.groups.articleViews.records["7d"].collectedAt, invocation,
+    "unrelated Analytics keeps the collection-level anchor");
+  for (const family of ["newsletterEmailOpens", "newsletterEmailVerifiedClicks"]) {
+    const records = output.groups[family].records;
+    assert.equal(Object.hasOwn(records, "ytd"), false,
+      `${family} does not retain the prior year's YTD after the activity anchor crosses UTC New Year`);
+    assert.deepEqual(records.total, seeded.groups[family].records.total,
+      `${family} retains its compatible history independently after the finite activity failure`);
+  }
+  assert.equal(requestLog.filter(({ kind }) => kind === "beehiiv-engagements").length > 0, true);
+});
